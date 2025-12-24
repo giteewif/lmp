@@ -1,0 +1,386 @@
+here pin
+INFO 12-24 11:31:44.352908.352908 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+DEBUG 12-24 11:31:44.901002.901002 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+DEBUG 12-24 11:31:45.375183.375183 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 12-24 11:31:45.375204.375204 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 1.023s
+DEBUG 12-24 11:31:46.489135.489135 transformers.py:203] load_dict_non_blocking takes 0.01845693588256836 seconds
+DEBUG 12-24 11:31:46.495569.495569 transformers.py:213] load config takes 0.005687236785888672 seconds
+DEBUG 12-24 11:31:46.645853.645853 torch.py:171] allocate_cuda_memory takes 0.02696681022644043 seconds
+DEBUG 12-24 11:31:46.645249.645249 client.py:72] load_into_gpu: deepseek-moe-16b-base-bfloat16, 54629334-b36e-486f-be80-8e0528af633c
+DEBUG 12-24 11:31:46.654306.654306 client.py:106] call stub.LoadModelAsync
+INFO 12-24 11:31:46.679009.679009 client.py:115] Model loaded: deepseek-moe-16b-base-bfloat16, 54629334-b36e-486f-be80-8e0528af633c
+INFO 12-24 11:31:46.699205.699205 torch.py:194] restore state_dict takes 0.02038717269897461 seconds
+DEBUG 12-24 11:31:48.971775.971775 transformers.py:224] load model takes 2.4753384590148926 seconds
+INFO 12-24 11:31:50.254723.254723 client.py:119] confirm_model_loaded: deepseek-moe-16b-base-bfloat16, 54629334-b36e-486f-be80-8e0528af633c
+INFO 12-24 11:31:50.258080.258080 client.py:127] Model loaded
+Model loading time: 3.82s
+ Robert Boulter is an English film , television and theatre actor . He had a guest @-@ starring role on the television series The Bill in 2000 . This was followed by a starring role in the play Herons written by Simon Stephens , which was performed in 2001 at the Royal Court Theatre . He had a guest role in the television series Judge John Deed in 2002 . In 2004 Boulter landed a role as " Craig " in the episode " Teddy 's Story " of the television series The Long Firm ; he starred alongside actors Mark Strong and Derek Jacobi . He was cast in the 2005 theatre productions of the Philip Ridley play Mercury Fur , which was performed at the Drum Theatre in Plymouth and the Menier Chocolate Factory in London . He was directed by John Tiffany and starred alongside Ben Whishaw , Shane Zaza , Harry Kent , Fraser Ayres , Sophie Stanton and Dominic Hall . 
+
+
+
+step next
+before sdpa attention attention_mask tensor([[0, 0, 0,  ..., 0, 0, 1],
+        [0, 0, 0,  ..., 1, 1, 1],
+        [0, 0, 0,  ..., 0, 0, 1],
+        ...,
+        [0, 0, 0,  ..., 0, 0, 1],
+        [0, 0, 0,  ..., 0, 0, 1],
+        [0, 0, 0,  ..., 0, 0, 1]], device='cuda:0') position_ids tensor([[1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 5, 6, 7],
+        [1, 1, 1,  ..., 1, 1, 0],
+        ...,
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0]], device='cuda:0')
+after sdpa attention attention_mask tensor([[[[-3.3895e+38, -3.3895e+38, -3.3895e+38,  ..., -3.3895e+38,
+           -3.3895e+38, -3.3895e+38],
+          [-3.3895e+38, -3.3895e+38, -3.3895e+38,  ..., -3.3895e+38,
+           -3.3895e+38, -3.3895e+38],
+          [-3.3895e+38, -3.3895e+38, -3.3895e+38,  ..., -3.3895e+38,
+           -3.3895e+38, -3.3895e+38],
+          ...,
+          [-3.3895e+38, -3.3895e+38, -3.3895e+38,  ..., -3.3895e+38,
+           -3.3895e+38, -3.3895e+38],
+          [-3.3895e+38, -3.3895e+38, -3.3895e+38,  ..., -3.3895e+38,
+           -3.3895e+38, -3.3895e+38],
+          [-3.3895e+38, -3.3895e+38, -3.3895e+38,  ..., -3.3895e+38,
+           -3.3895e+38,  0.0000e+00]]],
+
+
+        [[[-3.3895e+38, -3.3895e+38, -3.3895e+38,  ..., -3.3895e+38,
+           -3.3895e+38, -3.3895e+38],
+          [-3.3895e+38, -3.3895e+38, -3.3895e+38,  ..., -3.3895e+38,
+           -3.3895e+38, -3.3895e+38],
+          [-3.3895e+38, -3.3895e+38, -3.3895e+38,  ..., -3.3895e+38,
+           -3.3895e+38, -3.3895e+38],
+          ...,
+          [-3.3895e+38, -3.3895e+38, -3.3895e+38,  ...,  0.0000e+00,
+           -3.3895e+38, -3.3895e+38],
+          [-3.3895e+38, -3.3895e+38, -3.3895e+38,  ...,  0.0000e+00,
+            0.0000e+00, -3.3895e+38],
+          [-3.3895e+38, -3.3895e+38, -3.3895e+38,  ...,  0.0000e+00,
+            0.0000e+00,  0.0000e+00]]],
+
+
+        [[[-3.3895e+38, -3.3895e+38, -3.3895e+38,  ..., -3.3895e+38,
+           -3.3895e+38, -3.3895e+38],
+          [-3.3895e+38, -3.3895e+38, -3.3895e+38,  ..., -3.3895e+38,
+           -3.3895e+38, -3.3895e+38],
+          [-3.3895e+38, -3.3895e+38, -3.3895e+38,  ..., -3.3895e+38,
+           -3.3895e+38, -3.3895e+38],
+          ...,
+          [-3.3895e+38, -3.3895e+38, -3.3895e+38,  ..., -3.3895e+38,
+           -3.3895e+38, -3.3895e+38],
+          [-3.3895e+38, -3.3895e+38, -3.3895e+38,  ..., -3.3895e+38,
+           -3.3895e+38, -3.3895e+38],
+          [-3.3895e+38, -3.3895e+38, -3.3895e+38,  ..., -3.3895e+38,
+           -3.3895e+38,  0.0000e+00]]],
+
+
+        ...,
+
+
+        [[[-3.3895e+38, -3.3895e+38, -3.3895e+38,  ..., -3.3895e+38,
+           -3.3895e+38, -3.3895e+38],
+          [-3.3895e+38, -3.3895e+38, -3.3895e+38,  ..., -3.3895e+38,
+           -3.3895e+38, -3.3895e+38],
+          [-3.3895e+38, -3.3895e+38, -3.3895e+38,  ..., -3.3895e+38,
+           -3.3895e+38, -3.3895e+38],
+          ...,
+          [-3.3895e+38, -3.3895e+38, -3.3895e+38,  ..., -3.3895e+38,
+           -3.3895e+38, -3.3895e+38],
+          [-3.3895e+38, -3.3895e+38, -3.3895e+38,  ..., -3.3895e+38,
+           -3.3895e+38, -3.3895e+38],
+          [-3.3895e+38, -3.3895e+38, -3.3895e+38,  ..., -3.3895e+38,
+           -3.3895e+38,  0.0000e+00]]],
+
+
+        [[[-3.3895e+38, -3.3895e+38, -3.3895e+38,  ..., -3.3895e+38,
+           -3.3895e+38, -3.3895e+38],
+          [-3.3895e+38, -3.3895e+38, -3.3895e+38,  ..., -3.3895e+38,
+           -3.3895e+38, -3.3895e+38],
+          [-3.3895e+38, -3.3895e+38, -3.3895e+38,  ..., -3.3895e+38,
+           -3.3895e+38, -3.3895e+38],
+          ...,
+          [-3.3895e+38, -3.3895e+38, -3.3895e+38,  ..., -3.3895e+38,
+           -3.3895e+38, -3.3895e+38],
+          [-3.3895e+38, -3.3895e+38, -3.3895e+38,  ..., -3.3895e+38,
+           -3.3895e+38, -3.3895e+38],
+          [-3.3895e+38, -3.3895e+38, -3.3895e+38,  ..., -3.3895e+38,
+           -3.3895e+38,  0.0000e+00]]],
+
+
+        [[[-3.3895e+38, -3.3895e+38, -3.3895e+38,  ..., -3.3895e+38,
+           -3.3895e+38, -3.3895e+38],
+          [-3.3895e+38, -3.3895e+38, -3.3895e+38,  ..., -3.3895e+38,
+           -3.3895e+38, -3.3895e+38],
+          [-3.3895e+38, -3.3895e+38, -3.3895e+38,  ..., -3.3895e+38,
+           -3.3895e+38, -3.3895e+38],
+          ...,
+          [-3.3895e+38, -3.3895e+38, -3.3895e+38,  ..., -3.3895e+38,
+           -3.3895e+38, -3.3895e+38],
+          [-3.3895e+38, -3.3895e+38, -3.3895e+38,  ..., -3.3895e+38,
+           -3.3895e+38, -3.3895e+38],
+          [-3.3895e+38, -3.3895e+38, -3.3895e+38,  ..., -3.3895e+38,
+           -3.3895e+38,  0.0000e+00]]]], device='cuda:0', dtype=torch.bfloat16) position_ids tensor([[1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 5, 6, 7],
+        [1, 1, 1,  ..., 1, 1, 0],
+        ...,
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0]], device='cuda:0')
+cos shape torch.Size([64, 128]) sin shape torch.Size([64, 128]) position_ids tensor([[1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 5, 6, 7],
+        [1, 1, 1,  ..., 1, 1, 0],
+        ...,
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0]], device='cuda:0')
+cos shape torch.Size([32, 1, 64, 128]) sin shape torch.Size([32, 1, 64, 128])
+q_embed shape torch.Size([32, 16, 64, 128]) k_embed shape torch.Size([32, 16, 64, 128])
+cos shape torch.Size([64, 128]) sin shape torch.Size([64, 128]) position_ids tensor([[1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 5, 6, 7],
+        [1, 1, 1,  ..., 1, 1, 0],
+        ...,
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0]], device='cuda:0')
+cos shape torch.Size([32, 1, 64, 128]) sin shape torch.Size([32, 1, 64, 128])
+q_embed shape torch.Size([32, 16, 64, 128]) k_embed shape torch.Size([32, 16, 64, 128])
+cos shape torch.Size([64, 128]) sin shape torch.Size([64, 128]) position_ids tensor([[1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 5, 6, 7],
+        [1, 1, 1,  ..., 1, 1, 0],
+        ...,
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0]], device='cuda:0')
+cos shape torch.Size([32, 1, 64, 128]) sin shape torch.Size([32, 1, 64, 128])
+q_embed shape torch.Size([32, 16, 64, 128]) k_embed shape torch.Size([32, 16, 64, 128])
+cos shape torch.Size([64, 128]) sin shape torch.Size([64, 128]) position_ids tensor([[1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 5, 6, 7],
+        [1, 1, 1,  ..., 1, 1, 0],
+        ...,
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0]], device='cuda:0')
+cos shape torch.Size([32, 1, 64, 128]) sin shape torch.Size([32, 1, 64, 128])
+q_embed shape torch.Size([32, 16, 64, 128]) k_embed shape torch.Size([32, 16, 64, 128])
+cos shape torch.Size([64, 128]) sin shape torch.Size([64, 128]) position_ids tensor([[1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 5, 6, 7],
+        [1, 1, 1,  ..., 1, 1, 0],
+        ...,
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0]], device='cuda:0')
+cos shape torch.Size([32, 1, 64, 128]) sin shape torch.Size([32, 1, 64, 128])
+q_embed shape torch.Size([32, 16, 64, 128]) k_embed shape torch.Size([32, 16, 64, 128])
+cos shape torch.Size([64, 128]) sin shape torch.Size([64, 128]) position_ids tensor([[1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 5, 6, 7],
+        [1, 1, 1,  ..., 1, 1, 0],
+        ...,
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0]], device='cuda:0')
+cos shape torch.Size([32, 1, 64, 128]) sin shape torch.Size([32, 1, 64, 128])
+q_embed shape torch.Size([32, 16, 64, 128]) k_embed shape torch.Size([32, 16, 64, 128])
+cos shape torch.Size([64, 128]) sin shape torch.Size([64, 128]) position_ids tensor([[1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 5, 6, 7],
+        [1, 1, 1,  ..., 1, 1, 0],
+        ...,
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0]], device='cuda:0')
+cos shape torch.Size([32, 1, 64, 128]) sin shape torch.Size([32, 1, 64, 128])
+q_embed shape torch.Size([32, 16, 64, 128]) k_embed shape torch.Size([32, 16, 64, 128])
+cos shape torch.Size([64, 128]) sin shape torch.Size([64, 128]) position_ids tensor([[1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 5, 6, 7],
+        [1, 1, 1,  ..., 1, 1, 0],
+        ...,
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0]], device='cuda:0')
+cos shape torch.Size([32, 1, 64, 128]) sin shape torch.Size([32, 1, 64, 128])
+q_embed shape torch.Size([32, 16, 64, 128]) k_embed shape torch.Size([32, 16, 64, 128])
+cos shape torch.Size([64, 128]) sin shape torch.Size([64, 128]) position_ids tensor([[1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 5, 6, 7],
+        [1, 1, 1,  ..., 1, 1, 0],
+        ...,
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0]], device='cuda:0')
+cos shape torch.Size([32, 1, 64, 128]) sin shape torch.Size([32, 1, 64, 128])
+q_embed shape torch.Size([32, 16, 64, 128]) k_embed shape torch.Size([32, 16, 64, 128])
+cos shape torch.Size([64, 128]) sin shape torch.Size([64, 128]) position_ids tensor([[1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 5, 6, 7],
+        [1, 1, 1,  ..., 1, 1, 0],
+        ...,
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0]], device='cuda:0')
+cos shape torch.Size([32, 1, 64, 128]) sin shape torch.Size([32, 1, 64, 128])
+q_embed shape torch.Size([32, 16, 64, 128]) k_embed shape torch.Size([32, 16, 64, 128])
+cos shape torch.Size([64, 128]) sin shape torch.Size([64, 128]) position_ids tensor([[1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 5, 6, 7],
+        [1, 1, 1,  ..., 1, 1, 0],
+        ...,
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0]], device='cuda:1')
+cos shape torch.Size([32, 1, 64, 128]) sin shape torch.Size([32, 1, 64, 128])
+q_embed shape torch.Size([32, 16, 64, 128]) k_embed shape torch.Size([32, 16, 64, 128])
+cos shape torch.Size([64, 128]) sin shape torch.Size([64, 128]) position_ids tensor([[1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 5, 6, 7],
+        [1, 1, 1,  ..., 1, 1, 0],
+        ...,
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0]], device='cuda:1')
+cos shape torch.Size([32, 1, 64, 128]) sin shape torch.Size([32, 1, 64, 128])
+q_embed shape torch.Size([32, 16, 64, 128]) k_embed shape torch.Size([32, 16, 64, 128])
+cos shape torch.Size([64, 128]) sin shape torch.Size([64, 128]) position_ids tensor([[1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 5, 6, 7],
+        [1, 1, 1,  ..., 1, 1, 0],
+        ...,
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0]], device='cuda:1')
+cos shape torch.Size([32, 1, 64, 128]) sin shape torch.Size([32, 1, 64, 128])
+q_embed shape torch.Size([32, 16, 64, 128]) k_embed shape torch.Size([32, 16, 64, 128])
+cos shape torch.Size([64, 128]) sin shape torch.Size([64, 128]) position_ids tensor([[1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 5, 6, 7],
+        [1, 1, 1,  ..., 1, 1, 0],
+        ...,
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0]], device='cuda:1')
+cos shape torch.Size([32, 1, 64, 128]) sin shape torch.Size([32, 1, 64, 128])
+q_embed shape torch.Size([32, 16, 64, 128]) k_embed shape torch.Size([32, 16, 64, 128])
+cos shape torch.Size([64, 128]) sin shape torch.Size([64, 128]) position_ids tensor([[1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 5, 6, 7],
+        [1, 1, 1,  ..., 1, 1, 0],
+        ...,
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0]], device='cuda:1')
+cos shape torch.Size([32, 1, 64, 128]) sin shape torch.Size([32, 1, 64, 128])
+q_embed shape torch.Size([32, 16, 64, 128]) k_embed shape torch.Size([32, 16, 64, 128])
+cos shape torch.Size([64, 128]) sin shape torch.Size([64, 128]) position_ids tensor([[1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 5, 6, 7],
+        [1, 1, 1,  ..., 1, 1, 0],
+        ...,
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0]], device='cuda:1')
+cos shape torch.Size([32, 1, 64, 128]) sin shape torch.Size([32, 1, 64, 128])
+q_embed shape torch.Size([32, 16, 64, 128]) k_embed shape torch.Size([32, 16, 64, 128])
+cos shape torch.Size([64, 128]) sin shape torch.Size([64, 128]) position_ids tensor([[1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 5, 6, 7],
+        [1, 1, 1,  ..., 1, 1, 0],
+        ...,
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0]], device='cuda:1')
+cos shape torch.Size([32, 1, 64, 128]) sin shape torch.Size([32, 1, 64, 128])
+q_embed shape torch.Size([32, 16, 64, 128]) k_embed shape torch.Size([32, 16, 64, 128])
+cos shape torch.Size([64, 128]) sin shape torch.Size([64, 128]) position_ids tensor([[1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 5, 6, 7],
+        [1, 1, 1,  ..., 1, 1, 0],
+        ...,
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0]], device='cuda:1')
+cos shape torch.Size([32, 1, 64, 128]) sin shape torch.Size([32, 1, 64, 128])
+q_embed shape torch.Size([32, 16, 64, 128]) k_embed shape torch.Size([32, 16, 64, 128])
+cos shape torch.Size([64, 128]) sin shape torch.Size([64, 128]) position_ids tensor([[1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 5, 6, 7],
+        [1, 1, 1,  ..., 1, 1, 0],
+        ...,
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0]], device='cuda:1')
+cos shape torch.Size([32, 1, 64, 128]) sin shape torch.Size([32, 1, 64, 128])
+q_embed shape torch.Size([32, 16, 64, 128]) k_embed shape torch.Size([32, 16, 64, 128])
+cos shape torch.Size([64, 128]) sin shape torch.Size([64, 128]) position_ids tensor([[1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 5, 6, 7],
+        [1, 1, 1,  ..., 1, 1, 0],
+        ...,
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0]], device='cuda:2')
+cos shape torch.Size([32, 1, 64, 128]) sin shape torch.Size([32, 1, 64, 128])
+q_embed shape torch.Size([32, 16, 64, 128]) k_embed shape torch.Size([32, 16, 64, 128])
+cos shape torch.Size([64, 128]) sin shape torch.Size([64, 128]) position_ids tensor([[1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 5, 6, 7],
+        [1, 1, 1,  ..., 1, 1, 0],
+        ...,
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0]], device='cuda:2')
+cos shape torch.Size([32, 1, 64, 128]) sin shape torch.Size([32, 1, 64, 128])
+q_embed shape torch.Size([32, 16, 64, 128]) k_embed shape torch.Size([32, 16, 64, 128])
+cos shape torch.Size([64, 128]) sin shape torch.Size([64, 128]) position_ids tensor([[1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 5, 6, 7],
+        [1, 1, 1,  ..., 1, 1, 0],
+        ...,
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0]], device='cuda:2')
+cos shape torch.Size([32, 1, 64, 128]) sin shape torch.Size([32, 1, 64, 128])
+q_embed shape torch.Size([32, 16, 64, 128]) k_embed shape torch.Size([32, 16, 64, 128])
+cos shape torch.Size([64, 128]) sin shape torch.Size([64, 128]) position_ids tensor([[1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 5, 6, 7],
+        [1, 1, 1,  ..., 1, 1, 0],
+        ...,
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0]], device='cuda:2')
+cos shape torch.Size([32, 1, 64, 128]) sin shape torch.Size([32, 1, 64, 128])
+q_embed shape torch.Size([32, 16, 64, 128]) k_embed shape torch.Size([32, 16, 64, 128])
+cos shape torch.Size([64, 128]) sin shape torch.Size([64, 128]) position_ids tensor([[1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 5, 6, 7],
+        [1, 1, 1,  ..., 1, 1, 0],
+        ...,
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0]], device='cuda:2')
+cos shape torch.Size([32, 1, 64, 128]) sin shape torch.Size([32, 1, 64, 128])
+q_embed shape torch.Size([32, 16, 64, 128]) k_embed shape torch.Size([32, 16, 64, 128])
+cos shape torch.Size([64, 128]) sin shape torch.Size([64, 128]) position_ids tensor([[1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 5, 6, 7],
+        [1, 1, 1,  ..., 1, 1, 0],
+        ...,
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0]], device='cuda:2')
+cos shape torch.Size([32, 1, 64, 128]) sin shape torch.Size([32, 1, 64, 128])
+q_embed shape torch.Size([32, 16, 64, 128]) k_embed shape torch.Size([32, 16, 64, 128])
+cos shape torch.Size([64, 128]) sin shape torch.Size([64, 128]) position_ids tensor([[1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 5, 6, 7],
+        [1, 1, 1,  ..., 1, 1, 0],
+        ...,
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0]], device='cuda:2')
+cos shape torch.Size([32, 1, 64, 128]) sin shape torch.Size([32, 1, 64, 128])
+q_embed shape torch.Size([32, 16, 64, 128]) k_embed shape torch.Size([32, 16, 64, 128])
+cos shape torch.Size([64, 128]) sin shape torch.Size([64, 128]) position_ids tensor([[1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 5, 6, 7],
+        [1, 1, 1,  ..., 1, 1, 0],
+        ...,
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0]], device='cuda:2')
+cos shape torch.Size([32, 1, 64, 128]) sin shape torch.Size([32, 1, 64, 128])
+q_embed shape torch.Size([32, 16, 64, 128]) k_embed shape torch.Size([32, 16, 64, 128])
+cos shape torch.Size([64, 128]) sin shape torch.Size([64, 128]) position_ids tensor([[1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 5, 6, 7],
+        [1, 1, 1,  ..., 1, 1, 0],
+        ...,
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0],
+        [1, 1, 1,  ..., 1, 1, 0]], device='cuda:2')
+cos shape torch.Size([32, 1, 64, 128]) sin shape torch.Size([32, 1, 64, 128])
+q_embed shape torch.Size([32, 16, 64, 128]) k_embed shape torch.Size([32, 16, 64, 128])
+Generage time: 1.12s
+Model loading time: 3.82s
+conformal

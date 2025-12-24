@@ -1,0 +1,35 @@
+here pin
+INFO 12-24 16:25:16.007398.007398 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+DEBUG 12-24 16:25:16.557223.557223 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+DEBUG 12-24 16:25:16.999483.999483 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 12-24 16:25:16.999634.999634 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 0.992s
+DEBUG 12-24 16:25:18.105469.105469 transformers.py:203] load_dict_non_blocking takes 0.017266035079956055 seconds
+DEBUG 12-24 16:25:18.110503.110503 transformers.py:213] load config takes 0.005398988723754883 seconds
+DEBUG 12-24 16:25:18.194737.194737 torch.py:171] allocate_cuda_memory takes 0.01805424690246582 seconds
+DEBUG 12-24 16:25:18.194449.194449 client.py:72] load_into_gpu: deepseek-moe-16b-base-bfloat16, 02bb79ff-98fe-45f8-ab64-f905df94e5d5
+DEBUG 12-24 16:25:18.200400.200400 client.py:106] call stub.LoadModelAsync
+INFO 12-24 16:25:18.225353.225353 client.py:115] Model loaded: deepseek-moe-16b-base-bfloat16, 02bb79ff-98fe-45f8-ab64-f905df94e5d5
+INFO 12-24 16:25:18.248425.248425 torch.py:194] restore state_dict takes 0.022576332092285156 seconds
+DEBUG 12-24 16:25:20.803546.803546 transformers.py:224] load model takes 2.6927835941314697 seconds
+INFO 12-24 16:25:22.201724.201724 client.py:119] confirm_model_loaded: deepseek-moe-16b-base-bfloat16, 02bb79ff-98fe-45f8-ab64-f905df94e5d5
+INFO 12-24 16:25:22.208659.208659 client.py:127] Model loaded
+Model loading time: 4.16s
+============================================================
+First generate (with warmup overhead):
+============================================================
+First generate time: 1.27s
+============================================================
+Second generate (should be faster):
+============================================================
+Second generate time: 0.45s
+
+Speedup: 2.79x
+
+原因分析:
+  1. 第一次调用包含 CUDA kernel JIT 编译开销 (~0.81s)
+  2. 第一次调用需要初始化 KV cache (past_key_values)
+  3. 第一次调用 cuDNN 需要选择最优算法 (benchmark)
+  4. 第一次调用可能需要加载某些权重到 GPU
+  5. PyTorch 的 autograd 图构建和优化
+Model loading time: 4.16s
+conformal
