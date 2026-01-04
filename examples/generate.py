@@ -1,5 +1,6 @@
 import sys
 import os
+from time import sleep
 import torch
 
 # 获取项目根目录和必要的路径
@@ -20,9 +21,11 @@ def test():
     model_path = "deepseek-moe-16b-base-bfloat16"
     model_name_type = "Deepseek"
     mlpllm = MLPLLM( model_name_type=model_name_type, model_path=model_path )
-    # mlpllm.test_generate_single_layer()
-    mlpllm.test_generate_multi_layer()
-
-
+    for i in range(3):
+        mlpllm.free_cmv()
+        torch.cuda.empty_cache()
+        sleep(3)
+        mlpllm.test_generate_multi_layer()
+    mlpllm.imm.stop()
 if __name__ == "__main__":
     test()

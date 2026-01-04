@@ -3,6 +3,7 @@ import time
 import os
 import torch
 import queue
+import copy
 from typing import Optional, Tuple, Dict, List
 
 from typing import Dict, TYPE_CHECKING
@@ -16,8 +17,11 @@ from accelerate.utils import set_module_tensor_to_device
 from lmp.sllm_store_c import STORAGE_PATH
 if TYPE_CHECKING:
     from lmp.cuda_memory_view import HostMemoryView
+    from lmp.cuda_memory_view import CudaMemoryView
+    from lmp.sllm_thread_manager import SLLMTM
 
-from models.Deepseek.mlpmodule import DeepseekModule
+from models.Deepseek.deepseek_moe_16b_base.modeling_deepseek import DeepseekForCausalLM, DeepseekDecoderLayer
+from models.Deepseek.mlpmodule import DeepseekModule, DeepseekOCalModel
 from models.Mixtral.mlpmodule import MixtralModule
 from utils.logger import init_logger
 from utils.cuda_h import *
@@ -69,15 +73,77 @@ class MLPModuleWrapper:
 
         self.config = self.model_class.get_config(self.model_abs_path)
 
+        
+    def init_chmv_meta_model(self, cmv: "CudaMemoryView", hmv: "HostMemoryView"):
+        if self.model_name_type == DEEPSEEK_MODEL_NAME_TYPE:
+            with init_empty_weights():
+                # cm = DeepseekOCalModel(self.config)
+                cm = DeepseekForCausalLM(self.config)
+                cm.to(self.config.torch_dtype)
+                cm.eval()
+                cmv.mlpm_ci = cm
+
+                # Not need hm, we use einsum to restore experts weights from shared memory to model
+                # hm =copy.deepcopy(cm)
+                hmv.mlpm_hi = None 
+                # self.layerc = DeepseekDecoderLayer(self.config, 1)
+            return
+        else:
+            raise ValueError(f"Invalid model name type: {self.model_name_type}")
+
+    def init_layer_func(
+        self, layer_idx: int, config):
+        if self.model_name_type == DEEPSEEK_MODEL_NAME_TYPE:
+            # with init_empty_weights():
+            #     layer = DeepseekDecoderLayer(config, layer_idx)
+            #     layer.to(config.torch_dtype)
+            #     layer.eval()
+            #     return layer
+                if layer_idx >= 1:
+                    layer = copy.deepcopy(self.layerc)
+                    layer.self_attn.layer_idx = layer_idx
+                else:
+                    with init_empty_weights():
+                        layer = DeepseekDecoderLayer(config, layer_idx)
+                print(layer)
+                layer.to(config.torch_dtype)
+                layer.eval()
+                return layer
+        else:
+            raise ValueError(f"Invalid model name type: {self.model_name_type}")
+
     def create_empty_model(self):
+        """
+        创建空的模型结构（不加载权重）。
+        对于 Deepseek-MoE-16B (28层 x 64专家)，此操作耗时约 3 秒，主要开销：
+        1. 实例化所有模块对象（28层 x 多个子模块）
+        2. 注册所有参数（即使为空，也需要创建 Parameter 对象）
+        3. 构建模块层次结构
+        4. 设置 dtype（需要遍历所有参数）
+        
+        优化建议：
+        - 如果多次使用，可以考虑缓存模型结构
+        - 或者延迟创建，只在真正需要时创建
+        """
+        cuda_hook_time("create_empty_model")
         self.config._attn_implementation = "sdpa"
         with init_empty_weights():
-            model = AutoModelForCausalLM.from_config(
-                self.config, trust_remote_code=True
-            )
-        model.to(dtype=self.config.torch_dtype)
+            if self.model_name_type == DEEPSEEK_MODEL_NAME_TYPE:
+                model = DeepseekForCausalLM(self.config)
+            elif self.model_name_type == MIXTRAL_MODEL_NAME_TYPE:
+                model = AutoModelForCausalLM.from_config(
+                    self.config, trust_remote_code=True
+                )
+            else:
+                raise ValueError(f"Invalid model name type: {self.model_name_type}")
+            # model = AutoModelForCausalLM.from_config(
+            #     self.config, trust_remote_code=True
+            # )
+        cuda_hook_time_end("create_empty_model")
+        # cuda_hook_time("to_dtype")
+        # model.to(dtype=self.config.torch_dtype)
+        # cuda_hook_time_end("to_dtype")
         return model
-        # return self.model_class.create_empty_model(self.config)
 
     def restore_hm_state_dict2model(self, hm_state_dict, model):
         """
@@ -278,17 +344,25 @@ class MLPModuleWrapper:
         position_ids: torch.Tensor,
         past_key_value: Cache,
     ):
-        hidden_states, _, _ = mi.model.layers[layer_idx].self_attn(
-            hidden_states=hidden_states,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            past_key_value=past_key_value,
-            output_attentions=False,
-            use_cache=True,
-        )
-        return hidden_states
+        if self.model_name_type == DEEPSEEK_MODEL_NAME_TYPE:
+            # 类型注解：mi 是 DeepseekModule 实例
+            mi: "DeepseekModule"
+            hidden_states, _, _ = mi.model.layers[layer_idx].self_attn(
+                hidden_states=hidden_states,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                past_key_value=past_key_value,
+                output_attentions=False,
+                use_cache=True,
+            )
+            return hidden_states
+        else:
+            raise ValueError(f"Invalid model name type: {self.model_name_type}")
+
     def iln_func(self, mi, layer_idx: int, hidden_states: torch.Tensor):
         if self.model_name_type == DEEPSEEK_MODEL_NAME_TYPE:
+            # 类型注解：mi 是 DeepseekModule 实例
+            # mi: "DeepseekForCausalLM" = mi
             hidden_states = mi.model.layers[layer_idx].input_layernorm(hidden_states)
             return hidden_states
         else:
@@ -746,6 +820,7 @@ class MLPModuleWrapper:
             # 直接从 flat_experts_weight 获取 weights，避免中间拷贝
             start_idx, end_idx = expert_indices_map[expert_idx]
             expert_weights = flat_experts_weight[idxs[start_idx:end_idx]]
+            
             expert_out = expert_out.mul_(expert_weights)
             
             # 使用 token_ids 进行 scatter

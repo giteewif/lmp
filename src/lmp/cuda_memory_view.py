@@ -28,15 +28,21 @@ from utils.helper import load_json, calculate_device_offset
 from utils.cuda_h import *
 from utils.logger import init_logger
 from lmp.pinpool import gpinpool
+from lmp.sllm_thread_manager import SLLMTM
+from lmp.init_meta_manager import InitMetaManager
+from lmp.init_meta_manager_mp_shared import InitMetaManagerMPShared
 logger = init_logger(__name__)
 
 class CudaMemoryView:
     def __init__(
         self,
-        mlpm: MLPModuleWrapper,
+        mlpm: MLPModuleWrapper
     ):
-        self.client = SllmStoreClient(SLLM_ADDRESS)
+        self.sllmtm: SLLMTM = None
+        self.imm: InitMetaManager =None
         self.mlpm = mlpm
+
+        self.client = SllmStoreClient(SLLM_ADDRESS)
         tensor_index_resize_path = os.path.join(self.mlpm.model_abs_path, TENSOR_INDEX_RESIZE_PATH)
         tensor_index_resize_json = load_json(tensor_index_resize_path)
 
@@ -52,29 +58,116 @@ class CudaMemoryView:
         self.device_uuid_map = get_device_uuid_map()
 
         self.cuda_memory_ptrs_allocated = []
-        # for deepseek
-        self.load_general_and_init()
+        
+        # self.mlpm_ci = self.mlpm.create_empty_model()
+        # self.mlpm_ci.eval()
+        self.mlpm_ci = None
 
     def load_general_and_init(self):     
         tensor_index_general_names = self.mlpm.get_tensor_index_general_names()
-        tensor_index_attention_names = self.mlpm.get_attention_names(layer_idx=0)
-        tensor_index_layernorm_names = self.mlpm.get_layernorm_names(layer_idx=0)
+        # tensor_index_attention_names = self.mlpm.get_attention_names(layer_idx=0)
+        # tensor_index_layernorm_names = self.mlpm.get_layernorm_names(layer_idx=0)
         # empty expert for 0
-        tensor_experts0_names = self.mlpm.get_experts_names(
-            layer_idx=0, expert_idx_list=[i for i in range(self.mlpm.config.n_routed_experts)])
-        tensor_index_init_names = tensor_index_general_names + tensor_index_attention_names  \
-                + tensor_index_layernorm_names + tensor_experts0_names
+        # tensor_experts0_names = self.mlpm.get_experts_names(
+        #     layer_idx=0, expert_idx_list=[i for i in range(self.mlpm.config.n_routed_experts)])
+        tensor_index_init_names = tensor_index_general_names 
+            # + tensor_index_attention_names + tensor_index_layernorm_names + tensor_experts0_names
 
         ret1, replica_uuid1, state_dict1 = \
             self.allocate_cuda_memory_and_load_into_gpu(tensor_index_init_names, device_index_int=self.device1)
 
-        self.mlpm_ci = self.mlpm.create_empty_model()
-        self.mlpm_ci.eval()
-        
         self.restore2model(state_dict1, self.mlpm_ci)
         self.wait_load_into_gpu(replica_uuid1)
+    def start_init_meta_model(self, hmv: "HostMemoryView"):
+        self.mlpm.init_chmv_meta_model(cmv=self, hmv=hmv)
+        # self.imm.submit_all(
+        #     init_func=self.mlpm.init_layer_func,
+        #     config=self.mlpm.config,
+        # )
+    def imm_submit_meta_layer(self, layer_idx: int):
+        self.imm.submit_layer(
+            layer_idx=layer_idx,
+            init_func=self.mlpm.init_layer_func,
+            config=self.mlpm.config
+        )
+    def imm_submit_all(self):
+        for layer_idx in range(self.mlpm.config.num_hidden_layers):
+            self.imm_submit_meta_layer(layer_idx=layer_idx)
+    def imm_wait_meta_layer(self, layer_idx: int):
+        if layer_idx >= self.mlpm.config.num_hidden_layers:
+            return 
+        layer = self.imm.wait_layer(layer_idx=layer_idx)
+        print(f"{layer}")
+        # set layer to model
+        self.mlpm_ci.model.layers[layer_idx] = layer
+    def imm_wait_all(self):
+        for layer_idx in range(self.mlpm.config.num_hidden_layers):
+            self.imm_wait_meta_layer(layer_idx=layer_idx)
+
+    def start_load_qkvogn_s_weight(self, layer_idx: int, device: str):
+        """
+        异步发起加载请求，使用 SLLMTM 线程管理器
         
+        Args:
+            layer_idx: 层索引
+            
+        Returns:
+            无（异步执行，通过 get_load_result 获取结果）
+        """
+        if layer_idx >= self.mlpm.config.num_hidden_layers:
+            return
+        device_idx_int = self.device1
+        cuda_hook_time(f"start_load_qkvogn_s_weight_l_{layer_idx}")
+        tensor_al1_names = self.mlpm.get_attention_names(layer_idx=layer_idx)
+        tensor_ln1_names = self.mlpm.get_layernorm_names(layer_idx=layer_idx)
+        tensor_gate_names = self.mlpm.get_gate_names(layer_idx=layer_idx)
+        tensor_shared_expert_names = self.mlpm.get_shared_experts_names(layer_idx=layer_idx)
+        tensor_index_names = tensor_al1_names + tensor_ln1_names + tensor_gate_names + tensor_shared_expert_names
         
+        # 使用 SLLMTM 异步提交加载任务
+        self.sllmtm.submit_load(
+            layer_idx=layer_idx,
+            tensor_index_names=tensor_index_names,
+            device_index_int=device_idx_int,
+            cmv=self
+        )
+        cuda_hook_time_end(f"start_load_qkvogn_s_weight_l_{layer_idx}")
+        
+    def wait_load_qkvogn_s_weight(self, layer_idx: int):
+        if layer_idx >= self.mlpm.config.num_hidden_layers:
+            return
+        self.sllmtm.get_result_wait()
+
+
+    def load_all_qkvogn_weight(self):
+        device1_idx_int = self.device1
+        time_start_init_qkvogn_weight = time.time()
+        cuda_hook("init qkvogn weight")
+        layer_num = self.mlpm.config.num_hidden_layers
+        for layer_idx in range(layer_num):
+            tensor_al1_names = self.mlpm.get_attention_names(layer_idx=layer_idx)
+            tensor_ln1_names = self.mlpm.get_layernorm_names(layer_idx=layer_idx)
+            tensor_gate_names = self.mlpm.get_gate_names(layer_idx=layer_idx)
+            tensor_index_names = tensor_al1_names + tensor_ln1_names + tensor_gate_names
+            self.allocate_cuda_memory_load_wait(tensor_index_names, device_index_int=device1_idx_int)
+        logger.debug(f"init qkvogn weight time: {time.time() - time_start_init_qkvogn_weight}")
+        cuda_hook_end("init qkvogn weight")
+
+    def init_load_qkvogn_es_weight(self, layer_idx: int = 0):
+        layer_idx = layer_idx
+        if layer_idx != 0:
+            raise ValueError(f"layer_idx must be 0")
+        device1_idx_int = self.device1
+        cuda_hook_time(f"load_qkvogns_weight_l_{layer_idx}")
+        tensor_al1_names = self.mlpm.get_attention_names(layer_idx=layer_idx)
+        tensor_ln1_names = self.mlpm.get_layernorm_names(layer_idx=layer_idx)
+        tensor_gate_names = self.mlpm.get_gate_names(layer_idx=layer_idx)
+        tensor_mlp_names = self.mlpm.get_experts_names(layer_idx=layer_idx, expert_idx_list=[])
+        tensor_shared_expert_names = self.mlpm.get_shared_experts_names(layer_idx=layer_idx)
+        tensor_index_names = tensor_al1_names + tensor_ln1_names + tensor_gate_names + tensor_shared_expert_names + tensor_mlp_names
+        self.allocate_cuda_memory_load_wait(tensor_index_names, device_index_int=device1_idx_int)
+        cuda_hook_time_end(f"load_qkvogns_weight_l_{layer_idx}")
+
     def allocate_cuda_memory(self, tensor_index_names: list[str], device_index_int: int):
         tensor_meta_index, tensor_data_index, tensor_device_offsets, tensor_copy_chunks, tensor_device_size = \
             self.get_meta_data_offsets_and_copy_chunks(tensor_index_names, device_index_int)
@@ -140,7 +233,12 @@ class CudaMemoryView:
             calculate_device_offset(tensor_index=tensor_data_index, device_idx=device_index_int)
         
         return tensor_meta_index, tensor_data_index, tensor_device_offsets, tensor_copy_chunks, tensor_device_size
-        
+
+    def free_allocated(self):
+        for cuda_memory_ptrs in self.cuda_memory_ptrs_allocated:
+            free_cuda_memory(cuda_memory_ptrs)
+        self.cuda_memory_ptrs_allocated = []
+
 class HostMemoryView:
     def __init__(
         self, 
@@ -165,11 +263,10 @@ class HostMemoryView:
         self.tensor_index_resize_json = tensor_index_resize_json
         self.mchunk_size = chunk_size
 
-        self.mlpm_hi = self.mlpm.create_empty_model()
-        self.mlpm.restore_hm_state_dict2model(self.hm_state_dict, self.mlpm_hi)
+        # self.mlpm_hi = self.mlpm.create_empty_model()
+        # self.mlpm.restore_hm_state_dict2model(self.hm_state_dict, self.mlpm_hi)
+        self.mlpm_hi = None
 
-        # self.test_restore_experts_tensor_from_shared_memory()
-        # self.test_restore_group_experts_tensor_from_shared_memory()
     
     def group_experts_tensor(self, layer_idx: int, expert_idx_list: list[int]):
         ewnc1 = self.mlpm.get_experts_names_w(layer_idx, expert_idx_list, type_idx=WeightType.W1)
@@ -194,6 +291,7 @@ class HostMemoryView:
             'group_1_big_tensor': 'group_w2',
             'group_2_big_tensor': 'group_w3'
         }
+        # print(f"{tensor_state_dict}")
         for key, value in tensor_state_dict.items():
             new_key = key_mapping.get(key, key)
             renamed_dict[new_key] = value

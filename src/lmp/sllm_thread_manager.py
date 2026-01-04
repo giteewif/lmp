@@ -2,10 +2,12 @@ import queue
 import threading
 
 import torch
-from typing import Optional, List, Any
+from typing import Optional, List, Any, TYPE_CHECKING
 from dataclasses import dataclass
 
-from lmp.cuda_memory_view import CudaMemoryView
+if TYPE_CHECKING:
+    from lmp.cuda_memory_view import CudaMemoryView
+
 from utils.cuda_h import cuda_hook_time, cuda_hook_time_end
 
 @dataclass
@@ -14,6 +16,7 @@ class LoadTask:
     layer_idx: int
     tensor_index_names: List[str]
     device_index_int: int
+    cmv: "CudaMemoryView"
 
 
 @dataclass
@@ -30,13 +33,12 @@ class SLLMTM:
     
     支持多个 worker 并行处理加载请求，异步执行加载操作。
     """
-    def __init__(self, cmv: CudaMemoryView, num_workers: int = 1):
+    def __init__(self, num_workers: int = 1):
         """
         Args:
             cmv: CudaMemoryView 实例
             num_workers: worker 线程数量，默认为 1
         """
-        self.cmv = cmv
         self.num_workers = num_workers
         self.running = False
         self.threads = []
@@ -56,26 +58,31 @@ class SLLMTM:
             try:
                 cuda_hook_time("sllm_worker_task")
                 # 执行异步加载请求
-                ret1, replica_uuid, state_dict = self.cmv.allocate_cuda_memory_and_load_into_gpu(
+                ret1, replica_uuid, state_dict = task.cmv.allocate_cuda_memory_and_load_into_gpu(
                     tensor_index_names=task.tensor_index_names,
                     device_index_int=task.device_index_int
                 )
                 # 将权重恢复到模型中（类似 allocate_cuda_memory_load_wait）
-                self.cmv.restore2model(state_dict, self.cmv.mlpm_ci)
+                task.cmv.restore2model(state_dict, task.cmv.mlpm_ci)
                 # 将结果放入输出队列
                 result = LoadResult(
                     layer_idx=task.layer_idx,
                     ret1=ret1,
                     replica_uuid=replica_uuid,
                 )
-                self.wait_load(result.replica_uuid)
+                self.wait_load(replica_uuid=result.replica_uuid, cmv=task.cmv)
                 cuda_hook_time_end("sllm_worker_task")
                 self.output_queue.put(result)
             except Exception as e:
                 # 将异常放入输出队列
                 self.output_queue.put(e)
 
-    def submit_load(self, layer_idx: int, tensor_index_names: List[str], device_index_int: int):
+    def submit_load(self, 
+        layer_idx: int, 
+        tensor_index_names: List[str], 
+        device_index_int: int, 
+        cmv: "CudaMemoryView"
+    ):
         """
         提交异步加载任务到队列
         
@@ -83,14 +90,15 @@ class SLLMTM:
             layer_idx: 层索引
             tensor_index_names: 需要加载的 tensor 名称列表
             device_index_int: 设备索引
-            
+            cmv: CudaMemoryView 实例
         Returns:
             任务已提交（异步执行）
         """
         task = LoadTask(
             layer_idx=layer_idx,
             tensor_index_names=tensor_index_names,
-            device_index_int=device_index_int
+            device_index_int=device_index_int,
+            cmv=cmv
         )
         self.input_queue.put(task)
         
@@ -120,14 +128,14 @@ class SLLMTM:
         """检查是否有结果"""
         return not self.output_queue.empty()
     
-    def wait_load(self, replica_uuid: str):
+    def wait_load(self, replica_uuid: str, cmv: "CudaMemoryView"):
         """
         等待加载完成（同步调用）
         
         Args:
             replica_uuid: 从 LoadResult 中获取的 replica_uuid
         """
-        self.cmv.wait_load_into_gpu(replica_uuid)
+        cmv.wait_load_into_gpu(replica_uuid)
 
     def start(self):
         """启动所有 worker 线程"""

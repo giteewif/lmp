@@ -164,7 +164,7 @@ std::unordered_map<std::string, torch::Tensor> RestoreTensors2(
           state_dict[name] = real_tensor;
         }
       } else {
-        std::cerr << "Cannot find device " << device << std::endl;
+        LOG(INFO) << "Cannot find device " << device;
         exit(1);
       }
     }
@@ -210,7 +210,7 @@ std::unordered_map<std::string, torch::Tensor> RestoreTensors(
           state_dict[name] = real_tensor;
         }
       } else {
-        std::cerr << "Cannot find device " << device << std::endl;
+        LOG(INFO) << "Cannot find device " << device;
         exit(1);
       }
     }
@@ -260,15 +260,15 @@ std::unordered_map<int, void*> AllocateCudaMemory(
     
     cudaError_t err = cudaSetDevice(device);
     if (err != cudaSuccess) {
-      std::cerr << "Failed to set CUDA device " << device << ": " 
+      LOG(INFO) << "Failed to set CUDA device " << device << ": " 
                 << cudaGetErrorString(err) << std::endl;
       throw std::runtime_error("Failed to set CUDA device");
     }
     
     err = cudaMalloc(&ptr, size);
     if (err != cudaSuccess || ptr == nullptr) {
-      std::cerr << "Failed to allocate " << size << " bytes on device " << device 
-                << ": " << cudaGetErrorString(err) << std::endl;
+      LOG(INFO) << "Failed to allocate " << size << " bytes on device " << device 
+                << ": " << cudaGetErrorString(err);
       throw std::runtime_error("CUDA memory allocation failed");
     }
     
@@ -284,7 +284,7 @@ void FreeCudaMemory(
     void* ptr = p.second;
     cudaError_t err = cudaSetDevice(device);
     if (err != cudaSuccess) {
-      std::cerr << "Failed to set CUDA device " << device << ": " 
+      LOG(INFO) << "Failed to set CUDA device " << device << ": " 
                 << cudaGetErrorString(err) << std::endl;
       throw std::runtime_error("Failed to set CUDA device");
     }
@@ -333,7 +333,7 @@ std::unordered_map<int, std::string> GetDeviceUuidMap() {
   std::unordered_map<int, std::string> device_uuid_map;
   for (const auto& p : gpu_uuid) {
     if (device_uuid_map.find(p.second) != device_uuid_map.end()) {
-      std::cerr << "Duplicate device id: " << p.second << std::endl;
+      LOG(INFO) << "Duplicate device id: " << p.second;
       exit(1);
     }
     device_uuid_map[p.second] = p.first;
@@ -404,7 +404,7 @@ std::unordered_map<std::string, torch::Tensor> RestoreTensorsFromPinnedMemory(
         MapDataToChunks(offset, tensor_size_bytes, chunk_size);
 
     if (chunks.empty()) {
-      std::cerr << "Failed to map tensor " << name << " to chunks";
+      LOG(INFO) << "Failed to map tensor " << name << " to chunks";
       continue;
     }
 
@@ -415,7 +415,7 @@ std::unordered_map<std::string, torch::Tensor> RestoreTensorsFromPinnedMemory(
 
       // 从 memory_base_address 获取该 chunk 的基地址
       if (memory_base_address.find(chunk_id) == memory_base_address.end()) {
-        std::cerr << "Tensor " << name << " chunk_id " << chunk_id
+        LOG(INFO) << "Tensor " << name << " chunk_id " << chunk_id
                    << " not found in memory_base_address";
         continue;
       }
@@ -436,7 +436,7 @@ std::unordered_map<std::string, torch::Tensor> RestoreTensorsFromPinnedMemory(
       // Tensor 跨越多个 chunks，chunks 在内存中不连续
       // PyTorch 的 tensor 底层需要连续内存，torch::from_blob 要求连续内存
       // 对于跨 chunks 的情况，无法直接创建 tensor，报错并跳过
-      std::cerr << "Tensor " << name << " spans " << chunks.size()
+      LOG(INFO) << "Tensor " << name << " spans " << chunks.size()
                  << " non-contiguous chunks (offset=" << offset
                  << ", size=" << tensor_size_bytes
                  << "). Cannot create tensor from non-contiguous memory.";
@@ -444,7 +444,7 @@ std::unordered_map<std::string, torch::Tensor> RestoreTensorsFromPinnedMemory(
     }
   }
 
-  std::cerr << "Created " << state_dict.size()
+  LOG(INFO) << "Created " << state_dict.size()
             << " expert tensors from shared pinned memory";
   return state_dict;
 }
@@ -460,7 +460,7 @@ std::unordered_map<std::string, torch::Tensor> RestoreTensorsFromSharedMemoryNam
   std::unordered_map<std::string, torch::Tensor> state_dict;
 
   if (shm_names.empty()) {
-    std::cerr << "shm_names is empty";
+    LOG(INFO) << "shm_names is empty";
     return {};
   }
 
@@ -472,7 +472,7 @@ std::unordered_map<std::string, torch::Tensor> RestoreTensorsFromSharedMemoryNam
   contiguous_memory = mmap(nullptr, total_size, PROT_NONE,
                            MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   if (contiguous_memory == MAP_FAILED) {
-    std::cerr << "Failed to reserve contiguous virtual address space of size " << total_size
+    LOG(INFO) << "Failed to reserve contiguous virtual address space of size " << total_size
                << ": " << strerror(errno);
     return {};
   }
@@ -487,7 +487,7 @@ std::unordered_map<std::string, torch::Tensor> RestoreTensorsFromSharedMemoryNam
     // 打开共享内存对象
     int shm_fd = shm_open(shm_name.c_str(), O_RDWR, 0);
     if (shm_fd == -1) {
-      std::cerr << "Failed to open shared memory " << shm_name << ": "
+      LOG(INFO) << "Failed to open shared memory " << shm_name << ": "
                  << strerror(errno);
       // Clean up already mapped memory
       for (size_t i = 0; i < chunk_id; ++i) {
@@ -508,7 +508,7 @@ std::unordered_map<std::string, torch::Tensor> RestoreTensorsFromSharedMemoryNam
     close(shm_fd);  // 关闭文件描述符，mmap 保持映射
     
     if (mapped_addr == MAP_FAILED || mapped_addr != chunk_addr) {
-      std::cerr << "Failed to mmap shared memory " << shm_name
+      LOG(INFO) << "Failed to mmap shared memory " << shm_name
                  << " to contiguous address " << chunk_addr << ": "
                  << strerror(errno);
       // Clean up already mapped memory
@@ -523,8 +523,8 @@ std::unordered_map<std::string, torch::Tensor> RestoreTensorsFromSharedMemoryNam
     // 更新 memory_base_address 指向连续地址空间中的位置
     memory_base_address[chunk_id] = mapped_addr;
     
-    std::cerr << "Mapped shared memory " << shm_name << " to contiguous address "
-              << mapped_addr << " (chunk " << chunk_id << ")" << std::endl;
+    LOG(INFO) << "Mapped shared memory " << shm_name << " to contiguous address "
+              << mapped_addr << " (chunk " << chunk_id << ")";
   }
 
   // 直接使用连续地址空间创建 tensors
@@ -553,7 +553,7 @@ std::unordered_map<std::string, torch::Tensor> RestoreTensorsFromSharedMemoryNam
 
     // 验证 tensor 是否在有效范围内
     if (offset + tensor_size_bytes > total_size) {
-      std::cerr << "Tensor " << name << " offset " << offset
+      LOG(INFO) << "Tensor " << name << " offset " << offset
                  << " + size " << tensor_size_bytes
                  << " exceeds total size " << total_size;
       continue;
@@ -572,7 +572,7 @@ std::unordered_map<std::string, torch::Tensor> RestoreTensorsFromSharedMemoryNam
 
   // 如果没有创建任何 tensor，释放所有映射并返回
   if (state_dict.empty()) {
-    std::cerr << "No tensors created from shared memory, releasing all mappings";
+    LOG(INFO) << "No tensors created from shared memory, releasing all mappings";
     for (size_t i = 0; i < shm_names.size(); ++i) {
       void* chunk_ptr = static_cast<char*>(contiguous_memory) + i * chunk_size;
       munmap(chunk_ptr, chunk_size);
@@ -638,12 +638,12 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsFromSharedMemory(
   std::unordered_map<std::string, torch::Tensor> state_dict;
 
   if (shm_names.empty()) {
-    std::cerr << "shm_names is empty";
+    LOG(INFO) << "shm_names is empty";
     return {};
   }
 
   if (name_continuous_space.empty()) {
-    std::cerr << "name_continuous_space is empty";
+    LOG(INFO) << "name_continuous_space is empty";
     return {};
   }
 
@@ -676,7 +676,7 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsFromSharedMemory(
   for (const std::string& name : name_continuous_space) {
     auto it = tensor_metadata.find(name);
     if (it == tensor_metadata.end()) {
-      std::cerr << "Tensor " << name << " not found in tensor_metadata";
+      LOG(INFO) << "Tensor " << name << " not found in tensor_metadata";
       continue;
     }
     
@@ -705,14 +705,14 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsFromSharedMemory(
   }
   
   if (tensor_infos.empty()) {
-    std::cerr << "No valid tensors found in name_continuous_space";
+    LOG(INFO) << "No valid tensors found in name_continuous_space";
     return {};
   }
   
   auto step1_end = std::chrono::high_resolution_clock::now();
   auto step1_duration = std::chrono::duration_cast<std::chrono::microseconds>(step1_end - step1_start);
-  std::cerr << "[RestoreExpertsFromSharedMemory] Step1: Collect tensor info cost " 
-            << step1_duration.count() / 1000.0 << " ms" << std::endl;
+  LOG(INFO) << "[RestoreExpertsFromSharedMemory] Step1: Collect tensor info cost " 
+            << step1_duration.count() / 1000.0 << " ms";
   
   // 对齐到页边界（通常是 4096 字节）
   total_continuous_size = ((total_continuous_size + page_size - 1) / page_size) * page_size;
@@ -725,15 +725,15 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsFromSharedMemory(
   contiguous_memory = mmap(nullptr, total_continuous_size, PROT_READ | PROT_WRITE,
                            MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   if (contiguous_memory == MAP_FAILED) {
-    std::cerr << "Failed to allocate contiguous virtual address space of size " 
+    LOG(INFO) << "Failed to allocate contiguous virtual address space of size " 
               << total_continuous_size << ": " << strerror(errno);
     return {};
   }
   auto step2_end = std::chrono::high_resolution_clock::now();
   auto step2_duration = std::chrono::duration_cast<std::chrono::microseconds>(step2_end - step2_start);
-  std::cerr << "[RestoreExpertsFromSharedMemory] Step2: Allocate contiguous memory (" 
+  LOG(INFO) << "[RestoreExpertsFromSharedMemory] Step2: Allocate contiguous memory (" 
             << total_continuous_size / 1024 / 1024 << " MB) cost " 
-            << step2_duration.count() / 1000.0 << " ms" << std::endl;
+            << step2_duration.count() / 1000.0 << " ms";
 
   // 第二步：计算每个 tensor 在连续地址空间中的目标位置
   auto step3_start = std::chrono::high_resolution_clock::now();
@@ -746,8 +746,8 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsFromSharedMemory(
   }
   auto step3_end = std::chrono::high_resolution_clock::now();
   auto step3_duration = std::chrono::duration_cast<std::chrono::microseconds>(step3_end - step3_start);
-  std::cerr << "[RestoreExpertsFromSharedMemory] Step3: Calculate tensor offsets cost " 
-            << step3_duration.count() / 1000.0 << " ms" << std::endl;
+  LOG(INFO) << "[RestoreExpertsFromSharedMemory] Step3: Calculate tensor offsets cost " 
+            << step3_duration.count() / 1000.0 << " ms";
 
   // 第三步：直接从共享内存映射到连续地址空间（避免复制）
   // 使用 mmap 的 MAP_FIXED 选项将共享内存的特定部分映射到连续地址空间
@@ -763,7 +763,7 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsFromSharedMemory(
   
   for (const auto& info : tensor_infos) {
     if (info.chunk_id >= shm_names.size()) {
-      std::cerr << "Chunk ID " << info.chunk_id << " exceeds shm_names size";
+      LOG(INFO) << "Chunk ID " << info.chunk_id << " exceeds shm_names size";
       // Clean up
       for (auto& [chunk_id, fd] : chunk_fds) {
         close(fd);
@@ -781,7 +781,7 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsFromSharedMemory(
       const std::string& shm_name = shm_names[info.chunk_id];
       shm_fd = shm_open(shm_name.c_str(), O_RDWR, 0);
       if (shm_fd == -1) {
-        std::cerr << "Failed to open shared memory " << shm_name << ": "
+        LOG(INFO) << "Failed to open shared memory " << shm_name << ": "
                    << strerror(errno);
         // Clean up
         for (auto& [cid, fd] : chunk_fds) {
@@ -805,7 +805,7 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsFromSharedMemory(
     // 验证目标地址在连续地址空间范围内
     if (target_addr < contiguous_memory || 
         static_cast<char*>(target_addr) + info.size > static_cast<char*>(contiguous_memory) + total_continuous_size) {
-      std::cerr << "Tensor " << info.name << " target address out of range";
+      LOG(INFO) << "Tensor " << info.name << " target address out of range";
       continue;
     }
     
@@ -827,15 +827,15 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsFromSharedMemory(
         int shm_fd_current;
         if (chunk_fds.find(current_chunk_id) == chunk_fds.end()) {
           if (current_chunk_id >= shm_names.size()) {
-            std::cerr << "[RestoreExpertsFromSharedMemory] ERROR: Chunk ID " << current_chunk_id 
-                      << " exceeds shm_names size " << shm_names.size() << std::endl;
+            LOG(INFO) << "[RestoreExpertsFromSharedMemory] ERROR: Chunk ID " << current_chunk_id 
+                      << " exceeds shm_names size " << shm_names.size();
             break;
           }
           const std::string& shm_name = shm_names[current_chunk_id];
           shm_fd_current = shm_open(shm_name.c_str(), O_RDWR, 0);
           if (shm_fd_current == -1) {
-            std::cerr << "[RestoreExpertsFromSharedMemory] ERROR: Failed to open shared memory " 
-                      << shm_name << ": " << strerror(errno) << std::endl;
+            LOG(INFO) << "[RestoreExpertsFromSharedMemory] ERROR: Failed to open shared memory " 
+                      << shm_name << ": " << strerror(errno);
             break;
           }
           chunk_fds[current_chunk_id] = shm_fd_current;
@@ -850,8 +850,8 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsFromSharedMemory(
         
         void* temp_mapped_addr = mmap(nullptr, map_size, PROT_READ, MAP_SHARED, shm_fd_current, aligned_chunk_offset);
         if (temp_mapped_addr == MAP_FAILED) {
-          std::cerr << "[RestoreExpertsFromSharedMemory] ERROR: Failed to mmap temp for cross-chunk tensor " 
-                    << info.name << " chunk " << current_chunk_id << ": " << strerror(errno) << std::endl;
+          LOG(INFO) << "[RestoreExpertsFromSharedMemory] ERROR: Failed to mmap temp for cross-chunk tensor " 
+                    << info.name << " chunk " << current_chunk_id << ": " << strerror(errno);
           break;
         }
         
@@ -870,16 +870,16 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsFromSharedMemory(
       }
       
       if (total_copied != info.size) {
-        std::cerr << "[RestoreExpertsFromSharedMemory] ERROR: Failed to copy cross-chunk tensor " 
-                  << info.name << ": copied " << total_copied << " / " << info.size << " bytes" << std::endl;
+        LOG(INFO) << "[RestoreExpertsFromSharedMemory] ERROR: Failed to copy cross-chunk tensor " 
+                  << info.name << ": copied " << total_copied << " / " << info.size << " bytes";
         continue;
       }
       
-      std::cerr << "[RestoreExpertsFromSharedMemory] Tensor " << info.name
+      LOG(INFO) << "[RestoreExpertsFromSharedMemory] Tensor " << info.name
                 << " copied via memcpy (crosses chunks " << info.chunk_id 
                 << " -> " << info.end_chunk_id << ")"
                 << " target_addr=" << target_addr
-                << " size=" << info.size << std::endl;
+                << " size=" << info.size;
     } else {
       // 不跨 chunk 的 tensor，使用现有的映射逻辑
     // 计算共享内存中的源位置（页对齐）
@@ -898,7 +898,7 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsFromSharedMemory(
     if (aligned_target_addr < contiguous_memory) {
       // 如果调整后超出下界，需要调整映射策略
       // 这种情况下，我们可能需要复制数据，或者调整连续地址空间的布局
-      std::cerr << "Warning: Tensor " << info.name 
+      LOG(INFO) << "Warning: Tensor " << info.name 
                  << " requires alignment adjustment that would exceed contiguous memory bounds. "
                  << "Consider aligning tensors to page boundaries.";
       // 对于这种情况，我们仍然尝试映射，但可能需要特殊处理
@@ -924,7 +924,7 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsFromSharedMemory(
                                MAP_SHARED | MAP_FIXED, shm_fd, aligned_shm_offset);
       
       if (mapped_addr == MAP_FAILED || mapped_addr != aligned_target_addr) {
-        std::cerr << "Failed to mmap shared memory chunk " << info.chunk_id
+        LOG(INFO) << "Failed to mmap shared memory chunk " << info.chunk_id
                    << " offset " << aligned_shm_offset << " to contiguous address "
                    << aligned_target_addr << ": " << strerror(errno);
         // Clean up
@@ -949,8 +949,8 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsFromSharedMemory(
   }
   auto step4_end = std::chrono::high_resolution_clock::now();
   auto step4_duration = std::chrono::duration_cast<std::chrono::microseconds>(step4_end - step4_start);
-  std::cerr << "[RestoreExpertsFromSharedMemory] Step4: Map shared memory to contiguous space cost " 
-            << step4_duration.count() / 1000.0 << " ms" << std::endl;
+  LOG(INFO) << "[RestoreExpertsFromSharedMemory] Step4: Map shared memory to contiguous space cost " 
+            << step4_duration.count() / 1000.0 << " ms";
 
   // 第四步：在连续地址空间中创建 tensor（使用新的连续偏移）
   auto step5_start = std::chrono::high_resolution_clock::now();
@@ -1060,14 +1060,14 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsFromSharedMemory(
 
   // 如果没有创建任何 tensor，释放连续内存并返回
   if (state_dict.empty()) {
-    std::cerr << "No tensors created from shared memory, releasing contiguous memory";
+    LOG(INFO) << "No tensors created from shared memory, releasing contiguous memory";
     munmap(contiguous_memory, total_continuous_size);
     return {};
   }
   auto step5_end = std::chrono::high_resolution_clock::now();
   auto step5_duration = std::chrono::duration_cast<std::chrono::microseconds>(step5_end - step5_start);
-  std::cerr << "[RestoreExpertsFromSharedMemory] Step5: Create tensors cost " 
-            << step5_duration.count() / 1000.0 << " ms" << std::endl;
+  LOG(INFO) << "[RestoreExpertsFromSharedMemory] Step5: Create tensors cost " 
+            << step5_duration.count() / 1000.0 << " ms";
 
   // 使用引用计数来管理连续内存的生命周期
   // 所有 tensor 共享同一块连续内存，只有当所有 tensor 都被销毁时才释放
@@ -1108,18 +1108,18 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsFromSharedMemory(
   }
   auto step6_end = std::chrono::high_resolution_clock::now();
   auto step6_duration = std::chrono::duration_cast<std::chrono::microseconds>(step6_end - step6_start);
-  std::cerr << "[RestoreExpertsFromSharedMemory] Step6: Setup reference counting cost " 
-            << step6_duration.count() / 1000.0 << " ms" << std::endl;
+  LOG(INFO) << "[RestoreExpertsFromSharedMemory] Step6: Setup reference counting cost " 
+            << step6_duration.count() / 1000.0 << " ms";
 
-  std::cerr << "Created " << state_dict.size()
+  LOG(INFO) << "Created " << state_dict.size()
             << " expert tensors from shared memory in contiguous address space ("
             << (total_continuous_size / 1024 / 1024) << " MB). "
-            << "Tensors are arranged contiguously to avoid copying during einsum operations." << std::endl;
+            << "Tensors are arranged contiguously to avoid copying during einsum operations.";
 
   auto total_end = std::chrono::high_resolution_clock::now();
   auto total_duration = std::chrono::duration_cast<std::chrono::microseconds>(total_end - start_time);
-  std::cerr << "[RestoreExpertsFromSharedMemory] Total cost " 
-            << total_duration.count() / 1000.0 << " ms" << std::endl;
+  LOG(INFO) << "[RestoreExpertsFromSharedMemory] Total cost " 
+            << total_duration.count() / 1000.0 << " ms";
 
   return state_dict;
 }
@@ -1134,12 +1134,12 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
   std::unordered_map<std::string, torch::Tensor> state_dict;
 
   if (shm_names.empty()) {
-    std::cerr << "shm_names is empty" << std::endl;
+    LOG(INFO) << "shm_names is empty";
     return {};
   }
 
   if (name_groups.empty()) {
-    std::cerr << "name_groups is empty" << std::endl;
+    LOG(INFO) << "name_groups is empty";
     return {};
   }
 
@@ -1178,7 +1178,7 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
     const auto& name_group = name_groups[group_id];
     
     if (name_group.empty()) {
-      std::cerr << "Group " << group_id << " is empty, skipping" << std::endl;
+      LOG(INFO) << "Group " << group_id << " is empty, skipping";
       continue;
     }
 
@@ -1190,7 +1190,7 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
     for (const std::string& name : name_group) {
       auto it = tensor_metadata.find(name);
       if (it == tensor_metadata.end()) {
-        std::cerr << "Tensor " << name << " not found in tensor_metadata" << std::endl;
+        LOG(INFO) << "Tensor " << name << " not found in tensor_metadata";
         continue;
       }
 
@@ -1219,7 +1219,7 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
     }
 
     if (group_info.tensors.empty()) {
-      std::cerr << "Group " << group_id << " has no valid tensors, skipping" << std::endl;
+      LOG(INFO) << "Group " << group_id << " has no valid tensors, skipping";
       continue;
     }
 
@@ -1233,7 +1233,7 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
     }
 
     if (!same_shape) {
-      std::cerr << "Group " << group_id << " has tensors with different shapes or dtypes, skipping" << std::endl;
+      LOG(INFO) << "Group " << group_id << " has tensors with different shapes or dtypes, skipping";
       continue;
     }
 
@@ -1255,7 +1255,7 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
   }
 
   if (groups_info.empty()) {
-    std::cerr << "No valid groups found" << std::endl;
+    LOG(INFO) << "No valid groups found";
     return {};
   }
 
@@ -1264,9 +1264,9 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
     void* contiguous_memory = mmap(nullptr, group_info.total_size, PROT_READ | PROT_WRITE,
                                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (contiguous_memory == MAP_FAILED) {
-      std::cerr << "[RestoreExpertsGroupsFromSharedMemory] ERROR: Failed to allocate contiguous virtual address space for group "
+      LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemory] ERROR: Failed to allocate contiguous virtual address space for group "
                 << group_info.group_id << " of size " << group_info.total_size
-                << ": " << strerror(errno) << std::endl;
+                << ": " << strerror(errno);
       for (auto& prev_group : groups_info) {
         if (prev_group.contiguous_memory != nullptr) {
           munmap(prev_group.contiguous_memory, prev_group.total_size);
@@ -1280,16 +1280,16 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
     size_t page_size = 4096;
     uintptr_t addr_val = reinterpret_cast<uintptr_t>(contiguous_memory);
     if (addr_val % page_size != 0) {
-      std::cerr << "[RestoreExpertsGroupsFromSharedMemory] WARNING: Group " << group_info.group_id
+      LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemory] WARNING: Group " << group_info.group_id
                 << " contiguous_memory=" << contiguous_memory 
                 << " (0x" << std::hex << addr_val << std::dec << ") is not page-aligned!"
-                << " Remainder: " << (addr_val % page_size) << std::endl;
+                << " Remainder: " << (addr_val % page_size);
     }
     
-    std::cerr << "[RestoreExpertsGroupsFromSharedMemory] Allocated contiguous memory for group " 
+    LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemory] Allocated contiguous memory for group " 
               << group_info.group_id << " at " << contiguous_memory 
               << " (0x" << std::hex << addr_val << std::dec << ") size=" 
-              << group_info.total_size << " bytes" << std::endl;
+              << group_info.total_size << " bytes";
   }
 
   // 第三步：为每个 group 映射数据
@@ -1300,9 +1300,9 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
     size_t page_size = 4096;
     void* prev_mapped_end = group_info.contiguous_memory;  // 跟踪前一个映射的结束位置
 
-    std::cerr << "[RestoreExpertsGroupsFromSharedMemory] Mapping group " << group_info.group_id
+    LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemory] Mapping group " << group_info.group_id
               << " with " << group_info.tensors.size() << " tensors, total_size=" 
-              << group_info.total_size << " bytes" << std::endl;
+              << group_info.total_size << " bytes";
 
     for (size_t tensor_idx = 0; tensor_idx < group_info.tensors.size(); ++tensor_idx) {
       const auto& tensor_info = group_info.tensors[tensor_idx];
@@ -1316,34 +1316,34 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
       );
       if (current_offset < prev_mapped_end_offset) {
         current_offset = prev_mapped_end_offset;
-        std::cerr << "[RestoreExpertsGroupsFromSharedMemory] WARNING: Group " << group_info.group_id
+        LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemory] WARNING: Group " << group_info.group_id
                   << " tensor " << tensor_info.name
-                  << " adjusted current_offset to avoid overlap: " << current_offset << std::endl;
+                  << " adjusted current_offset to avoid overlap: " << current_offset;
       }
       
-      std::cerr << "[RestoreExpertsGroupsFromSharedMemory] Group " << group_info.group_id
+      LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemory] Group " << group_info.group_id
                 << " tensor " << tensor_idx << "/" << group_info.tensors.size()
                 << " name=" << tensor_info.name
                 << " size=" << tensor_info.size << " bytes"
-                << " current_offset=" << current_offset << " (page-aligned)" << std::endl;
+                << " current_offset=" << current_offset << " (page-aligned)";
       
       int shm_fd;
       if (chunk_fds.find(tensor_info.chunk_id) == chunk_fds.end()) {
         if (tensor_info.chunk_id >= shm_names.size()) {
-          std::cerr << "[RestoreExpertsGroupsFromSharedMemory] ERROR: Chunk ID " << tensor_info.chunk_id 
-                    << " exceeds shm_names size " << shm_names.size() << std::endl;
+          LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemory] ERROR: Chunk ID " << tensor_info.chunk_id 
+                    << " exceeds shm_names size " << shm_names.size();
           continue;
         }
         const std::string& shm_name = shm_names[tensor_info.chunk_id];
         shm_fd = shm_open(shm_name.c_str(), O_RDWR, 0);
         if (shm_fd == -1) {
-          std::cerr << "[RestoreExpertsGroupsFromSharedMemory] ERROR: Failed to open shared memory " 
-                    << shm_name << ": " << strerror(errno) << std::endl;
+          LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemory] ERROR: Failed to open shared memory " 
+                    << shm_name << ": " << strerror(errno);
           continue;
         }
         chunk_fds[tensor_info.chunk_id] = shm_fd;
-        std::cerr << "[RestoreExpertsGroupsFromSharedMemory] Opened shared memory " << shm_name 
-                  << " (chunk_id=" << tensor_info.chunk_id << ")" << std::endl;
+        LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemory] Opened shared memory " << shm_name 
+                  << " (chunk_id=" << tensor_info.chunk_id << ")";
       } else {
         shm_fd = chunk_fds[tensor_info.chunk_id];
       }
@@ -1371,15 +1371,15 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
           int shm_fd_current;
           if (chunk_fds.find(current_chunk_id) == chunk_fds.end()) {
             if (current_chunk_id >= shm_names.size()) {
-              std::cerr << "[RestoreExpertsGroupsFromSharedMemory] ERROR: Chunk ID " << current_chunk_id 
-                        << " exceeds shm_names size " << shm_names.size() << std::endl;
+              LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemory] ERROR: Chunk ID " << current_chunk_id 
+                        << " exceeds shm_names size " << shm_names.size();
               break;
             }
             const std::string& shm_name = shm_names[current_chunk_id];
             shm_fd_current = shm_open(shm_name.c_str(), O_RDWR, 0);
             if (shm_fd_current == -1) {
-              std::cerr << "[RestoreExpertsGroupsFromSharedMemory] ERROR: Failed to open shared memory " 
-                        << shm_name << ": " << strerror(errno) << std::endl;
+              LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemory] ERROR: Failed to open shared memory " 
+                        << shm_name << ": " << strerror(errno);
               break;
             }
             chunk_fds[current_chunk_id] = shm_fd_current;
@@ -1394,8 +1394,8 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
           
           void* temp_mapped_addr = mmap(nullptr, map_size, PROT_READ, MAP_SHARED, shm_fd_current, aligned_chunk_offset);
           if (temp_mapped_addr == MAP_FAILED) {
-            std::cerr << "[RestoreExpertsGroupsFromSharedMemory] ERROR: Failed to mmap temp for cross-chunk tensor " 
-                      << tensor_info.name << " chunk " << current_chunk_id << ": " << strerror(errno) << std::endl;
+            LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemory] ERROR: Failed to mmap temp for cross-chunk tensor " 
+                      << tensor_info.name << " chunk " << current_chunk_id << ": " << strerror(errno);
             break;
           }
           
@@ -1414,8 +1414,8 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
         }
         
         if (total_copied != tensor_info.size) {
-          std::cerr << "[RestoreExpertsGroupsFromSharedMemory] ERROR: Failed to copy cross-chunk tensor " 
-                    << tensor_info.name << ": copied " << total_copied << " / " << tensor_info.size << " bytes" << std::endl;
+          LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemory] ERROR: Failed to copy cross-chunk tensor " 
+                    << tensor_info.name << ": copied " << total_copied << " / " << tensor_info.size << " bytes";
           continue;
         }
         
@@ -1423,36 +1423,36 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
         prev_mapped_end = static_cast<char*>(target_addr) + tensor_info.size;
         current_offset += tensor_info.size;
         
-        std::cerr << "[RestoreExpertsGroupsFromSharedMemory] Group " << group_info.group_id
+        LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemory] Group " << group_info.group_id
                   << " tensor " << tensor_info.name
                   << " copied via memcpy (crosses chunks " << tensor_info.chunk_id 
                   << " -> " << tensor_info.end_chunk_id << ")"
                   << " target_addr=" << target_addr
-                  << " size=" << tensor_info.size << std::endl;
+                  << " size=" << tensor_info.size;
       } else if (offset_adjustment == 0) {
         // 最优情况：offset_adjustment == 0，可以直接映射，无需复制
         size_t map_size = ((tensor_info.size + page_size - 1) / page_size) * page_size;
         void* aligned_target_addr = target_addr;  // 已经是页对齐的
         
-        std::cerr << "[RestoreExpertsGroupsFromSharedMemory] Group " << group_info.group_id
+        LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemory] Group " << group_info.group_id
                   << " tensor " << tensor_info.name
                   << " mmap: target_addr=" << target_addr
                   << " map_size=" << map_size
-                  << " shm_offset=" << shm_offset << " (page-aligned)" << std::endl;
+                  << " shm_offset=" << shm_offset << " (page-aligned)";
 
       void* mapped_addr = mmap(aligned_target_addr, map_size, PROT_READ | PROT_WRITE,
                                MAP_SHARED | MAP_FIXED, shm_fd, aligned_shm_offset);
 
       if (mapped_addr == MAP_FAILED || mapped_addr != aligned_target_addr) {
-          std::cerr << "[RestoreExpertsGroupsFromSharedMemory] ERROR: Failed to mmap for group " 
+          LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemory] ERROR: Failed to mmap for group " 
                     << group_info.group_id << " tensor " << tensor_info.name 
-                    << ": " << strerror(errno) << std::endl;
+                    << ": " << strerror(errno);
         continue;
       }
 
-        std::cerr << "[RestoreExpertsGroupsFromSharedMemory] Successfully mapped group " 
+        LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemory] Successfully mapped group " 
                   << group_info.group_id << " tensor " << tensor_info.name
-                  << " at " << mapped_addr << " size=" << map_size << std::endl;
+                  << " at " << mapped_addr << " size=" << map_size;
         
         // 确保数据已同步到内存（避免访问未加载的内存导致 Bus error）
         msync(mapped_addr, map_size, MS_SYNC);
@@ -1466,9 +1466,9 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
         void* temp_mapped_addr = mmap(nullptr, map_size, PROT_READ, MAP_SHARED, shm_fd, aligned_shm_offset);
         
         if (temp_mapped_addr == MAP_FAILED) {
-          std::cerr << "[RestoreExpertsGroupsFromSharedMemory] ERROR: Failed to mmap temp for group " 
+          LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemory] ERROR: Failed to mmap temp for group " 
                     << group_info.group_id << " tensor " << tensor_info.name 
-                    << ": " << strerror(errno) << std::endl;
+                    << ": " << strerror(errno);
           continue;
         }
         
@@ -1483,29 +1483,29 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
         prev_mapped_end = static_cast<char*>(target_addr) + tensor_info.size;
         current_offset += tensor_info.size;
         
-        std::cerr << "[RestoreExpertsGroupsFromSharedMemory] Group " << group_info.group_id
+        LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemory] Group " << group_info.group_id
                   << " tensor " << tensor_info.name
                   << " copied via memcpy (offset_adjustment=" << offset_adjustment << ")"
                   << " target_addr=" << target_addr
-                  << " size=" << tensor_info.size << std::endl;
+                  << " size=" << tensor_info.size;
       }
       
-      std::cerr << "[RestoreExpertsGroupsFromSharedMemory] Group " << group_info.group_id
+      LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemory] Group " << group_info.group_id
                 << " tensor " << tensor_info.name
                 << " updated current_offset=" << current_offset
-                << " prev_mapped_end=" << prev_mapped_end << std::endl;
+                << " prev_mapped_end=" << prev_mapped_end;
       
       // 检查是否超出分配的内存范围
       if (current_offset > group_info.total_size) {
-        std::cerr << "[RestoreExpertsGroupsFromSharedMemory] WARNING: Group " << group_info.group_id
+        LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemory] WARNING: Group " << group_info.group_id
                   << " current_offset=" << current_offset 
-                  << " exceeds total_size=" << group_info.total_size << std::endl;
+                  << " exceeds total_size=" << group_info.total_size;
       }
     }
     
-    std::cerr << "[RestoreExpertsGroupsFromSharedMemory] Group " << group_info.group_id
+    LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemory] Group " << group_info.group_id
               << " mapping completed, final_offset=" << current_offset 
-              << " total_size=" << group_info.total_size << std::endl;
+              << " total_size=" << group_info.total_size;
   }
 
   for (auto& [chunk_id, fd] : chunk_fds) {
@@ -1580,12 +1580,12 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
   std::unordered_map<std::string, torch::Tensor> state_dict;
 
   if (shm_names.empty()) {
-    std::cerr << "shm_names is empty" << std::endl;
+    LOG(INFO) << "shm_names is empty";
     return {};
   }
 
   if (name_groups.empty()) {
-    std::cerr << "name_groups is empty" << std::endl;
+    LOG(INFO) << "name_groups is empty";
     return {};
   }
 
@@ -1624,7 +1624,7 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
     const auto& name_group = name_groups[group_id];
     
     if (name_group.empty()) {
-      std::cerr << "Group " << group_id << " is empty, skipping" << std::endl;
+      LOG(INFO) << "Group " << group_id << " is empty, skipping";
       continue;
     }
 
@@ -1636,7 +1636,7 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
     for (const std::string& name : name_group) {
       auto it = tensor_metadata.find(name);
       if (it == tensor_metadata.end()) {
-        std::cerr << "Tensor " << name << " not found in tensor_metadata" << std::endl;
+        LOG(INFO) << "Tensor " << name << " not found in tensor_metadata";
         continue;
       }
 
@@ -1665,7 +1665,7 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
     }
 
     if (group_info.tensors.empty()) {
-      std::cerr << "Group " << group_id << " has no valid tensors, skipping" << std::endl;
+      LOG(INFO) << "Group " << group_id << " has no valid tensors, skipping";
       continue;
     }
 
@@ -1679,7 +1679,7 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
     }
 
     if (!same_shape) {
-      std::cerr << "Group " << group_id << " has tensors with different shapes or dtypes, skipping" << std::endl;
+      LOG(INFO) << "Group " << group_id << " has tensors with different shapes or dtypes, skipping";
       continue;
     }
 
@@ -1701,7 +1701,7 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
   }
 
   if (groups_info.empty()) {
-    std::cerr << "No valid groups found" << std::endl;
+    LOG(INFO) << "No valid groups found";
     return {};
   }
 
@@ -1740,12 +1740,12 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
           reused_memory = cached.contiguous_memory;
           reused_size = cached.total_size;
           reused_key = cached_key;
-          std::cerr << "[RestoreExpertsGroupsFromSharedMemoryCached] Reusing cached virtual address space for group " 
+          LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemoryCached] Reusing cached virtual address space for group " 
                     << group_info.group_id 
                     << " (cached_size=" << cached.total_size 
                     << ", required_size=" << required_size_aligned 
                     << ", key: " << cached_key 
-                    << ", previous_ref_count=" << ref_count << ")" << std::endl;
+                    << ", previous_ref_count=" << ref_count << ")";
           break;
         }
       }
@@ -1755,9 +1755,9 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
         void* contiguous_memory = mmap(nullptr, required_size_aligned, PROT_READ | PROT_WRITE,
                                         MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
         if (contiguous_memory == MAP_FAILED) {
-          std::cerr << "[RestoreExpertsGroupsFromSharedMemoryCached] ERROR: Failed to allocate contiguous virtual address space for group "
+          LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemoryCached] ERROR: Failed to allocate contiguous virtual address space for group "
                     << group_info.group_id << " of size " << required_size_aligned
-                    << ": " << strerror(errno) << std::endl;
+                    << ": " << strerror(errno);
           continue;
         }
         group_info.contiguous_memory = contiguous_memory;
@@ -1773,9 +1773,9 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
         group_memory_cache[address_key] = cached;
         cached_memory_ref_counts[group_info.contiguous_memory] = cached.ref_count;
         
-        std::cerr << "[RestoreExpertsGroupsFromSharedMemoryCached] Allocated and cached virtual address space for group " 
+        LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemoryCached] Allocated and cached virtual address space for group " 
                   << group_info.group_id << " at " << contiguous_memory 
-                  << " size=" << required_size_aligned << " bytes (key: " << address_key << ")" << std::endl;
+                  << " size=" << required_size_aligned << " bytes (key: " << address_key << ")";
       }
       
       // 更新 group_info.total_size 为实际分配的虚拟地址空间大小
@@ -1797,17 +1797,17 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
     size_t page_size = 4096;
     void* prev_mapped_end = group_info.contiguous_memory;
 
-    std::cerr << "[RestoreExpertsGroupsFromSharedMemoryCached] Mapping group " << group_info.group_id
+    LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemoryCached] Mapping group " << group_info.group_id
               << " with " << group_info.tensors.size() << " tensors, total_size=" 
               << group_info.total_size << " bytes"
-              << " contiguous_memory=" << group_info.contiguous_memory << std::endl;
+              << " contiguous_memory=" << group_info.contiguous_memory;
 
     for (size_t tensor_idx = 0; tensor_idx < group_info.tensors.size(); ++tensor_idx) {
       const auto& tensor_info = group_info.tensors[tensor_idx];
       
-      std::cerr << "[RestoreExpertsGroupsFromSharedMemoryCached] Group " << group_info.group_id
+      LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemoryCached] Group " << group_info.group_id
                 << " tensor " << tensor_idx << "/" << group_info.tensors.size()
-                << " name=" << tensor_info.name << " size=" << tensor_info.size << " bytes" << std::endl;
+                << " name=" << tensor_info.name << " size=" << tensor_info.size << " bytes";
       
       current_offset = ((current_offset + page_size - 1) / page_size) * page_size;
       
@@ -1818,32 +1818,32 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
         current_offset = prev_mapped_end_offset;
       }
       
-      std::cerr << "[RestoreExpertsGroupsFromSharedMemoryCached] Group " << group_info.group_id
-                << " tensor " << tensor_idx << " current_offset=" << current_offset << std::endl;
+      LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemoryCached] Group " << group_info.group_id
+                << " tensor " << tensor_idx << " current_offset=" << current_offset;
       
       int shm_fd;
       if (chunk_fds.find(tensor_info.chunk_id) == chunk_fds.end()) {
         if (tensor_info.chunk_id >= shm_names.size()) {
-          std::cerr << "[RestoreExpertsGroupsFromSharedMemoryCached] ERROR: Chunk ID " << tensor_info.chunk_id 
-                    << " exceeds shm_names size " << shm_names.size() << std::endl;
+          LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemoryCached] ERROR: Chunk ID " << tensor_info.chunk_id 
+                    << " exceeds shm_names size " << shm_names.size();
           continue;
         }
         const std::string& shm_name = shm_names[tensor_info.chunk_id];
-        std::cerr << "[RestoreExpertsGroupsFromSharedMemoryCached] Opening shared memory " 
-                  << shm_name << " (chunk_id=" << tensor_info.chunk_id << ")" << std::endl;
+        LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemoryCached] Opening shared memory " 
+                  << shm_name << " (chunk_id=" << tensor_info.chunk_id << ")";
         shm_fd = shm_open(shm_name.c_str(), O_RDWR, 0);
         if (shm_fd == -1) {
-          std::cerr << "[RestoreExpertsGroupsFromSharedMemoryCached] ERROR: Failed to open shared memory " 
-                    << shm_name << ": " << strerror(errno) << std::endl;
+          LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemoryCached] ERROR: Failed to open shared memory " 
+                    << shm_name << ": " << strerror(errno);
           continue;
         }
         chunk_fds[tensor_info.chunk_id] = shm_fd;
-        std::cerr << "[RestoreExpertsGroupsFromSharedMemoryCached] Successfully opened shared memory " 
-                  << shm_name << " fd=" << shm_fd << std::endl;
+        LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemoryCached] Successfully opened shared memory " 
+                  << shm_name << " fd=" << shm_fd;
       } else {
         shm_fd = chunk_fds[tensor_info.chunk_id];
-        std::cerr << "[RestoreExpertsGroupsFromSharedMemoryCached] Reusing fd=" << shm_fd 
-                  << " for chunk_id=" << tensor_info.chunk_id << std::endl;
+        LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemoryCached] Reusing fd=" << shm_fd 
+                  << " for chunk_id=" << tensor_info.chunk_id;
       }
 
       void* target_addr = static_cast<char*>(group_info.contiguous_memory) + current_offset;
@@ -1851,15 +1851,15 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
       off_t aligned_shm_offset = (shm_offset / static_cast<off_t>(page_size)) * static_cast<off_t>(page_size);
       off_t offset_adjustment = shm_offset - aligned_shm_offset;
       
-      std::cerr << "[RestoreExpertsGroupsFromSharedMemoryCached] Group " << group_info.group_id
+      LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemoryCached] Group " << group_info.group_id
                 << " tensor " << tensor_idx << " target_addr=" << target_addr
                 << " shm_offset=" << shm_offset << " aligned_shm_offset=" << aligned_shm_offset
                 << " offset_adjustment=" << offset_adjustment
-                << " crosses_chunk=" << tensor_info.crosses_chunk_boundary << std::endl;
+                << " crosses_chunk=" << tensor_info.crosses_chunk_boundary;
 
       if (tensor_info.crosses_chunk_boundary) {
-        std::cerr << "[RestoreExpertsGroupsFromSharedMemoryCached] Group " << group_info.group_id
-                  << " tensor " << tensor_idx << " crosses chunk boundary, using memcpy" << std::endl;
+        LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemoryCached] Group " << group_info.group_id
+                  << " tensor " << tensor_idx << " crosses chunk boundary, using memcpy";
         size_t total_copied = 0;
         size_t remaining_size = tensor_info.size;
         size_t current_chunk_id = tensor_info.chunk_id;
@@ -1869,24 +1869,24 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
           size_t chunk_remaining = chunk_size - current_chunk_offset;
           size_t copy_size = (remaining_size < chunk_remaining) ? remaining_size : chunk_remaining;
           
-          std::cerr << "[RestoreExpertsGroupsFromSharedMemoryCached] Group " << group_info.group_id
+          LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemoryCached] Group " << group_info.group_id
                     << " tensor " << tensor_idx << " copying from chunk " << current_chunk_id
-                    << " offset " << current_chunk_offset << " size " << copy_size << std::endl;
+                    << " offset " << current_chunk_offset << " size " << copy_size;
           
           int shm_fd_current;
           if (chunk_fds.find(current_chunk_id) == chunk_fds.end()) {
             if (current_chunk_id >= shm_names.size()) {
-              std::cerr << "[RestoreExpertsGroupsFromSharedMemoryCached] ERROR: Chunk ID " << current_chunk_id 
-                        << " exceeds shm_names size" << std::endl;
+              LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemoryCached] ERROR: Chunk ID " << current_chunk_id 
+                        << " exceeds shm_names size";
               break;
             }
             const std::string& shm_name = shm_names[current_chunk_id];
-            std::cerr << "[RestoreExpertsGroupsFromSharedMemoryCached] Opening chunk " << current_chunk_id
-                      << " shared memory " << shm_name << std::endl;
+            LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemoryCached] Opening chunk " << current_chunk_id
+                      << " shared memory " << shm_name;
             shm_fd_current = shm_open(shm_name.c_str(), O_RDWR, 0);
             if (shm_fd_current == -1) {
-              std::cerr << "[RestoreExpertsGroupsFromSharedMemoryCached] ERROR: Failed to open chunk " 
-                        << current_chunk_id << " shared memory: " << strerror(errno) << std::endl;
+              LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemoryCached] ERROR: Failed to open chunk " 
+                        << current_chunk_id << " shared memory: " << strerror(errno);
               break;
             }
             chunk_fds[current_chunk_id] = shm_fd_current;
@@ -1898,22 +1898,22 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
           off_t chunk_offset_adjustment = current_chunk_offset - aligned_chunk_offset;
           size_t map_size = ((copy_size + chunk_offset_adjustment + page_size - 1) / page_size) * page_size;
           
-          std::cerr << "[RestoreExpertsGroupsFromSharedMemoryCached] Group " << group_info.group_id
+          LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemoryCached] Group " << group_info.group_id
                     << " tensor " << tensor_idx << " mmap temp size=" << map_size 
-                    << " offset=" << aligned_chunk_offset << std::endl;
+                    << " offset=" << aligned_chunk_offset;
           
           void* temp_mapped_addr = mmap(nullptr, map_size, PROT_READ, MAP_SHARED, shm_fd_current, aligned_chunk_offset);
           if (temp_mapped_addr == MAP_FAILED) {
-            std::cerr << "[RestoreExpertsGroupsFromSharedMemoryCached] ERROR: mmap failed for chunk " 
-                      << current_chunk_id << ": " << strerror(errno) << std::endl;
+            LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemoryCached] ERROR: mmap failed for chunk " 
+                      << current_chunk_id << ": " << strerror(errno);
             break;
           }
           
           void* src_addr = static_cast<char*>(temp_mapped_addr) + chunk_offset_adjustment;
           void* dst_addr = static_cast<char*>(target_addr) + total_copied;
           
-          std::cerr << "[RestoreExpertsGroupsFromSharedMemoryCached] Group " << group_info.group_id
-                    << " tensor " << tensor_idx << " memcpy " << copy_size << " bytes" << std::endl;
+          LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemoryCached] Group " << group_info.group_id
+                    << " tensor " << tensor_idx << " memcpy " << copy_size << " bytes";
           std::memcpy(dst_addr, src_addr, copy_size);
           
           munmap(temp_mapped_addr, map_size);
@@ -1925,23 +1925,23 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
         }
         
         if (total_copied != tensor_info.size) {
-          std::cerr << "[RestoreExpertsGroupsFromSharedMemoryCached] ERROR: Group " << group_info.group_id
+          LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemoryCached] ERROR: Group " << group_info.group_id
                     << " tensor " << tensor_idx << " copied " << total_copied 
-                    << " / " << tensor_info.size << " bytes" << std::endl;
+                    << " / " << tensor_info.size << " bytes";
           continue;
         }
         
         prev_mapped_end = static_cast<char*>(target_addr) + tensor_info.size;
         current_offset += tensor_info.size;
-        std::cerr << "[RestoreExpertsGroupsFromSharedMemoryCached] Group " << group_info.group_id
-                  << " tensor " << tensor_idx << " cross-chunk copy completed" << std::endl;
+        LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemoryCached] Group " << group_info.group_id
+                  << " tensor " << tensor_idx << " cross-chunk copy completed";
       } else if (offset_adjustment == 0) {
         size_t map_size = ((tensor_info.size + page_size - 1) / page_size) * page_size;
         void* aligned_target_addr = target_addr;
 
-        std::cerr << "[RestoreExpertsGroupsFromSharedMemoryCached] Group " << group_info.group_id
+        LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemoryCached] Group " << group_info.group_id
                   << " tensor " << tensor_idx << " direct mmap size=" << map_size
-                  << " target=" << aligned_target_addr << " shm_offset=" << aligned_shm_offset << std::endl;
+                  << " target=" << aligned_target_addr << " shm_offset=" << aligned_shm_offset;
 
         // 使用 MAP_FIXED 可以直接替换现有映射，不需要先 munmap
         // MAP_FIXED 会自动取消目标地址范围内的现有映射并创建新映射
@@ -1950,14 +1950,14 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
                                  MAP_SHARED | MAP_FIXED, shm_fd, aligned_shm_offset);
 
         if (mapped_addr == MAP_FAILED || mapped_addr != aligned_target_addr) {
-          std::cerr << "[RestoreExpertsGroupsFromSharedMemoryCached] ERROR: Group " << group_info.group_id
+          LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemoryCached] ERROR: Group " << group_info.group_id
                     << " tensor " << tensor_idx << " mmap failed: " << strerror(errno)
-                    << " mapped_addr=" << mapped_addr << " expected=" << aligned_target_addr << std::endl;
+                    << " mapped_addr=" << mapped_addr << " expected=" << aligned_target_addr;
           continue;
         }
 
-        std::cerr << "[RestoreExpertsGroupsFromSharedMemoryCached] Group " << group_info.group_id
-                  << " tensor " << tensor_idx << " mmap successful" << std::endl;
+        LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemoryCached] Group " << group_info.group_id
+                  << " tensor " << tensor_idx << " mmap successful";
         
         // msync 可能会阻塞很长时间，特别是对于大文件
         // 由于数据已经在共享内存中，msync 可能不是必需的
@@ -1965,12 +1965,12 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
         // 或者完全移除 msync，因为共享内存的数据应该已经是同步的
         // 暂时注释掉 msync，如果后续发现数据不一致问题再启用
         /*
-        std::cerr << "[RestoreExpertsGroupsFromSharedMemoryCached] Group " << group_info.group_id
-                  << " tensor " << tensor_idx << " calling msync (async)..." << std::endl;
+            LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemoryCached] Group " << group_info.group_id
+                      << " tensor " << tensor_idx << " calling msync (async)...";
         int msync_result = msync(mapped_addr, map_size, MS_ASYNC);
         if (msync_result != 0) {
-          std::cerr << "[RestoreExpertsGroupsFromSharedMemoryCached] WARNING: Group " << group_info.group_id
-                    << " tensor " << tensor_idx << " msync failed: " << strerror(errno) << std::endl;
+          LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemoryCached] WARNING: Group " << group_info.group_id
+                    << " tensor " << tensor_idx << " msync failed: " << strerror(errno);
         }
         */
         
@@ -1979,22 +1979,22 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
       } else {
         size_t map_size = ((tensor_info.size + offset_adjustment + page_size - 1) / page_size) * page_size;
         
-        std::cerr << "[RestoreExpertsGroupsFromSharedMemoryCached] Group " << group_info.group_id
+        LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemoryCached] Group " << group_info.group_id
                   << " tensor " << tensor_idx << " memcpy path: map_size=" << map_size
-                  << " offset_adjustment=" << offset_adjustment << std::endl;
+                  << " offset_adjustment=" << offset_adjustment;
         
         void* temp_mapped_addr = mmap(nullptr, map_size, PROT_READ, MAP_SHARED, shm_fd, aligned_shm_offset);
         
         if (temp_mapped_addr == MAP_FAILED) {
-          std::cerr << "[RestoreExpertsGroupsFromSharedMemoryCached] ERROR: Group " << group_info.group_id
-                    << " tensor " << tensor_idx << " temp mmap failed: " << strerror(errno) << std::endl;
+          LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemoryCached] ERROR: Group " << group_info.group_id
+                    << " tensor " << tensor_idx << " temp mmap failed: " << strerror(errno);
           continue;
         }
         
         void* src_addr = static_cast<char*>(temp_mapped_addr) + offset_adjustment;
         
-        std::cerr << "[RestoreExpertsGroupsFromSharedMemoryCached] Group " << group_info.group_id
-                  << " tensor " << tensor_idx << " memcpy " << tensor_info.size << " bytes" << std::endl;
+        LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemoryCached] Group " << group_info.group_id
+                  << " tensor " << tensor_idx << " memcpy " << tensor_info.size << " bytes";
         std::memcpy(target_addr, src_addr, tensor_info.size);
         
         munmap(temp_mapped_addr, map_size);
@@ -2002,12 +2002,12 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
         prev_mapped_end = static_cast<char*>(target_addr) + tensor_info.size;
         current_offset += tensor_info.size;
         
-        std::cerr << "[RestoreExpertsGroupsFromSharedMemoryCached] Group " << group_info.group_id
-                  << " tensor " << tensor_idx << " memcpy completed" << std::endl;
+        LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemoryCached] Group " << group_info.group_id
+                  << " tensor " << tensor_idx << " memcpy completed";
       }
       
-      std::cerr << "[RestoreExpertsGroupsFromSharedMemoryCached] Group " << group_info.group_id
-                << " tensor " << tensor_idx << " mapping completed" << std::endl;
+      LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemoryCached] Group " << group_info.group_id
+                << " tensor " << tensor_idx << " mapping completed";
     }
   }
 
@@ -2020,8 +2020,8 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
     std::lock_guard<std::mutex> lock(cache_mutex);
     
     for (auto& group_info : groups_info) {
-      std::cerr << "[RestoreExpertsGroupsFromSharedMemoryCached] Creating big_tensor for group " 
-                << group_info.group_id << std::endl;
+      LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemoryCached] Creating big_tensor for group " 
+                << group_info.group_id;
       
       torch::Tensor big_tensor = torch::from_blob(
           group_info.contiguous_memory,
@@ -2037,11 +2037,11 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
       std::shared_ptr<std::atomic<int>> ref_count = nullptr;
       if (cached_memory_ref_counts.find(group_info.contiguous_memory) != cached_memory_ref_counts.end()) {
         ref_count = cached_memory_ref_counts[group_info.contiguous_memory];
-        std::cerr << "[RestoreExpertsGroupsFromSharedMemoryCached] Found ref_count for group " 
-                  << group_info.group_id << " at " << group_info.contiguous_memory << std::endl;
+        LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemoryCached] Found ref_count for group " 
+                  << group_info.group_id << " at " << group_info.contiguous_memory;
       } else {
-        std::cerr << "[RestoreExpertsGroupsFromSharedMemoryCached] ERROR: Failed to find ref_count for group " 
-                  << group_info.group_id << " at " << group_info.contiguous_memory << std::endl;
+        LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemoryCached] ERROR: Failed to find ref_count for group " 
+                  << group_info.group_id << " at " << group_info.contiguous_memory;
         continue;
       }
 
@@ -2053,8 +2053,8 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
           [ref_count, contiguous_memory = group_info.contiguous_memory](void* ptr) {
             // 只减少引用计数，不立即释放内存
             int remaining = ref_count->fetch_sub(1) - 1;
-            std::cerr << "[RestoreExpertsGroupsFromSharedMemoryCached] Tensor released, remaining refs: " 
-                      << remaining << " for address: " << contiguous_memory << std::endl;
+            LOG(INFO) << "[RestoreExpertsGroupsFromSharedMemoryCached] Tensor released, remaining refs: " 
+                      << remaining << " for address: " << contiguous_memory;
             // 注意：内存不会在这里释放，需要通过主动调用释放函数来释放
           },
           big_tensor.options());
@@ -2077,23 +2077,23 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
 void ReleaseCachedGroupMemory() {
   std::lock_guard<std::mutex> lock(cache_mutex);
   
-  std::cerr << "[ReleaseCachedGroupMemory] Releasing " << group_memory_cache.size() 
-            << " cached group memory mappings" << std::endl;
+  LOG(INFO) << "[ReleaseCachedGroupMemory] Releasing " << group_memory_cache.size() 
+            << " cached group memory mappings";
   
   for (auto& [group_key, cached] : group_memory_cache) {
     // 检查引用计数，如果还有引用，打印警告但不强制释放
     int ref_count = cached.ref_count->load();
     if (ref_count > 0) {
-      std::cerr << "[ReleaseCachedGroupMemory] WARNING: Group key " << group_key 
-                << " still has " << ref_count << " references, skipping release" << std::endl;
+      LOG(INFO) << "[ReleaseCachedGroupMemory] WARNING: Group key " << group_key 
+                << " still has " << ref_count << " references, skipping release";
       continue;
     }
     
     // 释放内存映射
     if (cached.contiguous_memory != nullptr) {
       munmap(cached.contiguous_memory, cached.total_size);
-      std::cerr << "[ReleaseCachedGroupMemory] Released memory for group key: " 
-                << group_key << " (size: " << (cached.total_size / 1024 / 1024) << " MB)" << std::endl;
+      LOG(INFO) << "[ReleaseCachedGroupMemory] Released memory for group key: " 
+                << group_key << " (size: " << (cached.total_size / 1024 / 1024) << " MB)";
     }
     
     // 从引用计数映射中移除
@@ -2103,5 +2103,5 @@ void ReleaseCachedGroupMemory() {
   // 清空缓存
   group_memory_cache.clear();
   
-  std::cerr << "[ReleaseCachedGroupMemory] All cached group memory mappings released" << std::endl;
+  LOG(INFO) << "[ReleaseCachedGroupMemory] All cached group memory mappings released";
 }
