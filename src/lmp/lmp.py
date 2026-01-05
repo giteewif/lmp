@@ -172,6 +172,9 @@ class MLPLLM:
                 # 测试Deepseek 跳过dense测试
                 logger.debug(f"-------------------------------- start layer {layer_idx} --------------------------------")
 
+                cuda_hook_time(f"start_load_qkvogn_s_weight_l_{layer_idx+1}")
+                self.cmv.start_load_qkvogn_s_weight(layer_idx=layer_idx+1, device=self.device1)
+                cuda_hook_time_end(f"start_load_qkvogn_s_weight_l_{layer_idx+1}")
 
                 cuda_hook_time("iln_self_attn_paln")
                 residual = ghidden_states
@@ -287,6 +290,7 @@ class MLPLLM:
         cuda_hook_time_end("dense_mlp")
         # decode
         self.layer_moe_dgenerate(1, ghidden_states)
+        torch.cuda.synchronize()
     @torch.no_grad()
     def layer_moe_generate(
         self, 
@@ -442,10 +446,6 @@ class MLPLLM:
         )
         cuda_hook_time_end("gpu_sexperts")
 
-        cuda_hook_time(f"start_load_qkvogn_s_weight_l_{layer_idx+1}")
-        self.cmv.start_load_qkvogn_s_weight(layer_idx=layer_idx+1, device=self.device1)
-        cuda_hook_time_end(f"start_load_qkvogn_s_weight_l_{layer_idx+1}")
-
         # cuda_hook_time(f"waiting_meta_l{layer_idx}")
         # if layer_idx < self.mlpm.config.num_hidden_layers - 2:
         #     # 每层计算提前等待初始化好下一层的layer, 第一层已初始化好
@@ -453,6 +453,10 @@ class MLPLLM:
         #     self.cmv.imm_submit_meta_layer(layer_idx=layer_idx+2)
         # cuda_hook_time_end(f"waiting_meta_l{layer_idx}")
 
+        # 等待 load_qkvogn_s 加载完成
+        cuda_hook_time("wait_load_qkvogn_s_weight")
+        self.cmv.wait_load_qkvogn_s_weight(layer_idx=layer_idx+1)
+        cuda_hook_time_end("wait_load_qkvogn_s_weight")
 
         cuda_hook_time("wait_experts")
         self.cmv.wait_load_into_gpu(replica_uuid1)
@@ -493,10 +497,6 @@ class MLPLLM:
         # time_einsum_end = result.time_einsum_end
         # logger.debug(f"gpu end - einsum end = {(time_gpu_end - time_einsum_end)*1000:.1f}ms")
 
-        # 等待 load_qkvogn_s 加载完成
-        cuda_hook_time("wait_load_qkvogn_s_weight")
-        self.cmv.wait_load_qkvogn_s_weight(layer_idx=layer_idx+1)
-        cuda_hook_time_end("wait_load_qkvogn_s_weight")
 
         # cuda_hook_time(f"waiting_meta_l{layer_idx}")
         # if layer_idx < self.mlpm.config.num_hidden_layers - 2:
@@ -506,7 +506,6 @@ class MLPLLM:
         # cuda_hook_time_end(f"waiting_meta_l{layer_idx}")
 
         layer_output = expert_cache.view(*orig_shape) + y
-        torch.cuda.synchronize()
 
         cuda_hook_time_end(f"layer_moe_generate_{layer_idx}")
         return layer_output
