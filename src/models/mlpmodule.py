@@ -722,7 +722,7 @@ class MLPModuleWrapper:
         
         # 优化：直接分配整个 stacked_inputs tensor，避免多次分配和 stack 操作
         # 形状: [E, max_tokens, H]
-        stacked_inputs = torch.empty(
+        stacked_inputs = torch.zeros(
             E, max_tokens, H,
             dtype=flat_hidden_states.dtype, device=flat_hidden_states.device
         )
@@ -732,7 +732,7 @@ class MLPModuleWrapper:
             token_ids = expert_token_indices_map[expert_idx]
             num_tokens = token_ids.shape[0]
             
-            # 直接从 flat_hidden_states 复制到 stacked_inputs[i, :num_tokens, :]
+            # 使用 blocking copy 以确保数据完整性（特别是跨设备复制时）
             stacked_inputs[i, :num_tokens].copy_(flat_hidden_states[token_ids], non_blocking=True)
             # padding 部分保持未初始化（如果后续不需要0值，可以跳过 zero_）
             # 如果需要确保 padding 为0，取消下面的注释
@@ -761,7 +761,6 @@ class MLPModuleWrapper:
         act_fn = ACT2FN[self.config.hidden_act]
         w1_out = act_fn(w1_out)
         
-        
 
         # 安全地检查 group_w3，避免 Bus error
         # 先检查基本属性，不访问数据
@@ -785,12 +784,9 @@ class MLPModuleWrapper:
         # w3_out: [E, max_tokens, I]
         w3_out = torch.einsum('eth,eih->eti', stacked_inputs, group_w3)
         
-            
-        logger.warning(f"intermediate")
         # intermediate: [E, max_tokens, I]
         intermediate = w1_out * w3_out
         
-        logger.warning(f"start einsum3")
         # outputs: [E, max_tokens, H] - 使用预分配的 tensor（先计算再复制）
         # 先计算结果，然后复制到预分配的 tensor（因为某些 PyTorch 版本不支持 einsum 的 out 参数）
         outputs_result = torch.einsum('eti,ehi->eth', intermediate, group_w2)
@@ -815,13 +811,33 @@ class MLPModuleWrapper:
             
             # 使用切片 [:num_tokens] 创建 view，避免拷贝
             expert_out = outputs[i][:num_tokens]
+            
+            # Debug: 检查 expert_out 在复制到 GPU 前
+            if torch.isnan(expert_out).any() or torch.isinf(expert_out).any():
+                logger.error(f"ERROR: expert_out[{i}] (expert {expert_idx}) contains NaN/Inf before GPU transfer!")
+                logger.error(f"  NaN count: {torch.isnan(expert_out).sum().item()}")
+                logger.error(f"  Inf count: {torch.isinf(expert_out).sum().item()}")
+            
             expert_out = expert_out.to(final_hidden_states.device, non_blocking=True)
+            
+            # Debug: 检查 expert_out 在 GPU 上
+            if torch.isnan(expert_out).any() or torch.isinf(expert_out).any():
+                logger.error(f"ERROR: expert_out[{i}] (expert {expert_idx}) contains NaN/Inf after GPU transfer!")
             
             # 直接从 flat_experts_weight 获取 weights，避免中间拷贝
             start_idx, end_idx = expert_indices_map[expert_idx]
             expert_weights = flat_experts_weight[idxs[start_idx:end_idx]]
             
+            # Debug: 检查 expert_weights
+            if torch.isnan(expert_weights).any() or torch.isinf(expert_weights).any():
+                logger.error(f"ERROR: expert_weights for expert {expert_idx} contains NaN/Inf!")
+            
             expert_out = expert_out.mul_(expert_weights)
+            
+            # Debug: 检查 expert_out 在乘以权重后
+            if torch.isnan(expert_out).any() or torch.isinf(expert_out).any():
+                logger.error(f"ERROR: expert_out[{i}] (expert {expert_idx}) contains NaN/Inf after mul weights!")
+                logger.error(f"  expert_weights stats: min={expert_weights.min().item():.6f}, max={expert_weights.max().item():.6f}")
             
             # 使用 token_ids 进行 scatter
             final_hidden_states.scatter_reduce_(
@@ -830,7 +846,22 @@ class MLPModuleWrapper:
                 src=expert_out,
                 reduce='sum'
             )
+            
+            # Debug: 检查 final_hidden_states 在 scatter 后
+            if torch.isnan(final_hidden_states).any() or torch.isinf(final_hidden_states).any():
+                logger.error(f"ERROR: final_hidden_states contains NaN/Inf after scatter expert {expert_idx}!")
+                logger.error(f"  NaN count: {torch.isnan(final_hidden_states).sum().item()}")
+                logger.error(f"  Inf count: {torch.isinf(final_hidden_states).sum().item()}")
+                logger.error(f"  This happened at expert {expert_idx} (index {i})")
+                # 不立即抛出异常，继续处理其他 expert，以便看到所有问题
         cuda_hook_end("final_hidden_states scatter")
+        
+        # 最终检查
+        if torch.isnan(final_hidden_states).any() or torch.isinf(final_hidden_states).any():
+            logger.error(f"ERROR: final_hidden_states contains NaN/Inf after all scatter operations!")
+            logger.error(f"  NaN count: {torch.isnan(final_hidden_states).sum().item()}")
+            logger.error(f"  Inf count: {torch.isinf(final_hidden_states).sum().item()}")
+            raise ValueError("final_hidden_states contains NaN/Inf after CPU expert computation")
         
         # 在 scatter 操作完成后再释放内存
         # 确保所有对 outputs 的访问都已完成

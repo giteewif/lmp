@@ -1,6 +1,7 @@
 import json
 import torch
 import time
+from typing import Dict
 from datasets import load_from_disk
 
 def load_json(path):
@@ -18,6 +19,154 @@ def check_nan_inf(tensor):
         return True
     return False
 
+def get_expert_device_distribution(layer) -> Dict[int, str]:
+        """
+        获取 layer 中每个 expert 的设备分布
+        
+        Returns:
+            Dict[int, str]: {expert_id: device} 映射，device 可能是 'cuda:X', 'meta', 'cpu' 等
+        """
+        expert_device_map = {}
+        
+        if not hasattr(layer, 'mlp') or not hasattr(layer.mlp, 'experts'):
+            logger.warning(f"Layer does not have mlp.experts")
+            return expert_device_map
+        
+        experts = layer.mlp.experts
+        num_experts = len(experts)
+        
+        for expert_id in range(num_experts):
+            expert = experts[expert_id]
+            # 检查 expert 的第一个参数来确定设备
+            # 通常检查 gate_proj.weight 或 up_proj.weight
+            device = None
+            for name, param in expert.named_parameters():
+                device = str(param.device)
+                break  # 只检查第一个参数即可
+            
+            if device is None:
+                # 如果没有参数，检查 buffers
+                for name, buffer in expert.named_buffers():
+                    device = str(buffer.device)
+                    break
+            
+            expert_device_map[expert_id] = device if device else "unknown"
+        
+        return expert_device_map
+
+def process_logits_efficiently(logits, temperature=1.0, top_p=0.9, do_sample=True, device=None):
+    """
+    Efficiently process logits for token generation with proper memory management.
+    
+    Args:
+        logits: Tensor of shape (batch_size, vocab_size)
+        temperature: Temperature for scaling logits
+        top_p: Top-p (nucleus) sampling parameter
+        do_sample: Whether to use sampling or greedy decoding
+        device: Device for memory monitoring
+    
+    Returns:
+        next_tokens: Tensor of shape (batch_size,)
+    """    
+    # Apply temperature scaling
+    if temperature != 1.0:
+        logits = logits / temperature
+    
+
+    
+    if do_sample:
+        # Apply top-p filtering if needed
+        if top_p < 1.0:
+            # Sort logits in descending order
+            sorted_logits, sorted_indices = torch.sort(logits, descending=True, dim=-1)
+            
+            # Compute softmax probabilities
+            probs = torch.softmax(sorted_logits, dim=-1)
+            
+            # Compute cumulative probabilities
+            cumulative_probs = torch.cumsum(probs, dim=-1)
+            
+            # Find cutoff point
+            sorted_indices_to_remove = cumulative_probs > top_p
+            sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
+            sorted_indices_to_remove[..., 0] = 0
+            
+            # Apply mask
+            indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
+            logits = logits.masked_fill(indices_to_remove, float('-inf'))
+            
+            # Clean up
+            del sorted_logits, sorted_indices, probs, cumulative_probs, sorted_indices_to_remove, indices_to_remove
+        
+        # Sample from distribution
+        probs = torch.softmax(logits, dim=-1)
+        
+        # Debug: 检查概率是否有效
+        if torch.isnan(probs).any():
+            import sys
+            print(f"ERROR: probs contains NaN after softmax!", file=sys.stderr)
+            print(f"  NaN count: {torch.isnan(probs).sum().item()}", file=sys.stderr)
+            print(f"  Logits stats: min={logits.min().item():.6f}, max={logits.max().item():.6f}, mean={logits.mean().item():.6f}", file=sys.stderr)
+            print(f"  Logits contains NaN: {torch.isnan(logits).any().item()}", file=sys.stderr)
+            print(f"  Logits contains Inf: {torch.isinf(logits).any().item()}", file=sys.stderr)
+            # 修复: 将 nan 替换为 0
+            probs = torch.where(torch.isnan(probs), torch.tensor(0.0, device=probs.device, dtype=probs.dtype), probs)
+            print(f"  Fixed NaN values in probs", file=sys.stderr)
+        
+        if torch.isinf(probs).any():
+            import sys
+            print(f"ERROR: probs contains Inf after softmax!", file=sys.stderr)
+            print(f"  Inf count: {torch.isinf(probs).sum().item()}", file=sys.stderr)
+            # 修复: 将 inf 替换为 0
+            probs = torch.where(torch.isinf(probs), torch.tensor(0.0, device=probs.device, dtype=probs.dtype), probs)
+            print(f"  Fixed Inf values in probs", file=sys.stderr)
+        
+        # Ensure valid probabilities (non-negative)
+        if (probs < 0).any():
+            import sys
+            print(f"WARNING: probs contains negative values, clamping to 0", file=sys.stderr)
+            probs = torch.clamp(probs, min=0.0)
+        
+        # Renormalize to ensure sum = 1
+        probs_sum = probs.sum(dim=-1, keepdim=True)
+        if (probs_sum <= 0).any():
+            import sys
+            print(f"ERROR: probs sum is <= 0 for some samples!", file=sys.stderr)
+            print(f"  Invalid sum count: {(probs_sum <= 0).sum().item()}", file=sys.stderr)
+            # 修复: 如果 sum <= 0，使用均匀分布
+            vocab_size = probs.shape[-1]
+            uniform_probs = torch.ones_like(probs) / vocab_size
+            probs = torch.where(probs_sum <= 0, uniform_probs, probs)
+            probs_sum = probs.sum(dim=-1, keepdim=True)
+            print(f"  Fixed invalid probs with uniform distribution", file=sys.stderr)
+        
+        probs = probs / probs_sum
+        
+        # Final check before multinomial
+        if torch.isnan(probs).any() or torch.isinf(probs).any() or (probs < 0).any():
+            import sys
+            print(f"ERROR: probs still invalid before multinomial!", file=sys.stderr)
+            print(f"  NaN: {torch.isnan(probs).any().item()}, Inf: {torch.isinf(probs).any().item()}, <0: {(probs < 0).any().item()}", file=sys.stderr)
+            # 使用均匀分布作为后备
+            vocab_size = probs.shape[-1]
+            probs = torch.ones_like(probs) / vocab_size
+            print(f"  Using uniform distribution as fallback", file=sys.stderr)
+        
+        # Ensure probabilities sum to 1 (with small epsilon tolerance)
+        probs = probs / (probs.sum(dim=-1, keepdim=True) + 1e-10)
+        
+        # Sample
+        torch.cuda.synchronize()  # 确保所有操作完成
+        next_tokens = torch.multinomial(probs, num_samples=1).squeeze(1)
+        
+        # Clean up
+        del probs
+    else:
+        # Greedy decoding
+        next_tokens = torch.argmax(logits, dim=-1)
+    
+    return next_tokens
+    
 # only for single device here, multiple device in sllm_store caculate_tensor_device_offsets, for layer and qkv
 def calculate_device_offset(tensor_index, device_idx):
     device_offset = 0

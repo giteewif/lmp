@@ -24,7 +24,7 @@ def test():
     for i in range(3):
         mlpllm.free_cmv()
         torch.cuda.empty_cache()
-        sleep(3)
+        sleep(1)
         mlpllm.test_generate_multi_layer()
     mlpllm.imm.stop()
 if __name__ == "__main__":
