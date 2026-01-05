@@ -466,18 +466,7 @@ class MLPLLM:
         cuda_hook_time("gpu_experts")
         if gpu_expert_ids:
             logger.debug(f"  Computing {len(gpu_expert_ids)} experts on GPU...")
-            # _ = self.mlpm.experts_func(
-            #     self.cmv.mlpm_ci, layer_idx=layer_idx,
-            #     expert_idx_list=list(gpu_expert_ids),
-            #     expert_indices_map={eid: expert_indices_map[eid] for eid in gpu_expert_ids},
-            #     expert_token_indices_map={eid: expert_token_indices_map[eid] for eid in gpu_expert_ids},
-            #     flat_hidden_states=flat_hidden_states,
-            #     flat_experts_weight=flat_experts_weight,
-            #     idxs=idxs,
-            #     final_hidden_states=expert_cache,
-            #     device=device
-            # )
-            _ = self.mlpm.experts_func_gpu_einsum(
+            _ = self.mlpm.experts_func(
                 self.cmv.mlpm_ci, layer_idx=layer_idx,
                 expert_idx_list=list(gpu_expert_ids),
                 expert_indices_map={eid: expert_indices_map[eid] for eid in gpu_expert_ids},
@@ -485,8 +474,19 @@ class MLPLLM:
                 flat_hidden_states=flat_hidden_states,
                 flat_experts_weight=flat_experts_weight,
                 idxs=idxs,
-                final_hidden_states=expert_cache
+                final_hidden_states=expert_cache,
+                device=device
             )
+            # _ = self.mlpm.experts_func_gpu_einsum(
+            #     self.cmv.mlpm_ci, layer_idx=layer_idx,
+            #     expert_idx_list=list(gpu_expert_ids),
+            #     expert_indices_map={eid: expert_indices_map[eid] for eid in gpu_expert_ids},
+            #     expert_token_indices_map={eid: expert_token_indices_map[eid] for eid in gpu_expert_ids},
+            #     flat_hidden_states=flat_hidden_states,
+            #     flat_experts_weight=flat_experts_weight,
+            #     idxs=idxs,
+            #     final_hidden_states=expert_cache
+            # )
             # expert_out_map.update(gpu_expert_out)
         cuda_hook_time_end("gpu_experts")
         time_gpu_end = time.time()
@@ -515,32 +515,7 @@ class MLPLLM:
         layer_idx: int,
         hidden_states: torch.Tensor,
     ):
-        # 打印该 layer 的专家在设备上的分布
-        layer = self.cmv.mlpm_ci.model.layers[layer_idx]
-        expert_device_map = get_expert_device_distribution(layer)
-        
-        logger.info(f"\n{'='*60}")
-        logger.info(f"Layer {layer_idx} Expert Device Distribution:")
-        
-        # 统计设备分布
-        device_counts = {}
-        for expert_id, device in expert_device_map.items():
-            device_counts[device] = device_counts.get(device, [])
-            device_counts[device].append(expert_id)
-        
-        # 打印统计信息
-        logger.info(f"  Total experts: {len(expert_device_map)}")
-        for device, expert_ids in device_counts.items():
-            logger.info(f"  {device}: {len(expert_ids)} experts - Expert IDs: {sorted(expert_ids)}")
-        
-        # 打印详细分布
-        logger.info(f"\n  Detailed Expert Device Map:")
-        logger.info(f"  {'Expert ID':<10} | {'Device':<15}")
-        logger.info(f"  {'-'*30}")
-        for expert_id in sorted(expert_device_map.keys()):
-            device = expert_device_map[expert_id]
-            logger.info(f"  {expert_id:<10} | {device:<15}")
-        logger.info(f"{'='*60}\n")
+    
 
         cuda_hook_time(f"layer_moe_dgenerate_{layer_idx}")
 
@@ -592,34 +567,76 @@ class MLPLLM:
         sorted_experts_by_load = sorted(expert_token_counts_list, key=lambda x: x[1])
         num_experts_total = len(sorted_experts_by_load)
         
-        # 使用固定值
-        num_experts_on_cpu = int(num_experts_total * self.num_experts_on_cpu_ratio)
         
-        cpu_expert_ids = set(expert_id for expert_id, _ in sorted_experts_by_load[:num_experts_on_cpu])
-        gpu_expert_ids = set(expert_id for expert_id, _ in sorted_experts_by_load[num_experts_on_cpu:])
+        # 获取每个 expert 的实际设备位置
+        layer = self.cmv.mlpm_ci.model.layers[layer_idx]
+        expert_actual_device_map = get_expert_device_distribution(layer)
         
-        # 打印该 layer 的专家在设备的分布情况
-        cpu_ratio = num_experts_on_cpu / num_experts_total if num_experts_total > 0 else 0
-        total_tokens_cpu = sum(count for _, count in sorted_experts_by_load[:num_experts_on_cpu])
-        total_tokens_gpu = sum(count for _, count in sorted_experts_by_load[num_experts_on_cpu:])
-        total_tokens = total_tokens_cpu + total_tokens_gpu
+        experts_gpu_list = [expert_id for expert_id, _ in sorted_experts_by_load if expert_actual_device_map.get(expert_id, "unknown") == str(self.device1)]
+        experts_cpu_list = [expert_id for expert_id, _ in sorted_experts_by_load if expert_actual_device_map.get(expert_id, "unknown") != str(self.device1)]
         
         logger.info(f"\nLayer {layer_idx} Expert Device Distribution:")
         logger.info(f"  Active experts: {num_experts_total} (out of {num_experts} total)")
-        logger.info(f"  CPU experts: {num_experts_on_cpu} ({cpu_ratio*100:.0f}%) - Expert IDs: {sorted(list(cpu_expert_ids))}")
-        logger.info(f"  GPU experts: {num_experts_total - num_experts_on_cpu} ({(1-cpu_ratio)*100:.0f}%) - Expert IDs: {sorted(list(gpu_expert_ids))}")
-        logger.info(f"  CPU tokens: {total_tokens_cpu} ({total_tokens_cpu/total_tokens*100:.1f}%)")
-        logger.info(f"  GPU tokens: {total_tokens_gpu} ({total_tokens_gpu/total_tokens*100:.1f}%)")
         logger.info(f"\n  Detailed Expert Distribution:")
-        logger.info(f"  {'Expert ID':<10} | {'Tokens':<10} | {'Device':<12} | {'Token %':<10}")
-        logger.info(f"  {'-'*50}")
+        logger.info(f"  {'Expert ID':<10} | {'Tokens':<10} | {'Actual Device':<15}")
+        logger.info(f"  {'-'*70}")
         for expert_id, token_count in sorted_experts_by_load:
-            device = "CPU" if expert_id in cpu_expert_ids else f"GPU({self.device1})"
-            token_pct = (token_count / total_tokens * 100) if total_tokens > 0 else 0
-            logger.info(f"  {expert_id:<10} | {token_count:<10} | {device:<12} | {token_pct:>6.2f}%")
+            actual_device = expert_actual_device_map.get(expert_id, "unknown")
+            logger.info(f"  {expert_id:<10} | {token_count:<10} |  {actual_device:<15}")
         logger.info(f"{'='*60}\n")
         
+        logger.info(f"experts_gpu_list: {experts_gpu_list}")
+        logger.info(f"experts_cpu_list: {experts_cpu_list}")
+        logger.info(f"expert_actual_device_map {expert_actual_device_map}")
+
         cuda_hook_time_end("experts_map_get")
+
+        expert_cache = torch.zeros_like(flat_hidden_states)
+
+        cuda_hook_time("cpu_experts_submit")
+        expert_cache = torch.zeros_like(flat_hidden_states)
+        # CPU experts - 传递索引信息，延迟创建 tensor maps
+        if len(experts_cpu_list) > 0:
+            logger.debug(f"\n  Computing {len(experts_cpu_list)} experts on CPU...")
+            # 使用 CETM 在后台线程执行
+            task = ExpertEinsumTask(
+                layer_idx=layer_idx,
+                    expert_idx_list=experts_cpu_list,
+                expert_indices_map={eid: expert_indices_map[eid] for eid in experts_cpu_list},
+                expert_token_indices_map={eid: expert_token_indices_map[eid] for eid in experts_cpu_list},
+                flat_hidden_states=flat_hidden_states,
+                flat_experts_weight=flat_experts_weight,
+                idxs=idxs,
+                    final_hidden_states=expert_cache
+                )
+            self.cetm.submit(task)
+        cuda_hook_time_end("cpu_experts_submit")
+
+        cuda_hook_time("wait_cetm_experts")
+        result = self.cetm.get_result()
+        cuda_hook_time_end("wait_cetm_experts")
+
+        cuda_hook_time("gpu_sexperts")
+        y = self.mlpm.shared_experts_func(
+            self.cmv.mlpm_ci, layer_idx=layer_idx,
+            hidden_states=hidden_states,
+        )
+        cuda_hook_time_end("gpu_sexperts")
+
+        cuda_hook_time("gpu_experts")
+        _ = self.mlpm.experts_func_gpu_einsum(
+            self.cmv.mlpm_ci, layer_idx=layer_idx,
+            expert_idx_list=experts_gpu_list,
+            expert_indices_map={eid: expert_indices_map[eid] for eid in experts_gpu_list},
+            expert_token_indices_map={eid: expert_token_indices_map[eid] for eid in experts_gpu_list},
+            flat_hidden_states=flat_hidden_states,
+            flat_experts_weight=flat_experts_weight,
+            idxs=idxs,
+            final_hidden_states=expert_cache
+        )
+        cuda_hook_time_end("gpu_experts")
+
+        layer_output = expert_cache.view(*orig_shape) + y
 
         cuda_hook_time_end(f"layer_moe_dgenerate_{layer_idx}")
         return hidden_states

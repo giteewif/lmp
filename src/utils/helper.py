@@ -28,9 +28,6 @@ def get_expert_device_distribution(layer) -> Dict[int, str]:
         """
         expert_device_map = {}
         
-        if not hasattr(layer, 'mlp') or not hasattr(layer.mlp, 'experts'):
-            logger.warning(f"Layer does not have mlp.experts")
-            return expert_device_map
         
         experts = layer.mlp.experts
         num_experts = len(experts)
