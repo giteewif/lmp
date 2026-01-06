@@ -173,7 +173,6 @@ class MLPLLM:
         for i in range(num_step):
             ghidden_states = inputs_tokens
             for layer_idx in range(self.mlpm.config.num_hidden_layers):
-                # 测试Deepseek 跳过dense测试
                 logger.debug(f"-------------------------------- start layer {layer_idx} --------------------------------")
 
                 cuda_hook_time(f"start_load_qkvogn_s_weight_l_{layer_idx+1}")
@@ -198,7 +197,7 @@ class MLPLLM:
                 cuda_hook_time_end("iln_self_attn_paln")
                 if layer_idx == 0:
                     cuda_hook_time("dense_mlp")
-                    self.cmv.start_load_qkvogn_s_weight(layer_idx=layer_idx+1,  device=device1)
+                    # self.cmv.start_load_qkvogn_s_weight(layer_idx=layer_idx+1,  device=device1)
                     ghidden_states = self.mlpm.dense_mlp_func(self.cmv.mlpm_ci, layer_idx=layer_idx, hidden_states=ghidden_states)
                     self.cmv.wait_load_qkvogn_s_weight(layer_idx=layer_idx+1)
                     cuda_hook_time_end("dense_mlp")
@@ -222,6 +221,7 @@ class MLPLLM:
                 # torch.cuda.synchronize(device=device1)
         cuda_hook_time_end("multi_layer")
 
+        cuda_hook_time("decode_layer")
         def get_next_token(hidden_states):
             normed_hidden_states = self.cmv.mlpm_ci.model.norm(hidden_states)
             last_hidden_states = normed_hidden_states[:, -1:, :]  # Shape: (batch_size, 1, hidden_size)
@@ -269,7 +269,12 @@ class MLPLLM:
             )
             next_token_ids = next_token_ids.unsqueeze(1) # Shape: (batch_size, 1)
             return next_token_ids
-    
+        torch.cuda.synchronize()
+        torch.cuda.empty_cache()
+        cuda_hook_time("async_load_ce")
+        self.cmv.async_load_experts_decode_cpu_weight()
+        cuda_hook_time_end("async_load_ce")
+
         cuda_hook_time("init_inputs_tokens")
         next_token_ids = get_next_token(ghidden_states)
         next_inputs_tokens = self.cmv.mlpm_ci.model.embed_tokens(next_token_ids)
@@ -285,16 +290,45 @@ class MLPLLM:
             past_key_values_length=past_key_values_length,
         )
         cuda_hook_time_end("init_inputs_tokens")
-
+        
         ghidden_states=next_inputs_tokens
         logger.debug(f"next_inputs_tokens shape: {next_inputs_tokens.shape}")
-        cuda_hook_time("dense_mlp")
-        ghidden_states = self.mlpm.dense_mlp_func(self.cmv.mlpm_ci, layer_idx=0, hidden_states=ghidden_states)
-        logger.debug(f"ghidden_states after dense_mlp_func shape: {ghidden_states.shape}")
-        cuda_hook_time_end("dense_mlp")
         # decode
-        self.layer_moe_dgenerate(1, ghidden_states)
+        for layer_idx in range(0, self.mlpm.config.num_hidden_layers):
+            logger.debug(f"-------------------------------- start decode layer {layer_idx} --------------------------------")
+            cuda_hook_time("iln_self_attn_paln")
+            residual = ghidden_states
+            ghidden_states = self.mlpm.iln_func(self.cmv.mlpm_ci, layer_idx=layer_idx, hidden_states=ghidden_states)
+            cuda_hook_time("self_attn")
+            ghidden_states = self.mlpm.self_attn_func(
+                self.cmv.mlpm_ci, layer_idx=layer_idx,
+                hidden_states=ghidden_states,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                past_key_value=past_key_value,
+            )
+            cuda_hook_time_end("self_attn")
+            ghidden_states = residual + ghidden_states
+            residual = ghidden_states
+            ghidden_states = self.mlpm.paln_func(self.cmv.mlpm_ci, layer_idx=layer_idx, hidden_states=ghidden_states)
+            cuda_hook_time_end("iln_self_attn_paln")
+
+            if layer_idx == 0:
+                cuda_hook_time("dense_mlp")
+                ghidden_states = self.mlpm.dense_mlp_func(self.cmv.mlpm_ci, layer_idx=0, hidden_states=ghidden_states)
+                logger.debug(f"ghidden_states after dense_mlp_func shape: {ghidden_states.shape}")
+                cuda_hook_time_end("dense_mlp")
+            else:
+                ghidden_states = self.layer_moe_dgenerate(layer_idx=layer_idx, hidden_states=ghidden_states)
+            ghidden_states = ghidden_states + residual
+
+            logger.debug(f"-------------------------------- end decode layer {layer_idx} --------------------------------")
+
+        cuda_hook_time("async_wait_layer_loaded_to_gpu")
+        self.cmv.async_wait_layer_loaded_to_gpu()
+        cuda_hook_time_end("async_wait_layer_loaded_to_gpu")
         torch.cuda.synchronize()
+        cuda_hook_time_end("decode_layer")
     @torch.no_grad()
     def layer_moe_generate(
         self, 
@@ -470,18 +504,7 @@ class MLPLLM:
         cuda_hook_time("gpu_experts")
         if gpu_expert_ids:
             logger.debug(f"  Computing {len(gpu_expert_ids)} experts on GPU...")
-            _ = self.mlpm.experts_func(
-                self.cmv.mlpm_ci, layer_idx=layer_idx,
-                expert_idx_list=list(gpu_expert_ids),
-                expert_indices_map={eid: expert_indices_map[eid] for eid in gpu_expert_ids},
-                expert_token_indices_map={eid: expert_token_indices_map[eid] for eid in gpu_expert_ids},
-                flat_hidden_states=flat_hidden_states,
-                flat_experts_weight=flat_experts_weight,
-                idxs=idxs,
-                final_hidden_states=expert_cache,
-                device=device
-            )
-            # _ = self.mlpm.experts_func_gpu_einsum(
+            # _ = self.mlpm.experts_func(
             #     self.cmv.mlpm_ci, layer_idx=layer_idx,
             #     expert_idx_list=list(gpu_expert_ids),
             #     expert_indices_map={eid: expert_indices_map[eid] for eid in gpu_expert_ids},
@@ -489,8 +512,19 @@ class MLPLLM:
             #     flat_hidden_states=flat_hidden_states,
             #     flat_experts_weight=flat_experts_weight,
             #     idxs=idxs,
-            #     final_hidden_states=expert_cache
+            #     final_hidden_states=expert_cache,
+            #     device=device
             # )
+            _ = self.mlpm.experts_func_gpu_einsum(
+                self.cmv.mlpm_ci, layer_idx=layer_idx,
+                expert_idx_list=list(gpu_expert_ids),
+                expert_indices_map={eid: expert_indices_map[eid] for eid in gpu_expert_ids},
+                expert_token_indices_map={eid: expert_token_indices_map[eid] for eid in gpu_expert_ids},
+                flat_hidden_states=flat_hidden_states,
+                flat_experts_weight=flat_experts_weight,
+                idxs=idxs,
+                final_hidden_states=expert_cache
+            )
             # expert_out_map.update(gpu_expert_out)
         cuda_hook_time_end("gpu_experts")
         time_gpu_end = time.time()
@@ -571,7 +605,11 @@ class MLPLLM:
         sorted_experts_by_load = sorted(expert_token_counts_list, key=lambda x: x[1])
         num_experts_total = len(sorted_experts_by_load)
         
-        
+        if self.cmv.check_async_load_experts_decode_cpu_weight(layer_idx=layer_idx):
+            logger.info(f"using loaded check layer: True")
+        else:
+            logger.info(f"using loaded check layer: False")
+
         # 获取每个 expert 的实际设备位置
         layer = self.cmv.mlpm_ci.model.layers[layer_idx]
         expert_actual_device_map = get_expert_device_distribution(layer)
@@ -589,8 +627,8 @@ class MLPLLM:
             logger.info(f"  {expert_id:<10} | {token_count:<10} |  {actual_device:<15}")
         logger.info(f"{'='*60}\n")
         
-        logger.info(f"experts_gpu_list: {experts_gpu_list}")
-        logger.info(f"experts_cpu_list: {experts_cpu_list}")
+        logger.info(f"experts_gpu_list: {experts_gpu_list} num: {len(experts_gpu_list)}")
+        logger.info(f"experts_cpu_list: {experts_cpu_list} num: {len(experts_cpu_list)}")
         logger.info(f"expert_actual_device_map {expert_actual_device_map}")
 
         cuda_hook_time_end("experts_map_get")
@@ -617,42 +655,41 @@ class MLPLLM:
         )
         cuda_hook_time_end("gpu_experts")
 
-        # cuda_hook_time("cpu_experts_submit")
-        # expert_cache = torch.zeros_like(flat_hidden_states)
-        # # CPU experts - 传递索引信息，延迟创建 tensor maps
-        # if len(experts_cpu_list) > 0:
-        #     logger.debug(f"\n  Computing {len(experts_cpu_list)} experts on CPU...")
-        #     # 使用 CETM 在后台线程执行
-        #     task = ExpertEinsumTask(
-        #         layer_idx=layer_idx,
-        #             expert_idx_list=experts_cpu_list,
-        #         expert_indices_map={eid: expert_indices_map[eid] for eid in experts_cpu_list},
-        #         expert_token_indices_map={eid: expert_token_indices_map[eid] for eid in experts_cpu_list},
-        #         flat_hidden_states=flat_hidden_states,
-        #         flat_experts_weight=flat_experts_weight,
-        #         idxs=idxs,
-        #             final_hidden_states=expert_cache
-        #         )
-        #     self.cetm.submit(task)
-        # cuda_hook_time_end("cpu_experts_submit")
+        cuda_hook_time("cpu_experts_submit")
+        # CPU experts - 传递索引信息，延迟创建 tensor maps
+        if len(experts_cpu_list) > 0:
+            logger.debug(f"\n  Computing {len(experts_cpu_list)} experts on CPU...")
+            # 使用 CETM 在后台线程执行
+            task = ExpertEinsumTask(
+                layer_idx=layer_idx,
+                    expert_idx_list=experts_cpu_list,
+                expert_indices_map={eid: expert_indices_map[eid] for eid in experts_cpu_list},
+                expert_token_indices_map={eid: expert_token_indices_map[eid] for eid in experts_cpu_list},
+                flat_hidden_states=flat_hidden_states,
+                flat_experts_weight=flat_experts_weight,
+                idxs=idxs,
+                    final_hidden_states=expert_cache
+                )
+            self.cetm.submit(task)
+        cuda_hook_time_end("cpu_experts_submit")
 
-        # cuda_hook_time("wait_cetm_experts")
-        # result = self.cetm.get_result()
-        # cuda_hook_time_end("wait_cetm_experts")
+        cuda_hook_time("wait_cetm_experts")
+        result = self.cetm.get_result()
+        cuda_hook_time_end("wait_cetm_experts")
 
-        cuda_hook_time("cpu_experts")
-        _ = self.mlpm.experts_func(
-            self.cmv.mlpm_ci, layer_idx=layer_idx,
-            expert_idx_list=list(experts_cpu_list),
-            expert_indices_map={eid: expert_indices_map[eid] for eid in experts_cpu_list},
-            expert_token_indices_map={eid: expert_token_indices_map[eid] for eid in experts_cpu_list},
-            flat_hidden_states=flat_hidden_states,
-            flat_experts_weight=flat_experts_weight,
-            idxs=idxs,
-            final_hidden_states=expert_cache,
-            device="cpu"
-        )
-        cuda_hook_time_end("cpu_experts")
+        # cuda_hook_time("cpu_experts")
+        # _ = self.mlpm.experts_func(
+        #     self.hmv.mlpm_hi, layer_idx=layer_idx,
+        #     expert_idx_list=list(experts_cpu_list),
+        #     expert_indices_map={eid: expert_indices_map[eid] for eid in experts_cpu_list},
+        #     expert_token_indices_map={eid: expert_token_indices_map[eid] for eid in experts_cpu_list},
+        #     flat_hidden_states=flat_hidden_states,
+        #     flat_experts_weight=flat_experts_weight,
+        #     idxs=idxs,
+        #     final_hidden_states=expert_cache,
+        #     device="cpu"
+        # )
+        # cuda_hook_time_end("cpu_experts")
 
         layer_output = expert_cache.view(*orig_shape) + y
 

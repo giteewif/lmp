@@ -41,6 +41,7 @@ class ExpertEinsumTask:
     flat_experts_weight: torch.Tensor  # 原始展平的 experts weight
     idxs: torch.Tensor  # 排序后的索引
     final_hidden_states: torch.Tensor
+    if_decode: bool = False
 
 @dataclass
 class ExpertEinsumResult:
@@ -363,6 +364,7 @@ class MLPModuleWrapper:
         if self.model_name_type == DEEPSEEK_MODEL_NAME_TYPE:
             # 类型注解：mi 是 DeepseekModule 实例
             # mi: "DeepseekForCausalLM" = mi
+            logger.debug(f"{mi.model.layers[layer_idx].input_layernorm.weight.data.device} {hidden_states.device}")
             hidden_states = mi.model.layers[layer_idx].input_layernorm(hidden_states)
             return hidden_states
         else:

@@ -1,35 +1,47 @@
 here pin
-INFO 12-24 21:16:42.745463.745463 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
-DEBUG 12-24 21:16:43.305801.305801 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
-DEBUG 12-24 21:16:43.763235.763235 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
-INFO 12-24 21:16:43.763009.763009 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 1.019s
-DEBUG 12-24 21:16:44.875429.875429 transformers.py:203] load_dict_non_blocking takes 0.016805410385131836 seconds
-DEBUG 12-24 21:16:44.881971.881971 transformers.py:213] load config takes 0.0057718753814697266 seconds
-DEBUG 12-24 21:16:45.034937.034937 torch.py:171] allocate_cuda_memory takes 0.024321317672729492 seconds
-DEBUG 12-24 21:16:45.034572.034572 client.py:72] load_into_gpu: deepseek-moe-16b-base-bfloat16, 2aef0e61-988b-4957-8876-ebba2f466320
-DEBUG 12-24 21:16:45.041675.041675 client.py:106] call stub.LoadModelAsync
-INFO 12-24 21:16:45.063191.063191 client.py:115] Model loaded: deepseek-moe-16b-base-bfloat16, 2aef0e61-988b-4957-8876-ebba2f466320
-INFO 12-24 21:16:45.076909.076909 torch.py:194] restore state_dict takes 0.01343679428100586 seconds
-DEBUG 12-24 21:16:47.338405.338405 transformers.py:224] load model takes 2.4570534229278564 seconds
-INFO 12-24 21:16:48.621882.621882 client.py:119] confirm_model_loaded: deepseek-moe-16b-base-bfloat16, 2aef0e61-988b-4957-8876-ebba2f466320
-INFO 12-24 21:16:48.625185.625185 client.py:127] Model loaded
-Model loading time: 3.80s
+INFO 01-06 19:30:01.647729.647729 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+DEBUG 01-06 19:30:02.201408.201408 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+DEBUG 01-06 19:30:02.668634.668634 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 01-06 19:30:02.668938.668938 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 1.021s
+DEBUG 01-06 19:30:02.827097.827097 transformers.py:203] load_dict_non_blocking takes 0.015840768814086914 seconds
+DEBUG 01-06 19:30:02.832103.832103 transformers.py:213] load config takes 0.005383968353271484 seconds
+DEBUG 01-06 19:30:02.969915.969915 torch.py:171] allocate_cuda_memory takes 0.017902851104736328 seconds
+DEBUG 01-06 19:30:02.969044.969044 client.py:72] load_into_gpu: deepseek-moe-16b-base-bfloat16, 7619d763-b19d-4d2b-af06-d869a6a180d7
+DEBUG 01-06 19:30:02.975310.975310 client.py:106] call stub.LoadModelAsync
+INFO 01-06 19:30:03.000905.000905 client.py:115] Model loaded: deepseek-moe-16b-base-bfloat16, 7619d763-b19d-4d2b-af06-d869a6a180d7
+INFO 01-06 19:30:03.025006.025006 torch.py:194] restore state_dict takes 0.025067567825317383 seconds
+DEBUG 01-06 19:30:05.339910.339910 transformers.py:224] load model takes 2.5065853595733643 seconds
+INFO 01-06 19:30:06.713398.713398 client.py:119] confirm_model_loaded: deepseek-moe-16b-base-bfloat16, 7619d763-b19d-4d2b-af06-d869a6a180d7
+INFO 01-06 19:30:06.717663.717663 client.py:127] Model loaded
+Model loading time: 3.94s
 ============================================================
 First generate (with warmup overhead):
 ============================================================
-First generate time: 1.15s
+First generate time: 1.12s
 ============================================================
 Second generate (should be faster):
 ============================================================
 Second generate time: 0.38s
+============================================================
+Second generate (should be faster):
+============================================================
+Second generate time: 0.59s
+============================================================
+Second generate (should be faster):
+============================================================
+Second generate time: 0.75s
+============================================================
+Second generate (should be faster):
+============================================================
+Second generate time: 2.66s
 
-Speedup: 3.00x
+Speedup: 0.42x
 
 原因分析:
-  1. 第一次调用包含 CUDA kernel JIT 编译开销 (~0.77s)
+  1. 第一次调用包含 CUDA kernel JIT 编译开销 (~-1.54s)
   2. 第一次调用需要初始化 KV cache (past_key_values)
   3. 第一次调用 cuDNN 需要选择最优算法 (benchmark)
   4. 第一次调用可能需要加载某些权重到 GPU
   5. PyTorch 的 autograd 图构建和优化
-Model loading time: 3.80s
-conformal
+Model loading time: 3.94s
+conformal锅内conformalconformalconformalconformalconformalconformalconformalconformalconformalconformalconformal

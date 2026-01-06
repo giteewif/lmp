@@ -34,20 +34,32 @@ class CETM:
                 break
             
             try:
-                # 执行 experts_func_einsum
-                final_hidden_states = self.mlpm.experts_func_einsum(
-                    hmv=self.hmv,
-                    layer_idx=task.layer_idx,
-                    expert_idx_list=task.expert_idx_list,
-                    expert_indices_map=task.expert_indices_map,
-                    expert_token_indices_map=task.expert_token_indices_map,
-                    flat_hidden_states=task.flat_hidden_states,
-                    flat_experts_weight=task.flat_experts_weight,
-                    idxs=task.idxs,
-                    final_hidden_states=task.final_hidden_states,
-                    output_queue=self.output_queue
-                )
-                
+                if not task.if_decode:
+                    # 执行 experts_func_einsum
+                    final_hidden_states = self.mlpm.experts_func_einsum(
+                        hmv=self.hmv,
+                        layer_idx=task.layer_idx,
+                        expert_idx_list=task.expert_idx_list,
+                        expert_indices_map=task.expert_indices_map,
+                        expert_token_indices_map=task.expert_token_indices_map,
+                        flat_hidden_states=task.flat_hidden_states,
+                        flat_experts_weight=task.flat_experts_weight,
+                        idxs=task.idxs,
+                        final_hidden_states=task.final_hidden_states,
+                        output_queue=self.output_queue
+                    )
+                else:
+                    final_hidden_states = self.mlpm.experts_func(
+                        hmv=self.hmv.mlpm_hi, layer_idx=task.layer_idx,
+                        expert_idx_list=list(task.expert_idx_list),
+                        expert_indices_map={eid: task.expert_indices_map[eid] for eid in task.expert_idx_list},
+                        expert_token_indices_map={eid: task.expert_token_indices_map[eid] for eid in task.expert_idx_list},
+                        flat_hidden_states=task.flat_hidden_states,
+                        flat_experts_weight=task.flat_experts_weight,
+                        idxs=task.idxs,
+                        final_hidden_states=task.final_hidden_states,
+                        device="cpu"
+                    )
                 # 在 experts_func_einsum 中pool，避免释放tensor 阻塞
                 # result = ExpertEinsumResult(final_hidden_states=final_hidden_states)
                 # self.output_queue.put(result)

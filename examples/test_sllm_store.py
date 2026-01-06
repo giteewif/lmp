@@ -5,7 +5,7 @@ import os
 # 设置只使用 cuda:1,2,3，不使用 cuda:0
 # 通过设置 CUDA_VISIBLE_DEVICES 来重新映射设备
 # 这样 cuda:1,2,3 会被映射为 cuda:0,1,2
-os.environ['CUDA_VISIBLE_DEVICES'] = '1,2,3'
+os.environ['CUDA_VISIBLE_DEVICES'] = '1,2'
 
 import sys
 # 获取项目根目录和必要的路径
@@ -75,6 +75,54 @@ generage_start = time.time()
 outputs = model.generate(
     **inputs,
     max_new_tokens=1,
+    do_sample=False,  # 使用贪心解码
+    pad_token_id=tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+)
+torch.cuda.synchronize()
+generage_end = time.time()
+second_time = generage_end - generage_start
+print(f"Second generate time: {second_time:.2f}s")
+
+print("=" * 60)
+print("Second generate (should be faster):")
+print("=" * 60)
+torch.cuda.synchronize()
+generage_start = time.time()
+outputs = model.generate(
+    **inputs,
+    max_new_tokens=2,
+    do_sample=False,  # 使用贪心解码
+    pad_token_id=tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+)
+torch.cuda.synchronize()
+generage_end = time.time()
+second_time = generage_end - generage_start
+print(f"Second generate time: {second_time:.2f}s")
+
+print("=" * 60)
+print("Second generate (should be faster):")
+print("=" * 60)
+torch.cuda.synchronize()
+generage_start = time.time()
+outputs = model.generate(
+    **inputs,
+    max_new_tokens=3,
+    do_sample=False,  # 使用贪心解码
+    pad_token_id=tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+)
+torch.cuda.synchronize()
+generage_end = time.time()
+second_time = generage_end - generage_start
+print(f"Second generate time: {second_time:.2f}s")
+
+print("=" * 60)
+print("Second generate (should be faster):")
+print("=" * 60)
+torch.cuda.synchronize()
+generage_start = time.time()
+outputs = model.generate(
+    **inputs,
+    max_new_tokens=13,
     do_sample=False,  # 使用贪心解码
     pad_token_id=tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
 )

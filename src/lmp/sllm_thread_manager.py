@@ -2,7 +2,7 @@ import queue
 import threading
 
 import torch
-from typing import Optional, List, Any, TYPE_CHECKING
+from typing import Optional, List, Any, TYPE_CHECKING, Callable
 from dataclasses import dataclass
 
 if TYPE_CHECKING:
@@ -17,7 +17,7 @@ class LoadTask:
     tensor_index_names: List[str]
     device_index_int: int
     cmv: "CudaMemoryView"
-
+    set_label_func: Optional[Callable[[int], None]]
 
 @dataclass
 class LoadResult:
@@ -62,8 +62,8 @@ class SLLMTM:
                     tensor_index_names=task.tensor_index_names,
                     device_index_int=task.device_index_int
                 )
-                # 将权重恢复到模型中（类似 allocate_cuda_memory_load_wait）
-                task.cmv.restore2model(state_dict, task.cmv.mlpm_ci)
+                # # 将权重恢复到模型中（类似 allocate_cuda_memory_load_wait）
+                # task.cmv.restore2model(state_dict, task.cmv.mlpm_ci)
                 # 将结果放入输出队列
                 result = LoadResult(
                     layer_idx=task.layer_idx,
@@ -71,6 +71,11 @@ class SLLMTM:
                     replica_uuid=replica_uuid,
                 )
                 self.wait_load(replica_uuid=result.replica_uuid, cmv=task.cmv)
+                # 将权重恢复到模型中（类似 allocate_cuda_memory_load_wait）
+                task.cmv.restore2model(state_dict, task.cmv.mlpm_ci)
+                # notify main thread that the layer is loaded to gpu
+                if task.set_label_func is not None:
+                    task.set_label_func(task.layer_idx)
                 cuda_hook_time_end("sllm_worker_task")
                 self.output_queue.put(result)
             except Exception as e:
@@ -81,7 +86,8 @@ class SLLMTM:
         layer_idx: int, 
         tensor_index_names: List[str], 
         device_index_int: int, 
-        cmv: "CudaMemoryView"
+        cmv: "CudaMemoryView",
+        set_label_func: Optional[Callable[[int], None]] = None
     ):
         """
         提交异步加载任务到队列
@@ -98,7 +104,8 @@ class SLLMTM:
             layer_idx=layer_idx,
             tensor_index_names=tensor_index_names,
             device_index_int=device_index_int,
-            cmv=cmv
+            cmv=cmv,
+            set_label_func=set_label_func
         )
         self.input_queue.put(task)
         

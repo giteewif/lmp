@@ -24,7 +24,13 @@ from sllm_store._C import (
 from lmp.sllm_store_c import *
 from lmp.sllm_store_c import TENSOR_INDEX_RESIZE_PATH, SLLM_ADDRESS, STORAGE_PATH
 from models.mlpmodule import MLPModuleWrapper, WeightType
-from utils.helper import load_json, calculate_device_offset
+from utils.helper import (
+    load_json, 
+    calculate_device_offset, 
+    get_expert_device_distribution,
+    calculate_expert_memory_size,
+    filter_experts_by_memory
+)
 from utils.cuda_h import *
 from utils.logger import init_logger
 from lmp.pinpool import gpinpool
@@ -62,6 +68,10 @@ class CudaMemoryView:
         # self.mlpm_ci = self.mlpm.create_empty_model()
         # self.mlpm_ci.eval()
         self.mlpm_ci = None
+        
+        # 跟踪每层参数是否已全部加载到 GPU
+        # {layer_idx: bool} - True 表示该层参数已全部加载到 GPU
+        self.layer_loaded_to_gpu = {}
 
     def load_general_and_init(self):     
         tensor_index_general_names = self.mlpm.get_tensor_index_general_names()
@@ -134,6 +144,118 @@ class CudaMemoryView:
         cuda_hook_time_end(f"start_load_qkvogn_s_weight_l_{layer_idx}")
         
     def wait_load_qkvogn_s_weight(self, layer_idx: int):
+        if layer_idx >= self.mlpm.config.num_hidden_layers:
+            return
+        self.sllmtm.get_result_wait()
+
+    def async_load_experts_decode_cpu_weight(self):
+        """
+        从最后一层往前加载 CPU 上的 expert weights
+        先获取所有层的 expert 分布情况，然后反向逐层加载
+        """
+        if self.mlpm_ci is None:
+            logger.warning("mlpm_ci is None, cannot check expert device distribution. Loading all experts.")
+            # 如果模型未初始化，按原逻辑加载所有 expert
+            for layer_idx in range(self.mlpm.config.num_hidden_layers - 1, -1, -1):
+                self.start_load_experts_decode_cpu_weight(layer_idx=layer_idx, device=self.device1, expert_idx_list=[])
+            return
+        
+        # Step 1: 先获取所有层的 expert 分布情况
+        layer_cpu_experts_map = {}  # {layer_idx: [expert_id, ...]}
+        logger.info("Collecting expert device distribution for all layers...")
+        
+        # first_k_dense_replace 1, rend_layer_idx 0
+        rend_layer_idx = self.mlpm.config.first_k_dense_replace - 1
+
+        for layer_idx in range(rend_layer_idx, self.mlpm.config.num_hidden_layers):
+            # 跳过dense 层
+            if layer_idx < self.mlpm.config.first_k_dense_replace:
+                continue
+            # 获取该层的 expert 设备分布
+            layer = self.mlpm_ci.model.layers[layer_idx]
+            expert_device_map = get_expert_device_distribution(layer)
+            
+            # 筛选出 CPU 上的 expert（只加载明确在 CPU 上的 expert）
+            cpu_expert_list = []
+            for expert_id, device in expert_device_map.items():
+                # 只加载明确在 CPU 上的 expert
+                # 'cuda:X' 表示在 GPU 上，不需要加载
+                # 'meta' 表示未初始化，不需要加载
+                # 'unknown' 表示未知设备，不加载
+                if device == 'meta' or device == 'unknown':
+                    cpu_expert_list.append(expert_id)
+            
+            layer_cpu_experts_map[layer_idx] = cpu_expert_list
+            logger.info(f"Layer {layer_idx}: CPU experts = {cpu_expert_list} (total: {len(cpu_expert_list)}, device_map: {expert_device_map})")
+        
+        # Step 1.5: 检查 GPU 显存并计算所需显存，如果不足则按比例选择 expert
+        layer_cpu_experts_map = filter_experts_by_memory(
+            mlpm=self.mlpm,
+            tensor_index_resize_json=self.tensor_index_resize_json,
+            config=self.mlpm.config,
+            device1=self.device1,
+            layer_cpu_experts_map=layer_cpu_experts_map
+        )
+        
+        # Step 2: 从最后一层往前逐层加载
+        logger.info("Starting to load CPU experts from last layer to first layer...")
+        for layer_idx in range(self.mlpm.config.num_hidden_layers - 1, rend_layer_idx, -1):
+            cpu_expert_list = layer_cpu_experts_map[layer_idx]
+            
+            
+            # 只加载有 CPU expert 的层
+            if cpu_expert_list:
+                logger.info(f"Loading Layer {layer_idx}: {len(cpu_expert_list)} CPU experts: {cpu_expert_list}")
+                self.start_load_experts_decode_cpu_weight(
+                    layer_idx=layer_idx, 
+                    device=self.device1, 
+                    expert_idx_list=cpu_expert_list
+                )
+                # self.wait_load_experts_decode_cpu_weight(layer_idx=layer_idx)
+                # 标记该层参数已全部加载到 GPU
+                # self.layer_loaded_to_gpu[layer_idx] = True
+
+                # logger.info(f"Layer {layer_idx}: All parameters loaded to GPU, marked as complete.")
+                
+            else:
+                logger.debug(f"Layer {layer_idx}: No CPU experts to load, skipping.")
+                # 即使没有 CPU expert 需要加载，也标记为已加载（可能该层所有 expert 都在 GPU 上）
+                self.layer_loaded_to_gpu[layer_idx] = True
+                
+    def async_wait_layer_loaded_to_gpu(self):
+        rend_layer_idx = self.mlpm.config.first_k_dense_replace - 1
+        for layer_idx in range(self.mlpm.config.num_hidden_layers - 1, rend_layer_idx, -1):
+            self.wait_load_experts_decode_cpu_weight(layer_idx=layer_idx)
+
+    # part load here
+    def check_async_load_experts_decode_cpu_weight(self, layer_idx: int):
+        if layer_idx >= self.mlpm.config.num_hidden_layers:
+            raise ValueError(f"layer_idx must be less than {self.mlpm.config.num_hidden_layers}")
+        if self.layer_loaded_to_gpu.get(layer_idx, False):
+            return True
+        return False
+
+    def start_load_experts_decode_cpu_weight(self, layer_idx: int, device: str, expert_idx_list: list[int]):
+        if layer_idx >= self.mlpm.config.num_hidden_layers:
+            return
+        device_idx_int = self.device1
+
+        # notify and set
+        def set_label_layer_loaded_to_gpu(layer_idx: int):
+            self.layer_loaded_to_gpu[layer_idx] = True
+
+        cuda_hook_time(f"start_load_experts_decode_cpu_weight_l_{layer_idx}")
+        tensor_index_names = self.mlpm.get_experts_names(layer_idx=layer_idx, expert_idx_list=expert_idx_list)
+        self.sllmtm.submit_load(
+            layer_idx=layer_idx,
+            tensor_index_names=tensor_index_names,
+            device_index_int=device_idx_int,
+            cmv=self,
+            set_label_func=set_label_layer_loaded_to_gpu
+        )
+        cuda_hook_time_end(f"start_load_experts_decode_cpu_weight_l_{layer_idx}")
+
+    def wait_load_experts_decode_cpu_weight(self, layer_idx: int):
         if layer_idx >= self.mlpm.config.num_hidden_layers:
             return
         self.sllmtm.get_result_wait()
@@ -238,6 +360,8 @@ class CudaMemoryView:
         for cuda_memory_ptrs in self.cuda_memory_ptrs_allocated:
             free_cuda_memory(cuda_memory_ptrs)
         self.cuda_memory_ptrs_allocated = []
+        # to empty
+        self.layer_loaded_to_gpu = {}
 
 class HostMemoryView:
     def __init__(

@@ -3,7 +3,11 @@ import torch
 import time
 from typing import Dict
 from datasets import load_from_disk
+import pynvml
+pynvml.nvmlInit()
 
+from utils.logger import init_logger
+logger = init_logger(__name__)
 def load_json(path):
     with open(path, "r") as f:
         return json.load(f)
@@ -50,6 +54,158 @@ def get_expert_device_distribution(layer) -> Dict[int, str]:
             expert_device_map[expert_id] = device if device else "unknown"
         
         return expert_device_map
+
+def calculate_expert_memory_size(mlpm, tensor_index_resize_json, layer_idx: int, expert_idx: int) -> int:
+    """
+    计算单个 expert 的显存大小（字节）
+    
+    Args:
+        mlpm: MLPModuleWrapper 实例
+        tensor_index_resize_json: tensor 索引 JSON 字典
+        layer_idx: 层索引
+        expert_idx: expert 索引
+        
+    Returns:
+        int: expert 的显存大小（字节）
+    """
+    # 获取该 expert 的所有权重矩阵名称
+    expert_names = mlpm.get_experts_names(layer_idx=layer_idx, expert_idx_list=[expert_idx])
+    
+    total_size = 0
+    for name in expert_names:
+        if name in tensor_index_resize_json:
+            # tensor_index_resize_json 格式: (offset, size, shape, stride, dtype)
+            _, size, _, _, _ = tensor_index_resize_json[name]
+            total_size += size
+        else:
+            import sys
+            print(f"WARNING: Tensor {name} not found in tensor_index_resize_json, cannot calculate size", file=sys.stderr)
+    
+    return total_size
+
+def filter_experts_by_memory(
+    mlpm, 
+    tensor_index_resize_json, 
+    config,
+    device1: int,
+    layer_cpu_experts_map: Dict[int, list]
+) -> Dict[int, list]:
+    """
+    根据 GPU 剩余显存过滤 expert，如果显存不足则按比例选择部分 expert
+    每个层的 cpu_expert_list 按比例选择
+    
+    Args:
+        mlpm: MLPModuleWrapper 实例
+        tensor_index_resize_json: tensor 索引 JSON 字典
+        config: 模型配置
+        device1: GPU 设备索引
+        layer_cpu_experts_map: {layer_idx: [expert_id, ...]} 需要加载的 CPU expert 映射
+        
+    Returns:
+        Dict[int, list]: 过滤后的 expert 映射
+    """
+    # 计算所有 CPU expert 的总显存需求
+    total_required_memory = 0
+    expert_memory_map = {}  # {(layer_idx, expert_idx): memory_size}
+    layer_memory_map = {}  # {layer_idx: total_memory_for_layer}
+    
+    for layer_idx, expert_list in layer_cpu_experts_map.items():
+        layer_total = 0
+        for expert_idx in expert_list:
+            memory_size = calculate_expert_memory_size(mlpm, tensor_index_resize_json, layer_idx, expert_idx)
+            expert_memory_map[(layer_idx, expert_idx)] = memory_size
+            layer_total += memory_size
+        layer_memory_map[layer_idx] = layer_total
+        total_required_memory += layer_total
+    
+    import sys
+    print(f"Total required memory for all CPU experts: {total_required_memory / (1024**3):.2f} GB", file=sys.stderr)
+    
+    # 使用 NVML 获取 GPU 显存信息（更准确）
+    try:
+       
+        device_idx = device1
+        handle = pynvml.nvmlDeviceGetHandleByIndex(device_idx)
+        memory_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+        total_memory = memory_info.total  # 总显存(字节)
+        used_memory = memory_info.used   # 已用显存(字节)
+        free_memory = memory_info.free   # 空闲显存(字节)
+        
+        print(f"GPU {device1} memory status (NVML):", file=sys.stderr)
+        print(f"  Total: {total_memory / (1024**3):.2f} GB", file=sys.stderr)
+        print(f"  Used: {used_memory / (1024**3):.2f} GB", file=sys.stderr)
+        print(f"  Free: {free_memory / (1024**3):.2f} GB", file=sys.stderr)
+        print(f"  Required: {total_required_memory / (1024**3):.2f} GB", file=sys.stderr)
+    except Exception as e:
+        # 如果 NVML 不可用，回退到 PyTorch 方式
+        raise ValueError(f"NVML unavailable or failed: {e}, falling back to PyTorch memory API")
+    
+    # 如果显存足够，返回原始映射
+    if total_required_memory <= free_memory:
+        print("GPU memory is sufficient, loading all CPU experts.", file=sys.stderr)
+        return layer_cpu_experts_map
+    
+    # 显存不足，按比例选择 expert
+    print(f"WARNING: GPU memory is insufficient! Required: {total_required_memory / (1024**3):.2f} GB, "
+          f"Available: {free_memory / (1024**3):.2f} GB", file=sys.stderr)
+    
+    # 计算每层可以使用的显存比例
+    # 至少保留 1GB 显存
+    reserved_buffer = 2 * 1024**3  # 1GB 的字节数
+    available_memory = max(0, free_memory - reserved_buffer)  # 可用显存（至少保留1GB）
+    
+    if available_memory <= 0:
+        print(f"WARNING: Available memory after reserving 1GB is {available_memory / (1024**3):.2f} GB, cannot load any experts.", file=sys.stderr)
+        return {}
+    
+    memory_ratio = available_memory / total_required_memory
+    actual_ratio = memory_ratio
+    
+    print(f"Memory reservation: Reserved {reserved_buffer / (1024**3):.2f} GB buffer, "
+          f"available for loading: {available_memory / (1024**3):.2f} GB", file=sys.stderr)
+    
+    print(f"Will load {actual_ratio * 100:.1f}% of experts per layer based on available memory.", file=sys.stderr)
+    
+    # 按层从后往前选择 expert（优先加载后面的层），每层按比例选择
+    filtered_map = {}
+    accumulated_memory = 0
+    
+    # 从最后一层往前遍历
+    for layer_idx in range(config.num_hidden_layers - 1, -1, -1):
+        if layer_idx not in layer_cpu_experts_map:
+            continue
+        
+        expert_list = layer_cpu_experts_map[layer_idx]
+        layer_total_memory = layer_memory_map[layer_idx]
+        layer_target_memory = int(layer_total_memory * actual_ratio)
+        
+        # 按 expert 索引排序
+        sorted_experts = sorted(expert_list)
+        filtered_experts = []
+        layer_accumulated = 0
+        
+        # 按比例选择该层的 expert
+        for expert_idx in sorted_experts:
+            memory_size = expert_memory_map[(layer_idx, expert_idx)]
+            
+            if layer_accumulated + memory_size <= layer_target_memory:
+                filtered_experts.append(expert_idx)
+                layer_accumulated += memory_size
+            else:
+                # 如果加上这个 expert 会超限，跳过
+                pass
+        
+        if filtered_experts:
+            filtered_map[layer_idx] = filtered_experts
+            accumulated_memory += layer_accumulated
+            print(f"Layer {layer_idx}: Selected {len(filtered_experts)}/{len(expert_list)} experts "
+                  f"({len(filtered_experts)/len(expert_list)*100:.1f}%, "
+                  f"memory: {layer_accumulated / (1024**3):.2f} GB / {layer_total_memory / (1024**3):.2f} GB)", file=sys.stderr)
+    
+    print(f"Filtered experts total memory: {accumulated_memory / (1024**3):.2f} GB "
+          f"({accumulated_memory / total_required_memory * 100:.1f}% of original)", file=sys.stderr)
+    
+    return filtered_map
 
 def process_logits_efficiently(logits, temperature=1.0, top_p=0.9, do_sample=True, device=None):
     """
@@ -201,11 +357,12 @@ def generate_input_ids_full(tokenizer, batch_size, seq_len, tdevice):
         tokenizer.pad_token = tokenizer.eos_token
     # 从本地数据集加载数据
     local_dataset = load_from_disk("/mnt/zhengcf3/models/data/wikitext2/wikitext-103-raw-v1")
-    test_dataset = local_dataset['train']
+    test_dataset = local_dataset['test']
 
     # 从数据集中获取 batch_size 个样本，并用数据集中的文本补充到指定长度
     batch_input_ids = []
-    dataset_idx = 220  # 从数据集的某个位置开始取样本
+    # 220
+    dataset_idx = 16  # 从数据集的某个位置开始取样本
     for i in range(batch_size):
         # 收集足够的文本来达到 seq_len 长度
         combined_text = ""
