@@ -132,11 +132,15 @@ class MLPLLM:
         cuda_hook_time_end("init_weights")
 
         cuda_hook_time("copy_emodel")
-        model_cpy = copy.deepcopy(self.cmv.mlpm_ci.model)
+        model_cpy = copy.deepcopy(self.cmv.mlpm_ci)
         cuda_hook_time_end("copy_emodel")
         # cuda_hook_time("wait_all_meta")
         # self.cmv.imm.wait_all()
         # cuda_hook_time_end("wait_all_meta")
+        cuda_hook_time("init_hmv")
+        self.hmv.mlpm_hi = model_cpy
+        self.mlpm.restore_hm_state_dict2model(self.hmv.hm_state_dict, self.hmv.mlpm_hi)
+        cuda_hook_time_end("init_hmv")
 
         cuda_hook_time("init_inputs_tokens")
         inputs_tokens = self.cmv.mlpm_ci.model.embed_tokens(inputs_ids)
@@ -593,29 +597,6 @@ class MLPLLM:
 
         expert_cache = torch.zeros_like(flat_hidden_states)
 
-        cuda_hook_time("cpu_experts_submit")
-        expert_cache = torch.zeros_like(flat_hidden_states)
-        # CPU experts - 传递索引信息，延迟创建 tensor maps
-        if len(experts_cpu_list) > 0:
-            logger.debug(f"\n  Computing {len(experts_cpu_list)} experts on CPU...")
-            # 使用 CETM 在后台线程执行
-            task = ExpertEinsumTask(
-                layer_idx=layer_idx,
-                    expert_idx_list=experts_cpu_list,
-                expert_indices_map={eid: expert_indices_map[eid] for eid in experts_cpu_list},
-                expert_token_indices_map={eid: expert_token_indices_map[eid] for eid in experts_cpu_list},
-                flat_hidden_states=flat_hidden_states,
-                flat_experts_weight=flat_experts_weight,
-                idxs=idxs,
-                    final_hidden_states=expert_cache
-                )
-            self.cetm.submit(task)
-        cuda_hook_time_end("cpu_experts_submit")
-
-        cuda_hook_time("wait_cetm_experts")
-        result = self.cetm.get_result()
-        cuda_hook_time_end("wait_cetm_experts")
-
         cuda_hook_time("gpu_sexperts")
         y = self.mlpm.shared_experts_func(
             self.cmv.mlpm_ci, layer_idx=layer_idx,
@@ -635,6 +616,43 @@ class MLPLLM:
             final_hidden_states=expert_cache
         )
         cuda_hook_time_end("gpu_experts")
+
+        # cuda_hook_time("cpu_experts_submit")
+        # expert_cache = torch.zeros_like(flat_hidden_states)
+        # # CPU experts - 传递索引信息，延迟创建 tensor maps
+        # if len(experts_cpu_list) > 0:
+        #     logger.debug(f"\n  Computing {len(experts_cpu_list)} experts on CPU...")
+        #     # 使用 CETM 在后台线程执行
+        #     task = ExpertEinsumTask(
+        #         layer_idx=layer_idx,
+        #             expert_idx_list=experts_cpu_list,
+        #         expert_indices_map={eid: expert_indices_map[eid] for eid in experts_cpu_list},
+        #         expert_token_indices_map={eid: expert_token_indices_map[eid] for eid in experts_cpu_list},
+        #         flat_hidden_states=flat_hidden_states,
+        #         flat_experts_weight=flat_experts_weight,
+        #         idxs=idxs,
+        #             final_hidden_states=expert_cache
+        #         )
+        #     self.cetm.submit(task)
+        # cuda_hook_time_end("cpu_experts_submit")
+
+        # cuda_hook_time("wait_cetm_experts")
+        # result = self.cetm.get_result()
+        # cuda_hook_time_end("wait_cetm_experts")
+
+        cuda_hook_time("cpu_experts")
+        _ = self.mlpm.experts_func(
+            self.cmv.mlpm_ci, layer_idx=layer_idx,
+            expert_idx_list=list(experts_cpu_list),
+            expert_indices_map={eid: expert_indices_map[eid] for eid in experts_cpu_list},
+            expert_token_indices_map={eid: expert_token_indices_map[eid] for eid in experts_cpu_list},
+            flat_hidden_states=flat_hidden_states,
+            flat_experts_weight=flat_experts_weight,
+            idxs=idxs,
+            final_hidden_states=expert_cache,
+            device="cpu"
+        )
+        cuda_hook_time_end("cpu_experts")
 
         layer_output = expert_cache.view(*orig_shape) + y
 
