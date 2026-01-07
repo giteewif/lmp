@@ -242,7 +242,7 @@ class CudaMemoryView:
     def start_load_experts_decode_cpu_weight(self, layer_idx: int, device: str, expert_idx_list: list[int]):
         if layer_idx >= self.mlpm.config.num_hidden_layers:
             return
-        device_idx_int = self.device1
+        device_idx_int = int(device.split(":")[1])
 
         # notify and set
         def set_label_layer_loaded_to_gpu(layer_idx: int):
@@ -308,11 +308,12 @@ class CudaMemoryView:
         self.client.confirm_model_loaded(self.mlpm.model_path, replica_uuid)
 
     def restore2model(self, model_state_dict, model):
+        cuda_hook_time("restore2model")
         with torch.no_grad():
             for name, param in model_state_dict.items():
                 # print(f"{name}: device={param.device}, dtype={param.dtype} shape={param.shape}")
                 set_module_tensor_to_device(model, name, param.device, param, clear_cache=False)
-        
+        cuda_hook_time_end("restore2model")
     def allocate_cuda_memory_and_load_into_gpu(self, tensor_index_names: list[str], device_index_int: int):
         cuda_hook_time("allocate_cuda_memory_and_load_into_gpu")
         tensor_meta_index, tensor_data_index, tensor_device_offsets, tensor_copy_chunks, tensor_device_size = \
