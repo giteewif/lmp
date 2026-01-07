@@ -42,7 +42,8 @@ logger = init_logger(__name__)
 class CudaMemoryView:
     def __init__(
         self,
-        mlpm: MLPModuleWrapper
+        mlpm: MLPModuleWrapper,
+        device_list: list[str]
     ):
         self.sllmtm: SLLMTM = None
         self.imm: InitMetaManager =None
@@ -59,8 +60,11 @@ class CudaMemoryView:
         self.tensor_index_resize_json = tensor_index_resize_json
         self.mchunk_size = chunk_size
         
-        self.device1 = 1
-        self.device2 = 2
+        self.device1_str = device_list[0]
+        self.device2_str = device_list[1]
+        self.device1 = int(self.device1_str.split(":")[1])
+        self.device2 = int(self.device2_str.split(":")[1])
+        
         self.device_uuid_map = get_device_uuid_map()
 
         self.cuda_memory_ptrs_allocated = []

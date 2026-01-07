@@ -546,9 +546,9 @@ class MLPModuleWrapper:
         
         # 直接分配整个 stacked_inputs tensor（在 GPU 上）
         # 形状: [E, max_tokens, H]
-        stacked_inputs = torch.empty(
+        stacked_inputs = torch.zeros(
             E, max_tokens, H,
-            dtype=flat_hidden_states.dtype, device=flat_hidden_states.device
+            dtype=flat_hidden_states.dtype, device=group_w1.device
         )
         
         # 直接从 flat_hidden_states 复制需要的 token 到 stacked_inputs 的对应位置
@@ -585,6 +585,39 @@ class MLPModuleWrapper:
         cuda_hook_end("gpu_group_einsum")
 
         cuda_hook("gpu_final_hidden_states_scatter")
+        
+        # ========== 原始单GPU逻辑（已注释，方便后续调试） ==========
+        # # 提取有效结果（去除 padding）并 scatter 回 final_hidden_states
+        # for i, expert_idx in enumerate(expert_indices):
+        #     # 直接从索引信息获取 token 数量
+        #     token_ids = expert_token_indices_map[expert_idx]
+        #     num_tokens = token_ids.shape[0]
+        #     
+        #     # 使用切片 [:num_tokens] 创建 view，避免拷贝
+        #     expert_out = outputs[i, :num_tokens]  # [num_tokens, H]
+        #     
+        #     # 直接从 flat_experts_weight 获取 weights，避免中间拷贝
+        #     start_idx, end_idx = expert_indices_map[expert_idx]
+        #     expert_weights = flat_experts_weight[idxs[start_idx:end_idx]]  # [num_tokens, 1]
+        #     
+        #     # 应用 weights
+        #     expert_out = expert_out.mul_(expert_weights)
+        #     
+        #     # 使用 token_ids 进行 scatter
+        #     final_hidden_states.scatter_reduce_(
+        #         dim=0,
+        #         index=token_ids.view(-1, 1).repeat(1, final_hidden_states.shape[-1]),
+        #         src=expert_out,
+        #         reduce='sum'
+        #     )
+        # ========== 原始逻辑结束 ==========
+        
+        # ========== 多GPU适配逻辑 ==========
+        # 确保 final_hidden_states 和 outputs 在同一个设备上
+        # 如果不在，需要将 outputs 移动到 final_hidden_states 的设备上
+        final_device = final_hidden_states.device
+        outputs_device = outputs.device
+        
         # 提取有效结果（去除 padding）并 scatter 回 final_hidden_states
         for i, expert_idx in enumerate(expert_indices):
             # 直接从索引信息获取 token 数量
@@ -598,16 +631,26 @@ class MLPModuleWrapper:
             start_idx, end_idx = expert_indices_map[expert_idx]
             expert_weights = flat_experts_weight[idxs[start_idx:end_idx]]  # [num_tokens, 1]
             
+            if expert_weights.device != expert_out.device:
+                expert_weights = expert_weights.to(expert_out.device)
             # 应用 weights
             expert_out = expert_out.mul_(expert_weights)
             
+            # 确保 expert_out 在正确的设备上（如果不在，移动到 final_device）
+            if expert_out.device != final_device:
+                expert_out = expert_out.to(final_device)
+            
             # 使用 token_ids 进行 scatter
+            # 注意：scatter_reduce_ 要求所有张量在同一个设备上
+            index = token_ids.view(-1, 1).expand(-1, final_hidden_states.shape[-1])
             final_hidden_states.scatter_reduce_(
                 dim=0,
-                index=token_ids.view(-1, 1).repeat(1, final_hidden_states.shape[-1]),
+                index=index,
                 src=expert_out,
                 reduce='sum'
             )
+        # ========== 多GPU适配逻辑结束 ==========
+        
         cuda_hook_end("gpu_final_hidden_states_scatter")
         
         logger.debug(f"gpu experts func einsum cost {time.time()-time_start_group} s")
@@ -805,6 +848,8 @@ class MLPModuleWrapper:
         
 
         cuda_hook("final_hidden_states scatter")
+        # 一次性提交
+        outputs = outputs.to(final_hidden_states.device, non_blocking=True)
         # 提取有效结果（去除 padding）
         for i, expert_idx in enumerate(expert_indices):
             # 直接从索引信息获取 token 数量，避免访问 tensor
@@ -813,7 +858,8 @@ class MLPModuleWrapper:
             
             # 使用切片 [:num_tokens] 创建 view，避免拷贝
             expert_out = outputs[i][:num_tokens]
-            expert_out = expert_out.to(final_hidden_states.device, non_blocking=True)
+            # 多次提交
+            # expert_out = expert_out.to(final_hidden_states.device, non_blocking=True)
             
             # 直接从 flat_experts_weight 获取 weights，避免中间拷贝
             start_idx, end_idx = expert_indices_map[expert_idx]

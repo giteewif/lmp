@@ -25,7 +25,8 @@ def test():
         mlpllm.free_cmv()
         torch.cuda.empty_cache()
         sleep(2)
-        mlpllm.test_generate_multi_layer()
+        # mlpllm.test_generate_multi_layer()
+        mlpllm.test_generate_multi_device_layer()
     sleep(2)
     mlpllm.imm.stop()
 if __name__ == "__main__":
