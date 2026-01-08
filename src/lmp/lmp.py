@@ -59,7 +59,7 @@ class MLPLLM:
         device2 = "cuda:2"
         device_list = [device1, device2]
         # test 4 gpu
-        device_list = ["cuda:0","cuda:1","cuda:2","cuda:3"]
+        # device_list = ["cuda:0","cuda:1","cuda:2","cuda:3"]
         self.device1 = device_list[0]
         self.device_list = device_list
 
@@ -1027,6 +1027,10 @@ class MLPLLM:
                     # 如果 device_expert_cache 就是 expert_cache（同一设备），则已经直接修改了
         
         cuda_hook_time_end("gpu_experts_multi_device")
+
+        # cuda_hook_time("wait_cetm_experts")
+        # result = self.cetm.get_result()
+        # cuda_hook_time_end("wait_cetm_experts")
 
         # Step 15: 合并结果
         layer_output = expert_cache.view(*orig_shape) + y
