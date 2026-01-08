@@ -91,7 +91,7 @@ generage_start = time.time()
 outputs = model.generate(
     **inputs,
     max_new_tokens=2,
-    do_sample=False,  # 使用贪心解码
+    do_sample=True,  # 使用贪心解码
     pad_token_id=tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
 )
 torch.cuda.synchronize()
@@ -107,7 +107,7 @@ generage_start = time.time()
 outputs = model.generate(
     **inputs,
     max_new_tokens=3,
-    do_sample=False,  # 使用贪心解码
+    do_sample=True,  # 使用贪心解码
     pad_token_id=tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
 )
 torch.cuda.synchronize()
@@ -123,7 +123,7 @@ generage_start = time.time()
 outputs = model.generate(
     **inputs,
     max_new_tokens=13,
-    do_sample=False,  # 使用贪心解码
+    do_sample=True,  # 使用贪心解码
     pad_token_id=tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
 )
 torch.cuda.synchronize()

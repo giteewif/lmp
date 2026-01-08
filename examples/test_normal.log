@@ -1,84 +1,92 @@
 here pin
-INFO 01-05 20:06:17.752716.752716 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
-DEBUG 01-05 20:06:18.603361.603361 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
-DEBUG 01-05 20:06:19.045737.045737 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
-INFO 01-05 20:06:19.045372.045372 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 1.294s
-DEBUG 01-05 20:06:19.124892.124892 cuda_memory_view.py:260] 
-DEBUG 01-05 20:06:19.124892.124892 cuda_memory_view.py:260] restore_tensors_from_shared_memory_names time: 0.01463174819946289
-DEBUG 01-05 20:06:21.597948.597948 cuda_h.py:10] start allocate_cuda_memory_and_load_into_gpu
-DEBUG 01-05 20:06:21.598311.598311 cuda_h.py:10] start allocate_cuda_memory
-DEBUG 01-05 20:06:21.737708.737708 cuda_h.py:19] end allocate_cuda_memory cost 0.1391136646270752 seconds
-DEBUG 01-05 20:06:21.737475.737475 cuda_h.py:10] start load_into_gpu_async
-DEBUG 01-05 20:06:21.737305.737305 sllm_store_c.py:27] get device uuid map
-DEBUG 01-05 20:06:21.737433.737433 sllm_store_c.py:29] call client load into gpu
-DEBUG 01-05 20:06:21.737242.737242 client.py:72] load_into_gpu: deepseek-moe-16b-base-bfloat16, b57a4bb4-690d-46d6-b799-5b65baaa69bb
-DEBUG 01-05 20:06:21.737444.737444 client.py:106] call stub.LoadModelAsync
-INFO 01-05 20:06:21.739348.739348 client.py:115] Model loaded: deepseek-moe-16b-base-bfloat16, b57a4bb4-690d-46d6-b799-5b65baaa69bb
-DEBUG 01-05 20:06:21.739887.739887 cuda_h.py:19] end load_into_gpu_async cost 0.001772165298461914 seconds
-DEBUG 01-05 20:06:21.739828.739828 cuda_h.py:10] start restore_tensors2
-DEBUG 01-05 20:06:21.739859.739859 cuda_h.py:19] end restore_tensors2 cost 0.000102996826171875 seconds
-DEBUG 01-05 20:06:21.739629.739629 cuda_h.py:19] end allocate_cuda_memory_and_load_into_gpu cost 0.14160776138305664 seconds
-INFO 01-05 20:06:21.739246.739246 client.py:119] confirm_model_loaded: deepseek-moe-16b-base-bfloat16, b57a4bb4-690d-46d6-b799-5b65baaa69bb
-INFO 01-05 20:06:21.819532.819532 client.py:127] Model loaded
-DEBUG 01-05 20:06:21.819326.819326 cuda_h.py:10] start load_qkvogns_weight_l_0
-DEBUG 01-05 20:06:21.820410.820410 cuda_h.py:10] start allocate_cuda_memory_and_load_into_gpu
-DEBUG 01-05 20:06:21.820586.820586 cuda_h.py:10] start allocate_cuda_memory
-DEBUG 01-05 20:06:21.820470.820470 cuda_h.py:19] end allocate_cuda_memory cost 0.00037360191345214844 seconds
-DEBUG 01-05 20:06:21.820488.820488 cuda_h.py:10] start load_into_gpu_async
-DEBUG 01-05 20:06:21.820080.820080 sllm_store_c.py:27] get device uuid map
-DEBUG 01-05 20:06:21.820554.820554 sllm_store_c.py:29] call client load into gpu
-DEBUG 01-05 20:06:21.821272.821272 client.py:72] load_into_gpu: deepseek-moe-16b-base-bfloat16, 9b55a63d-e989-4c2f-8c48-cf706f66d60d
-DEBUG 01-05 20:06:21.821861.821861 client.py:106] call stub.LoadModelAsync
-INFO 01-05 20:06:21.822255.822255 client.py:115] Model loaded: deepseek-moe-16b-base-bfloat16, 9b55a63d-e989-4c2f-8c48-cf706f66d60d
-DEBUG 01-05 20:06:21.822093.822093 cuda_h.py:19] end load_into_gpu_async cost 0.001971006393432617 seconds
-DEBUG 01-05 20:06:21.822480.822480 cuda_h.py:10] start restore_tensors2
-DEBUG 01-05 20:06:21.823077.823077 cuda_h.py:19] end restore_tensors2 cost 0.00015234947204589844 seconds
-DEBUG 01-05 20:06:21.823769.823769 cuda_h.py:19] end allocate_cuda_memory_and_load_into_gpu cost 0.0031299591064453125 seconds
-INFO 01-05 20:06:21.823818.823818 client.py:119] confirm_model_loaded: deepseek-moe-16b-base-bfloat16, 9b55a63d-e989-4c2f-8c48-cf706f66d60d
-INFO 01-05 20:06:21.838263.838263 client.py:127] Model loaded
-DEBUG 01-05 20:06:21.839258.839258 cuda_h.py:19] end load_qkvogns_weight_l_0 cost 0.01942586898803711 seconds
-DEBUG 01-05 20:06:21.839157.839157 cuda_h.py:10] start start_load_qkvogn_s_weight_l_1
-DEBUG 01-05 20:06:21.839302.839302 cuda_h.py:19] end start_load_qkvogn_s_weight_l_1 cost 7.915496826171875e-05 seconds
-DEBUG 01-05 20:06:21.839102.839102 cuda_h.py:10] start sllm_worker_task
-DEBUG 01-05 20:06:21.840048.840048 cuda_h.py:10] start allocate_cuda_memory_and_load_into_gpu
-DEBUG 01-05 20:06:21.840860.840860 cuda_h.py:10] start allocate_cuda_memory
-DEBUG 01-05 20:06:21.840349.840349 cuda_h.py:19] end allocate_cuda_memory cost 0.00047850608825683594 seconds
-DEBUG 01-05 20:06:21.840520.840520 cuda_h.py:10] start load_into_gpu_async
-DEBUG 01-05 20:06:21.840689.840689 sllm_store_c.py:27] get device uuid map
-DEBUG 01-05 20:06:21.841725.841725 sllm_store_c.py:29] call client load into gpu
-DEBUG 01-05 20:06:21.841251.841251 client.py:72] load_into_gpu: deepseek-moe-16b-base-bfloat16, 68e5a118-cb64-4b31-bb7c-3d5a67063abd
-DEBUG 01-05 20:06:21.841773.841773 client.py:106] call stub.LoadModelAsync
-INFO 01-05 20:06:21.842096.842096 client.py:115] Model loaded: deepseek-moe-16b-base-bfloat16, 68e5a118-cb64-4b31-bb7c-3d5a67063abd
-DEBUG 01-05 20:06:21.843604.843604 cuda_h.py:19] end load_into_gpu_async cost 0.0020012855529785156 seconds
-DEBUG 01-05 20:06:21.843652.843652 cuda_h.py:10] start restore_tensors2
-DEBUG 01-05 20:06:21.843436.843436 cuda_h.py:19] end restore_tensors2 cost 0.00018358230590820312 seconds
-DEBUG 01-05 20:06:21.843797.843797 cuda_h.py:19] end allocate_cuda_memory_and_load_into_gpu cost 0.003281116485595703 seconds
-INFO 01-05 20:06:21.844838.844838 client.py:119] confirm_model_loaded: deepseek-moe-16b-base-bfloat16, 68e5a118-cb64-4b31-bb7c-3d5a67063abd
-INFO 01-05 20:06:21.851537.851537 client.py:127] Model loaded
-DEBUG 01-05 20:06:21.851747.851747 cuda_h.py:19] end sllm_worker_task cost 0.011196374893188477 seconds
-DEBUG 01-05 20:06:21.851805.851805 cuda_h.py:10] start allocate_cuda_memory_and_load_into_gpu
-DEBUG 01-05 20:06:21.851817.851817 cuda_h.py:10] start allocate_cuda_memory
-DEBUG 01-05 20:06:21.852960.852960 cuda_h.py:19] end allocate_cuda_memory cost 0.00039649009704589844 seconds
-DEBUG 01-05 20:06:21.852669.852669 cuda_h.py:10] start load_into_gpu_async
-DEBUG 01-05 20:06:21.852461.852461 sllm_store_c.py:27] get device uuid map
-DEBUG 01-05 20:06:21.852075.852075 sllm_store_c.py:29] call client load into gpu
-DEBUG 01-05 20:06:21.853456.853456 client.py:72] load_into_gpu: deepseek-moe-16b-base-bfloat16, ac06fc5e-176e-4be7-8f4a-4eb4f424bbb9
-DEBUG 01-05 20:06:21.853108.853108 client.py:106] call stub.LoadModelAsync
-INFO 01-05 20:06:21.855521.855521 client.py:115] Model loaded: deepseek-moe-16b-base-bfloat16, ac06fc5e-176e-4be7-8f4a-4eb4f424bbb9
-DEBUG 01-05 20:06:21.855931.855931 cuda_h.py:19] end load_into_gpu_async cost 0.0029401779174804688 seconds
-DEBUG 01-05 20:06:21.855000.855000 cuda_h.py:10] start restore_tensors2
-DEBUG 01-05 20:06:21.856578.856578 cuda_h.py:19] end restore_tensors2 cost 0.0007598400115966797 seconds
-DEBUG 01-05 20:06:21.856953.856953 cuda_h.py:19] end allocate_cuda_memory_and_load_into_gpu cost 0.0050814151763916016 seconds
-INFO 01-05 20:06:21.862333.862333 client.py:119] confirm_model_loaded: deepseek-moe-16b-base-bfloat16, ac06fc5e-176e-4be7-8f4a-4eb4f424bbb9
-INFO 01-05 20:06:21.897888.897888 client.py:127] Model loaded
-DEBUG 01-05 20:06:21.918886.918886 cuda_h.py:10] start one
-DEBUG 01-05 20:06:22.303961.303961 cuda_h.py:19] end one cost 0.3842487335205078 seconds
-DEBUG 01-05 20:06:22.303117.303117 cuda_h.py:10] start two
-DEBUG 01-05 20:06:22.320225.320225 cuda_h.py:19] end two cost 0.017412662506103516 seconds
-DEBUG 01-05 20:06:22.320333.320333 cuda_h.py:10] start two
-DEBUG 01-05 20:06:22.337915.337915 cuda_h.py:19] end two cost 0.016534090042114258 seconds
+INFO 01-07 21:02:57.557732.557732 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+DEBUG 01-07 21:02:58.419718.419718 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+DEBUG 01-07 21:02:58.882054.882054 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 01-07 21:02:58.882861.882861 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 1.326s
+DEBUG 01-07 21:02:58.971956.971956 cuda_memory_view.py:568] 
+DEBUG 01-07 21:02:58.971956.971956 cuda_memory_view.py:568] restore_tensors_from_shared_memory_names time: 0.014428377151489258
+DEBUG 01-07 21:03:01.417958.417958 cuda_h.py:10] start allocate_cuda_memory_and_load_into_gpu
+DEBUG 01-07 21:03:01.417016.417016 cuda_h.py:10] start allocate_cuda_memory
+DEBUG 01-07 21:03:01.566125.566125 cuda_h.py:19] end allocate_cuda_memory cost 0.14909124374389648 seconds
+DEBUG 01-07 21:03:01.566753.566753 cuda_h.py:10] start load_into_gpu_async
+DEBUG 01-07 21:03:01.566351.566351 sllm_store_c.py:27] get device uuid map
+DEBUG 01-07 21:03:01.566002.566002 sllm_store_c.py:29] call client load into gpu
+DEBUG 01-07 21:03:01.566619.566619 client.py:72] load_into_gpu: deepseek-moe-16b-base-bfloat16, 8f1fc849-b1b9-4d4d-bef6-dcebc3f5698b
+DEBUG 01-07 21:03:01.567868.567868 client.py:106] call stub.LoadModelAsync
+INFO 01-07 21:03:01.568734.568734 client.py:115] Model loaded: deepseek-moe-16b-base-bfloat16, 8f1fc849-b1b9-4d4d-bef6-dcebc3f5698b
+DEBUG 01-07 21:03:01.568213.568213 cuda_h.py:19] end load_into_gpu_async cost 0.002016782760620117 seconds
+DEBUG 01-07 21:03:01.568890.568890 cuda_h.py:10] start restore_tensors2
+DEBUG 01-07 21:03:01.569013.569013 cuda_h.py:19] end restore_tensors2 cost 0.0001010894775390625 seconds
+DEBUG 01-07 21:03:01.569915.569915 cuda_h.py:19] end allocate_cuda_memory_and_load_into_gpu cost 0.15185832977294922 seconds
+DEBUG 01-07 21:03:01.569472.569472 cuda_h.py:10] start restore2model
+DEBUG 01-07 21:03:01.569884.569884 cuda_h.py:19] end restore2model cost 0.0002086162567138672 seconds
+INFO 01-07 21:03:01.569792.569792 client.py:119] confirm_model_loaded: deepseek-moe-16b-base-bfloat16, 8f1fc849-b1b9-4d4d-bef6-dcebc3f5698b
+INFO 01-07 21:03:01.657590.657590 client.py:127] Model loaded
+DEBUG 01-07 21:03:01.658238.658238 cuda_h.py:10] start load_qkvogns_weight_l_0
+DEBUG 01-07 21:03:01.658713.658713 cuda_h.py:10] start allocate_cuda_memory_and_load_into_gpu
+DEBUG 01-07 21:03:01.658850.658850 cuda_h.py:10] start allocate_cuda_memory
+DEBUG 01-07 21:03:01.658847.658847 cuda_h.py:19] end allocate_cuda_memory cost 0.00039196014404296875 seconds
+DEBUG 01-07 21:03:01.658428.658428 cuda_h.py:10] start load_into_gpu_async
+DEBUG 01-07 21:03:01.659451.659451 sllm_store_c.py:27] get device uuid map
+DEBUG 01-07 21:03:01.659348.659348 sllm_store_c.py:29] call client load into gpu
+DEBUG 01-07 21:03:01.659927.659927 client.py:72] load_into_gpu: deepseek-moe-16b-base-bfloat16, cf3dba50-f1de-4481-a6ec-e82f397aedd1
+DEBUG 01-07 21:03:01.659562.659562 client.py:106] call stub.LoadModelAsync
+INFO 01-07 21:03:01.660806.660806 client.py:115] Model loaded: deepseek-moe-16b-base-bfloat16, cf3dba50-f1de-4481-a6ec-e82f397aedd1
+DEBUG 01-07 21:03:01.661698.661698 cuda_h.py:19] end load_into_gpu_async cost 0.002037525177001953 seconds
+DEBUG 01-07 21:03:01.661084.661084 cuda_h.py:10] start restore_tensors2
+DEBUG 01-07 21:03:01.661145.661145 cuda_h.py:19] end restore_tensors2 cost 0.00014352798461914062 seconds
+DEBUG 01-07 21:03:01.661267.661267 cuda_h.py:19] end allocate_cuda_memory_and_load_into_gpu cost 0.003198862075805664 seconds
+INFO 01-07 21:03:01.661600.661600 client.py:119] confirm_model_loaded: deepseek-moe-16b-base-bfloat16, cf3dba50-f1de-4481-a6ec-e82f397aedd1
+INFO 01-07 21:03:01.676025.676025 client.py:127] Model loaded
+DEBUG 01-07 21:03:01.676169.676169 cuda_h.py:10] start restore2model
+DEBUG 01-07 21:03:01.677261.677261 cuda_h.py:19] end restore2model cost 0.0008807182312011719 seconds
+DEBUG 01-07 21:03:01.677359.677359 cuda_h.py:19] end load_qkvogns_weight_l_0 cost 0.01972031593322754 seconds
+DEBUG 01-07 21:03:01.677064.677064 cuda_h.py:10] start start_load_qkvogn_s_weight_l_1
+DEBUG 01-07 21:03:01.678315.678315 cuda_h.py:19] end start_load_qkvogn_s_weight_l_1 cost 9.608268737792969e-05 seconds
+DEBUG 01-07 21:03:01.678812.678812 cuda_h.py:10] start sllm_worker_task
+DEBUG 01-07 21:03:01.678435.678435 cuda_h.py:10] start allocate_cuda_memory_and_load_into_gpu
+DEBUG 01-07 21:03:01.678910.678910 cuda_h.py:10] start allocate_cuda_memory
+DEBUG 01-07 21:03:01.679900.679900 cuda_h.py:19] end allocate_cuda_memory cost 0.0003845691680908203 seconds
+DEBUG 01-07 21:03:01.679918.679918 cuda_h.py:10] start load_into_gpu_async
+DEBUG 01-07 21:03:01.679656.679656 sllm_store_c.py:27] get device uuid map
+DEBUG 01-07 21:03:01.679931.679931 sllm_store_c.py:29] call client load into gpu
+DEBUG 01-07 21:03:01.679933.679933 client.py:72] load_into_gpu: deepseek-moe-16b-base-bfloat16, a158bfe3-a328-4946-aed5-37a0180ad71a
+DEBUG 01-07 21:03:01.679886.679886 client.py:106] call stub.LoadModelAsync
+INFO 01-07 21:03:01.681946.681946 client.py:115] Model loaded: deepseek-moe-16b-base-bfloat16, a158bfe3-a328-4946-aed5-37a0180ad71a
+DEBUG 01-07 21:03:01.681122.681122 cuda_h.py:19] end load_into_gpu_async cost 0.002058267593383789 seconds
+DEBUG 01-07 21:03:01.681079.681079 cuda_h.py:10] start restore_tensors2
+DEBUG 01-07 21:03:01.681054.681054 cuda_h.py:19] end restore_tensors2 cost 0.00018596649169921875 seconds
+DEBUG 01-07 21:03:01.681561.681561 cuda_h.py:19] end allocate_cuda_memory_and_load_into_gpu cost 0.0032596588134765625 seconds
+INFO 01-07 21:03:01.681722.681722 client.py:119] confirm_model_loaded: deepseek-moe-16b-base-bfloat16, a158bfe3-a328-4946-aed5-37a0180ad71a
+INFO 01-07 21:03:01.688994.688994 client.py:127] Model loaded
+DEBUG 01-07 21:03:01.688423.688423 cuda_h.py:10] start restore2model
+DEBUG 01-07 21:03:01.689107.689107 cuda_h.py:19] end restore2model cost 0.0009634494781494141 seconds
+DEBUG 01-07 21:03:01.690522.690522 cuda_h.py:19] end sllm_worker_task cost 0.011532306671142578 seconds
+DEBUG 01-07 21:03:01.690381.690381 cuda_h.py:10] start allocate_cuda_memory_and_load_into_gpu
+DEBUG 01-07 21:03:01.690154.690154 cuda_h.py:10] start allocate_cuda_memory
+DEBUG 01-07 21:03:01.691688.691688 cuda_h.py:19] end allocate_cuda_memory cost 0.00036835670471191406 seconds
+DEBUG 01-07 21:03:01.691521.691521 cuda_h.py:10] start load_into_gpu_async
+DEBUG 01-07 21:03:01.691265.691265 sllm_store_c.py:27] get device uuid map
+DEBUG 01-07 21:03:01.691209.691209 sllm_store_c.py:29] call client load into gpu
+DEBUG 01-07 21:03:01.691881.691881 client.py:72] load_into_gpu: deepseek-moe-16b-base-bfloat16, 393c333e-568a-41fe-9a46-c0d481739d37
+DEBUG 01-07 21:03:01.692971.692971 client.py:106] call stub.LoadModelAsync
+INFO 01-07 21:03:01.694478.694478 client.py:115] Model loaded: deepseek-moe-16b-base-bfloat16, 393c333e-568a-41fe-9a46-c0d481739d37
+DEBUG 01-07 21:03:01.694695.694695 cuda_h.py:19] end load_into_gpu_async cost 0.0029418468475341797 seconds
+DEBUG 01-07 21:03:01.694480.694480 cuda_h.py:10] start restore_tensors2
+DEBUG 01-07 21:03:01.695799.695799 cuda_h.py:19] end restore_tensors2 cost 0.0007467269897460938 seconds
+DEBUG 01-07 21:03:01.695645.695645 cuda_h.py:19] end allocate_cuda_memory_and_load_into_gpu cost 0.004955768585205078 seconds
+DEBUG 01-07 21:03:01.695720.695720 cuda_h.py:10] start restore2model
+DEBUG 01-07 21:03:01.702087.702087 cuda_h.py:19] end restore2model cost 0.007090568542480469 seconds
+INFO 01-07 21:03:01.702263.702263 client.py:119] confirm_model_loaded: deepseek-moe-16b-base-bfloat16, 393c333e-568a-41fe-9a46-c0d481739d37
+INFO 01-07 21:03:01.736907.736907 client.py:127] Model loaded
+DEBUG 01-07 21:03:01.756812.756812 cuda_h.py:10] start one
+DEBUG 01-07 21:03:02.130978.130978 cuda_h.py:19] end one cost 0.3741183280944824 seconds
+DEBUG 01-07 21:03:02.130074.130074 cuda_h.py:10] start two
+DEBUG 01-07 21:03:02.147725.147725 cuda_h.py:19] end two cost 0.016620159149169922 seconds
+DEBUG 01-07 21:03:02.147211.147211 cuda_h.py:10] start two
+DEBUG 01-07 21:03:02.163487.163487 cuda_h.py:19] end two cost 0.01592874526977539 seconds
 Collecting data...
-Generating '/tmp/nsys-report-669b.qdstrm'
+Generating '/tmp/nsys-report-561c.qdstrm'
 [1/1] [0%                          ] report2.nsys-rep[1/1] [0%                          ] report2.nsys-rep[1/1] [======33%                   ] report2.nsys-rep[1/1] [===========51%              ] report2.nsys-rep[1/1] [========================100%] report2.nsys-rep[1/1] [========================100%] report2.nsys-rep
 Generated:
 	/mnt/zhengcf3/lmp/examples/report2.nsys-rep

@@ -1,0 +1,15 @@
+here pin
+INFO 01-08 09:05:17.112839.112839 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+DEBUG 01-08 09:05:17.677237.677237 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+DEBUG 01-08 09:05:18.124291.124291 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 01-08 09:05:18.124520.124520 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 1.012s
+DEBUG 01-08 09:05:18.304811.304811 transformers.py:203] load_dict_non_blocking takes 0.017444849014282227 seconds
+DEBUG 01-08 09:05:18.310912.310912 transformers.py:213] load config takes 0.005704402923583984 seconds
+DEBUG 01-08 09:05:18.389152.389152 torch.py:171] allocate_cuda_memory takes 0.017812728881835938 seconds
+DEBUG 01-08 09:05:18.389454.389454 client.py:72] load_into_gpu: deepseek-moe-16b-base-bfloat16, 90fc8d96-98ca-4e33-8716-196a1c0326b5
+DEBUG 01-08 09:05:18.395753.395753 client.py:106] call stub.LoadModelAsync
+INFO 01-08 09:05:18.416040.416040 client.py:115] Model loaded: deepseek-moe-16b-base-bfloat16, 90fc8d96-98ca-4e33-8716-196a1c0326b5
+INFO 01-08 09:05:18.441260.441260 torch.py:194] restore state_dict takes 0.024594783782958984 seconds
+DEBUG 01-08 09:05:21.004005.004005 transformers.py:224] load model takes 2.693941831588745 seconds
+INFO 01-08 09:05:22.774419.774419 client.py:119] confirm_model_loaded: deepseek-moe-16b-base-bfloat16, 90fc8d96-98ca-4e33-8716-196a1c0326b5
+INFO 01-08 09:05:22.778366.778366 client.py:127] Model loaded
