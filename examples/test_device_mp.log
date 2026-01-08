@@ -1,0 +1,67 @@
+DEBUG 01-09 07:22:35.412734.412734 cuda_h.py:10] start one
+DEBUG 01-09 07:22:35.415559.415559 cuda_h.py:10] start wait
+DEBUG 01-09 07:22:35.547563.547563 cuda_h.py:10] start write_result
+DEBUG 01-09 07:22:35.549601.549601 cuda_h.py:19] end write_result cost 0.002246856689453125 seconds
+DEBUG 01-09 07:22:35.551548.551548 cuda_h.py:10] start write_result
+DEBUG 01-09 07:22:35.551997.551997 cuda_h.py:19] end write_result cost 7.867813110351562e-05 seconds
+DEBUG 01-09 07:22:35.552961.552961 cuda_h.py:19] end wait cost 0.13707518577575684 seconds
+DEBUG 01-09 07:22:35.553180.553180 cuda_h.py:19] end one cost 0.1376020908355713 seconds
+DEBUG 01-09 07:22:35.553587.553587 cuda_h.py:10] start one
+DEBUG 01-09 07:22:35.553267.553267 cuda_h.py:10] start wait
+DEBUG 01-09 07:22:35.553173.553173 cuda_h.py:10] start write_result
+DEBUG 01-09 07:22:35.554711.554711 cuda_h.py:19] end write_result cost 0.0001723766326904297 seconds
+DEBUG 01-09 07:22:35.554895.554895 cuda_h.py:19] end wait cost 0.0006394386291503906 seconds
+DEBUG 01-09 07:22:35.554634.554634 cuda_h.py:19] end one cost 0.0009315013885498047 seconds
+DEBUG 01-09 07:22:35.554497.554497 cuda_h.py:10] start one
+DEBUG 01-09 07:22:35.554819.554819 cuda_h.py:10] start wait
+DEBUG 01-09 07:22:35.555094.555094 cuda_h.py:10] start write_result
+DEBUG 01-09 07:22:35.555710.555710 cuda_h.py:19] end wait cost 0.0008080005645751953 seconds
+DEBUG 01-09 07:22:35.555269.555269 cuda_h.py:19] end write_result cost 5.0067901611328125e-05 seconds
+DEBUG 01-09 07:22:35.555416.555416 cuda_h.py:19] end one cost 0.0010547637939453125 seconds
+DEBUG 01-09 07:22:35.555611.555611 cuda_h.py:10] start one
+DEBUG 01-09 07:22:35.555357.555357 cuda_h.py:10] start wait
+DEBUG 01-09 07:22:35.556853.556853 cuda_h.py:10] start write_result
+DEBUG 01-09 07:22:35.556800.556800 cuda_h.py:19] end wait cost 0.0004811286926269531 seconds
+DEBUG 01-09 07:22:35.556856.556856 cuda_h.py:19] end one cost 0.0007364749908447266 seconds
+DEBUG 01-09 07:22:35.556620.556620 cuda_h.py:10] start one
+DEBUG 01-09 07:22:35.556383.556383 cuda_h.py:19] end write_result cost 0.00017142295837402344 seconds
+DEBUG 01-09 07:22:35.556195.556195 cuda_h.py:10] start wait
+DEBUG 01-09 07:22:35.556214.556214 cuda_h.py:10] start write_result
+DEBUG 01-09 07:22:35.556190.556190 cuda_h.py:19] end write_result cost 4.410743713378906e-05 seconds
+DEBUG 01-09 07:22:35.557271.557271 cuda_h.py:19] end wait cost 0.0007991790771484375 seconds
+DEBUG 01-09 07:22:35.557640.557640 cuda_h.py:19] end one cost 0.0010955333709716797 seconds
+DEBUG 01-09 07:22:35.557537.557537 cuda_h.py:10] start one
+DEBUG 01-09 07:22:35.557911.557911 cuda_h.py:10] start wait
+DEBUG 01-09 07:22:35.558679.558679 cuda_h.py:19] end wait cost 0.00047516822814941406 seconds
+DEBUG 01-09 07:22:35.558939.558939 cuda_h.py:10] start write_result
+DEBUG 01-09 07:22:35.558934.558934 cuda_h.py:19] end one cost 0.0006959438323974609 seconds
+DEBUG 01-09 07:22:35.558414.558414 cuda_h.py:10] start one
+DEBUG 01-09 07:22:35.558721.558721 cuda_h.py:19] end write_result cost 0.00017023086547851562 seconds
+DEBUG 01-09 07:22:35.558530.558530 cuda_h.py:10] start wait
+DEBUG 01-09 07:22:35.558584.558584 cuda_h.py:10] start write_result
+DEBUG 01-09 07:22:35.559521.559521 cuda_h.py:19] end write_result cost 4.5299530029296875e-05 seconds
+DEBUG 01-09 07:22:35.559209.559209 cuda_h.py:19] end wait cost 0.0007913112640380859 seconds
+DEBUG 01-09 07:22:35.559101.559101 cuda_h.py:19] end one cost 0.001035928726196289 seconds
+DEBUG 01-09 07:22:35.559818.559818 cuda_h.py:10] start one
+DEBUG 01-09 07:22:35.559081.559081 cuda_h.py:10] start wait
+DEBUG 01-09 07:22:35.560231.560231 cuda_h.py:10] start write_result
+DEBUG 01-09 07:22:35.560754.560754 cuda_h.py:19] end wait cost 0.0004413127899169922 seconds
+DEBUG 01-09 07:22:35.560931.560931 cuda_h.py:19] end one cost 0.0006830692291259766 seconds
+DEBUG 01-09 07:22:35.560648.560648 cuda_h.py:10] start one
+DEBUG 01-09 07:22:35.560345.560345 cuda_h.py:19] end write_result cost 0.00017905235290527344 seconds
+DEBUG 01-09 07:22:35.560096.560096 cuda_h.py:10] start wait
+DEBUG 01-09 07:22:35.560764.560764 cuda_h.py:10] start write_result
+DEBUG 01-09 07:22:35.561548.561548 cuda_h.py:19] end write_result cost 4.3392181396484375e-05 seconds
+DEBUG 01-09 07:22:35.561145.561145 cuda_h.py:19] end wait cost 0.0007815361022949219 seconds
+DEBUG 01-09 07:22:35.561753.561753 cuda_h.py:19] end one cost 0.0010275840759277344 seconds
+DEBUG 01-09 07:22:35.561458.561458 cuda_h.py:10] start one
+DEBUG 01-09 07:22:35.561925.561925 cuda_h.py:10] start wait
+DEBUG 01-09 07:22:35.562838.562838 cuda_h.py:19] end wait cost 0.00048065185546875 seconds
+DEBUG 01-09 07:22:35.562237.562237 cuda_h.py:10] start write_result
+DEBUG 01-09 07:22:35.562365.562365 cuda_h.py:19] end one cost 0.0006949901580810547 seconds
+DEBUG 01-09 07:22:35.562867.562867 cuda_h.py:19] end write_result cost 0.0001621246337890625 seconds
+Collecting data...
+Generating '/tmp/nsys-report-71c7.qdstrm'
+[1/1] [0%                          ] report5.nsys-rep[1/1] [0%                          ] report5.nsys-rep[1/1] [5%                          ] report5.nsys-rep[1/1] [===========52%              ] report5.nsys-rep[1/1] [========================100%] report5.nsys-rep[1/1] [========================100%] report5.nsys-rep
+Generated:
+	/mnt/zhengcf3/lmp/examples/report5.nsys-rep
