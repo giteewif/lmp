@@ -75,7 +75,7 @@ def _init_process_func(input_queue: Queue, output_queue: Queue, exit_event):
     from utils.cuda_h import cuda_hook_time, cuda_hook_time_end
     
     # print(f"Init process {os.getpid()}: Started, waiting for initialization requests...")
-    local_queue = queue.Queue()
+    local_list = list()
     try:
         # 持续运行，从队列获取初始化请求
         while not exit_event.is_set():
@@ -111,16 +111,13 @@ def _init_process_func(input_queue: Queue, output_queue: Queue, exit_event):
                     # 通过队列发送给主进程
                     if_batch_finish = request.batch_finish
                     if not if_batch_finish:
-                        local_queue.put(layer_info)
+                        local_list.append(layer_info)
                     else:
+                        local_list.append(layer_info)
                         # batch_finish为True时，先发送当前layer，然后发送本地队列中的所有layer
                         cuda_hook_time("send_batch_finish")
-                        # 先发送当前layer
-                        output_queue.put(layer_info)
                         # 然后发送本地队列中的所有layer
-                        while not local_queue.empty():
-                            queued_layer_info = local_queue.get()
-                            output_queue.put(queued_layer_info)
+                        output_queue.put(local_list)
                         cuda_hook_time_end("send_batch_finish")
 
                     
@@ -324,18 +321,35 @@ class InitMetaManagerMPShared:
             return self._result_cache[layer_idx]
         
         # 从队列接收结果，直到收到目标 layer
+        # 注意：现在收到的是一个列表，包含多个 LayerShareInfo
         while True:
-            layer_info: Optional[LayerShareInfo] = self.output_queue.get()
+            received_data = self.output_queue.get()
             
-            result = layer_info.layer
-            received_layer_idx = layer_info.layer_idx
-            
-            # 缓存结果
-            self._result_cache[received_layer_idx] = result
-            
-            # 如果收到的是当前等待的 layer，直接返回
-            if received_layer_idx == layer_idx:
-                return result
+            # 判断收到的是列表还是单个 LayerShareInfo（兼容性处理）
+            if isinstance(received_data, list):
+                # 收到的是列表，遍历处理每个 layer_info
+                for layer_info in received_data:
+                    result = layer_info.layer
+                    received_layer_idx = layer_info.layer_idx
+                    
+                    # 缓存结果
+                    self._result_cache[received_layer_idx] = result
+                    
+                    # 如果收到的是当前等待的 layer，直接返回
+                    if received_layer_idx == layer_idx:
+                        return result
+            else:
+                # 兼容旧格式：单个 LayerShareInfo
+                layer_info = received_data
+                result = layer_info.layer
+                received_layer_idx = layer_info.layer_idx
+                
+                # 缓存结果
+                self._result_cache[received_layer_idx] = result
+                
+                # 如果收到的是当前等待的 layer，直接返回
+                if received_layer_idx == layer_idx:
+                    return result
                     
     
     def wait_all(self, timeout: Optional[float] = None) -> Dict[int, Tuple[Any, Any]]:
@@ -352,14 +366,27 @@ class InitMetaManagerMPShared:
             raise RuntimeError("Initialization process not started. Call start() first.")
         
         # 从队列接收所有 layer，直到收到所有 num_layers 个结果
+        # 注意：现在收到的是一个列表，包含多个 LayerShareInfo
         while len(self._result_cache) < self.num_layers:
-            layer_info: Optional[LayerShareInfo] = self.output_queue.get()
+            received_data = self.output_queue.get()
             
-            result = layer_info.layer
-            layer_idx = layer_info.layer_idx
-            
-            # 缓存结果（如果已存在则更新）
-            self._result_cache[layer_idx] = result
+            # 判断收到的是列表还是单个 LayerShareInfo（兼容性处理）
+            if isinstance(received_data, list):
+                # 收到的是列表，遍历处理每个 layer_info
+                for layer_info in received_data:
+                    result = layer_info.layer
+                    layer_idx = layer_info.layer_idx
+                    
+                    # 缓存结果（如果已存在则更新）
+                    self._result_cache[layer_idx] = result
+            else:
+                # 兼容旧格式：单个 LayerShareInfo
+                layer_info = received_data
+                result = layer_info.layer
+                layer_idx = layer_info.layer_idx
+                
+                # 缓存结果（如果已存在则更新）
+                self._result_cache[layer_idx] = result
 
         return self._result_cache
     
