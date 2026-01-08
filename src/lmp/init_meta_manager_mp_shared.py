@@ -102,12 +102,28 @@ def _init_process_func(input_queue: Queue, output_queue: Queue, exit_event):
                     # 调用初始化函数
                     layer = init_func(layer_idx, config)
                     
-                    # 通过队列发送给主进程
+                    layer_info = LayerShareInfo(layer_idx=layer_idx, layer=layer)
                     # layer_info = LayerShareInfo(layer_idx=layer_idx, layer=layer)
-                    layer_info = LayerShareInfo(layer_idx=layer_idx, layer=None)
-                    output_queue.put(layer_info)
-                    
+                    # layer_info = LayerShareInfo(layer_idx=layer_idx, layer=None)
+                    # output_queue.put(layer_info)
                     cuda_hook_time_end(f"init_layer_{layer_idx}")
+                    
+                    # 通过队列发送给主进程
+                    if_batch_finish = request.batch_finish
+                    if not if_batch_finish:
+                        local_queue.put(layer_info)
+                    else:
+                        # batch_finish为True时，先发送当前layer，然后发送本地队列中的所有layer
+                        cuda_hook_time("send_batch_finish")
+                        # 先发送当前layer
+                        output_queue.put(layer_info)
+                        # 然后发送本地队列中的所有layer
+                        while not local_queue.empty():
+                            queued_layer_info = local_queue.get()
+                            output_queue.put(queued_layer_info)
+                        cuda_hook_time_end("send_batch_finish")
+
+                    
                     # print(f"Init process {os.getpid()}: Initialized DecoderLayer {layer_idx}")
                     
                 except Exception as e:
@@ -217,16 +233,28 @@ class InitMetaManagerMPShared:
         for layer_idx in range(self.num_layers):
             self.layer_tasks[layer_idx] = LayerStatus.PENDING.value
         
-        # 创建初始化请求并均分到各个进程的输入队列
+        # 先按layer数量分配好，再统一提交
+        # 为每个进程分配layer索引列表
+        process_layer_indices = [[] for _ in range(self.num_processes)]
         for layer_idx in range(self.num_layers):
-            request = InitRequest(
-                layer_idx=layer_idx,
-                init_func=init_func,
-                config=config
-            )
-            # 将请求均分到各个进程的输入队列（轮询分配）
             process_idx = layer_idx % self.num_processes
-            self.input_queues[process_idx].put(request)
+            process_layer_indices[process_idx].append(layer_idx)
+        
+        # 为每个进程创建请求并提交
+        for process_idx in range(self.num_processes):
+            layer_indices = process_layer_indices[process_idx]
+            for i, layer_idx in enumerate(layer_indices):
+                # 判断是否是该进程的最后一个layer
+                is_last_for_process = (i == len(layer_indices) - 1)
+                
+                request = InitRequest(
+                    layer_idx=layer_idx,
+                    init_func=init_func,
+                    config=config,
+                    batch_finish=is_last_for_process
+                )
+                # 提交到对应进程的输入队列
+                self.input_queues[process_idx].put(request)
     def submit_layer(self, layer_idx: int, init_func: Callable[[int, Any], Any], config: Any):
         """
         提交特定 layer 的初始化任务
