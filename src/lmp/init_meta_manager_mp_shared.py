@@ -49,16 +49,16 @@ class InitRequest:
     batch_finish: bool = False
 
 
-def _init_process_func(input_queue: Queue, output_queue: Queue, exit_event):
+def _init_process_func(input_queue: Queue, shared_dict, exit_event):
     """
     独立初始化进程主函数
     
-    从队列获取初始化请求，初始化 DecoderLayer，然后通过队列发送给主进程
+    从队列获取初始化请求，初始化 DecoderLayer，然后将结果写入共享字典
     进程会一直运行直到收到退出信号
     
     Args:
         input_queue: 输入队列（从主进程接收初始化请求，包含函数和参数）
-        output_queue: 输出队列（向主进程发送初始化好的 layer）
+        shared_dict: 共享字典（向主进程传递初始化好的 layer）
         exit_event: 退出事件（主进程设置此事件来通知初始化进程退出）
     """
     # 导入必要的模块（在初始化进程中）
@@ -108,17 +108,20 @@ def _init_process_func(input_queue: Queue, output_queue: Queue, exit_event):
                     # output_queue.put(layer_info)
                     cuda_hook_time_end(f"init_layer_{layer_idx}")
                     
-                    # 通过队列发送给主进程
+                    # 通过共享字典发送给主进程
                     if_batch_finish = request.batch_finish
                     if not if_batch_finish:
                         local_list.append(layer_info)
                     else:
                         local_list.append(layer_info)
-                        # batch_finish为True时，先发送当前layer，然后发送本地队列中的所有layer
+                        # batch_finish为True时，将本地列表中的所有layer写入共享字典
                         cuda_hook_time("send_batch_finish")
-                        # 然后发送本地队列中的所有layer
-                        output_queue.put(local_list)
+                        # 将列表中的所有layer写入共享字典
+                        for layer_info_item in local_list:
+                            shared_dict[layer_info_item.layer_idx] = layer_info_item.layer
                         cuda_hook_time_end("send_batch_finish")
+                        # 清空本地列表，准备下一批
+                        local_list.clear()
 
                     
                     # print(f"Init process {os.getpid()}: Initialized DecoderLayer {layer_idx}")
@@ -127,9 +130,8 @@ def _init_process_func(input_queue: Queue, output_queue: Queue, exit_event):
                     import traceback
                     print(f"Init process {os.getpid()}: Failed to initialize DecoderLayer {request.layer_idx}: {e}")
                     traceback.print_exc()
-                    # 发送错误信息到输出队列
-                    error_info = LayerShareInfo(layer_idx=request.layer_idx, layer=None)
-                    output_queue.put(error_info)
+                    # 发送错误信息到共享字典
+                    shared_dict[request.layer_idx] = None
                     
             except Exception as e:
                 # 处理队列操作异常
@@ -194,12 +196,11 @@ class InitMetaManagerMPShared:
         self.running = False
         self.init_processes = []  # 初始化进程列表
         self.input_queues = []  # 输入队列列表（每个进程一个独立的输入队列）
-        self.output_queue = None  # 输出队列（所有进程共享，主进程接收结果）
+        self.shared_dict = None  # 共享字典（所有进程共享，主进程接收结果）
         
         # Manager 和共享状态延迟创建（避免在导入时创建）
         self.manager = None
         self.exit_event = None  # 退出事件（用于通知所有初始化进程退出）
-        self._result_cache = {}  # 主进程中的结果缓存（从 Queue 接收）
         
         # 存储任务信息（主进程）
         self.layer_tasks: Dict[int, int] = {}  # layer_idx -> status
@@ -281,17 +282,18 @@ class InitMetaManagerMPShared:
             # 使用标准 multiprocessing.Manager（因为 torch.multiprocessing 没有 Manager）
             self.manager = mp.Manager()
             self.exit_event = self.manager.Event()  # 退出事件
+            # 创建共享字典（所有进程共享，用于传递结果）
+            self.shared_dict = self.manager.dict()
             # 使用 torch.multiprocessing.Queue（对 CUDA 张量更友好）
             # 为每个进程创建独立的输入队列
             self.input_queues = [Queue() for _ in range(self.num_processes)]
-            self.output_queue = Queue()  # 输出队列（所有进程共享）
         
-        # 启动多个初始化进程，每个进程使用自己的输入队列
+        # 启动多个初始化进程，每个进程使用自己的输入队列和共享字典
         self.init_processes = []
         for i in range(self.num_processes):
             process = Process(
                 target=_init_process_func,
-                args=(self.input_queues[i], self.output_queue, self.exit_event),
+                args=(self.input_queues[i], self.shared_dict, self.exit_event),
                 name=f"InitMetaManagerMPShared-InitProcess-{i}"
             )
             process.start()
@@ -304,50 +306,39 @@ class InitMetaManagerMPShared:
         """
         等待特定 layer 初始化完成
         
-        从共享输出队列接收 layer，可能收到任意 layer（因为多进程并行执行）
-        如果收到的是其他 layer，缓存起来并继续等待目标 layer
+        直接从共享字典读取 layer，轮询检查直到目标 layer 出现
         """
         if layer_idx not in self.layer_tasks:
             raise KeyError(f"Layer {layer_idx} not found in tasks")
         
-        if self.output_queue is None:
+        if self.shared_dict is None:
             raise RuntimeError("Manager not initialized. Call start() first.")
         
         if not self.running:
             raise RuntimeError("Initialization process not started. Call start() first.")
         
-        # 如果已经在缓存中，直接返回
-        if layer_idx in self._result_cache:
-            return self._result_cache[layer_idx]
+        # 从共享字典轮询检查，直到目标 layer 出现
+        # 直接使用共享字典中的数据，避免不必要的拷贝
+        import time as time_module
+        start_time = time_module.time()
         
-        # 从队列接收结果，直到收到目标 layer
-        # 注意：现在收到的是一个列表，包含多个 LayerShareInfo
-        # 直接使用队列中的数据，避免不必要的拷贝
         while True:
-            received_data = self.output_queue.get()
+            # 检查超时
+            if timeout is not None:
+                elapsed = time_module.time() - start_time
+                if elapsed > timeout:
+                    raise TimeoutError(f"wait_layer timed out after {timeout} seconds for layer {layer_idx}")
             
-            # 判断收到的是列表还是单个 LayerShareInfo（兼容性处理）
-            if isinstance(received_data, list):
-                # 收到的是列表，遍历处理每个 layer_info
-                # 直接使用列表中的数据，不进行拷贝
-                for layer_info in received_data:
-                    # 直接使用 layer_info 的属性，避免中间变量
-                    self._result_cache[layer_info.layer_idx] = layer_info.layer
-                    
-                    # 如果收到的是当前等待的 layer，直接返回
-                    if layer_info.layer_idx == layer_idx:
-                        return layer_info.layer
-            else:
-                # 兼容旧格式：单个 LayerShareInfo
-                # 直接使用 received_data，不进行拷贝
-                self._result_cache[received_data.layer_idx] = received_data.layer
-                
-                # 如果收到的是当前等待的 layer，直接返回
-                if received_data.layer_idx == layer_idx:
-                    return received_data.layer
+            # 检查共享字典中是否有目标 layer
+            if layer_idx in self.shared_dict:
+                # 直接从共享字典获取并返回，避免拷贝
+                return self.shared_dict[layer_idx]
+            
+            # 稍作等待，避免CPU占用过高
+            time_module.sleep(0.001)  # 1ms
                     
     
-    def wait_all(self, timeout: Optional[float] = None) -> Dict[int, Tuple[Any, Any]]:
+    def wait_all(self, timeout: Optional[float] = None) -> Dict[int, Any]:
         """
         等待所有 layer 初始化完成
         
@@ -355,33 +346,34 @@ class InitMetaManagerMPShared:
             timeout: 超时时间（秒），None 表示无限等待
             
         Returns:
-            字典：layer_idx -> layer
+            字典：layer_idx -> layer（直接从共享字典返回）
         """
         if not self.running:
             raise RuntimeError("Initialization process not started. Call start() first.")
         
-        # 从队列接收所有 layer，直到收到所有 num_layers 个结果
-        # 注意：现在收到的是一个列表，包含多个 LayerShareInfo
-        # 直接使用队列中的数据，避免不必要的拷贝
-        while len(self._result_cache) < self.num_layers:
-            received_data = self.output_queue.get()
+        # 从共享字典轮询检查，直到收到所有 num_layers 个结果
+        # 直接使用共享字典中的数据，避免不必要的拷贝
+        import time as time_module
+        start_time = time_module.time()
+        
+        while len(self.shared_dict) < self.num_layers:
+            # 检查超时
+            if timeout is not None:
+                elapsed = time_module.time() - start_time
+                if elapsed > timeout:
+                    raise TimeoutError(f"wait_all timed out after {timeout} seconds. "
+                                     f"Received {len(self.shared_dict)}/{self.num_layers} layers.")
             
-            # 判断收到的是列表还是单个 LayerShareInfo（兼容性处理）
-            if isinstance(received_data, list):
-                # 收到的是列表，遍历处理每个 layer_info
-                # 直接使用列表中的数据，不进行拷贝
-                for layer_info in received_data:
-                    # 直接使用 layer_info 的属性，避免中间变量
-                    self._result_cache[layer_info.layer_idx] = layer_info.layer
-            else:
-                # 兼容旧格式：单个 LayerShareInfo
-                # 直接使用 received_data，不进行拷贝
-                self._result_cache[received_data.layer_idx] = received_data.layer
+            # 稍作等待，避免CPU占用过高
+            time_module.sleep(0.001)  # 1ms
 
-        return self._result_cache
+        # 直接从共享字典返回，转换为普通字典（如果需要）
+        # 注意：Manager.dict() 返回的是代理对象，可以直接使用
+        # return dict(self.shared_dict)
+        return None
     
     def _reset_cache(self):
-        self._result_cache = {}
+        self.shared_dict.clear()
 
     def stop(self):
         """停止所有初始化进程"""
@@ -418,12 +410,9 @@ class InitMetaManagerMPShared:
                         except Exception:
                             break
         
-        if self.output_queue is not None:
-            while not self.output_queue.empty():
-                try:
-                    self.output_queue.get_nowait()
-                except Exception:
-                    break
+        # 共享字典不需要清理，由 Manager 自动管理
+        if self.shared_dict is not None:
+            self.shared_dict.clear()
         
         # 清理 CUDA 缓存
         torch.cuda.empty_cache()

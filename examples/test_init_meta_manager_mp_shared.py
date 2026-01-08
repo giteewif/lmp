@@ -72,6 +72,7 @@ if __name__ == '__main__':
         
         cuda_hook_time("wait_all")
         imm.wait_all()
+        # time.sleep(2)
         cuda_hook_time_end("wait_all")
 
         cuda_hook_time_end("one_submit_all")
