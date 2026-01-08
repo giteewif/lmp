@@ -13,3 +13,40 @@ INFO 01-08 09:05:18.441260.441260 torch.py:194] restore state_dict takes 0.02459
 DEBUG 01-08 09:05:21.004005.004005 transformers.py:224] load model takes 2.693941831588745 seconds
 INFO 01-08 09:05:22.774419.774419 client.py:119] confirm_model_loaded: deepseek-moe-16b-base-bfloat16, 90fc8d96-98ca-4e33-8716-196a1c0326b5
 INFO 01-08 09:05:22.778366.778366 client.py:127] Model loaded
+Model loading time: 4.53s
+============================================================
+First generate (with warmup overhead):
+============================================================
+First generate time: 1.30s
+============================================================
+Second generate (should be faster):
+============================================================
+Second generate time: 0.49s
+============================================================
+Second generate (should be faster):
+============================================================
+Second generate time: 0.90s
+============================================================
+Second generate (should be faster):
+============================================================
+Second generate time: 1.26s
+============================================================
+Second generate (should be faster):
+============================================================
+Second generate time: 6.01s
+
+Speedup: 0.22x
+
+原因分析:
+  1. 第一次调用包含 CUDA kernel JIT 编译开销 (~-4.71s)
+  2. 第一次调用需要初始化 KV cache (past_key_values)
+  3. 第一次调用 cuDNN 需要选择最优算法 (benchmark)
+  4. 第一次调用可能需要加载某些权重到 GPU
+  5. PyTorch 的 autograd 图构建和优化
+Model loading time: 4.53s
+ Turing摆放POWER锅内 tailored可以用锅内 horribly Hendersonramient他还细节 however
+Collecting data...
+Generating '/tmp/nsys-report-8e85.qdstrm'
+[1/1] [0%                          ] report3.nsys-rep[1/1] [0%                          ] report3.nsys-rep[1/1] [0%                          ] report3.nsys-rep[1/1] [0%                          ] report3.nsys-rep[1/1] [5%                          ] report3.nsys-rep[1/1] [6%                          ] report3.nsys-rep[1/1] [7%                          ] report3.nsys-rep[1/1] [9%                          ] report3.nsys-rep[1/1] [10%                         ] report3.nsys-rep[1/1] [11%                         ] report3.nsys-rep[1/1] [13%                         ] report3.nsys-rep[1/1] [14%                         ] report3.nsys-rep[1/1] [=15%                        ] report3.nsys-rep[1/1] [=17%                        ] report3.nsys-rep[1/1] [==18%                       ] report3.nsys-rep[1/1] [==20%                       ] report3.nsys-rep[1/1] [==21%                       ] report3.nsys-rep[1/1] [===22%                      ] report3.nsys-rep[1/1] [===24%                      ] report3.nsys-rep[1/1] [====25%                     ] report3.nsys-rep[1/1] [====26%                     ] report3.nsys-rep[1/1] [====28%                     ] report3.nsys-rep[1/1] [=====29%                    ] report3.nsys-rep[1/1] [=====30%                    ] report3.nsys-rep[1/1] [=====32%                    ] report3.nsys-rep[1/1] [======33%                   ] report3.nsys-rep[1/1] [======35%                   ] report3.nsys-rep[1/1] [=======36%                  ] report3.nsys-rep[1/1] [=======37%                  ] report3.nsys-rep[1/1] [=======39%                  ] report3.nsys-rep[1/1] [========40%                 ] report3.nsys-rep[1/1] [========41%                 ] report3.nsys-rep[1/1] [=========43%                ] report3.nsys-rep[1/1] [=========44%                ] report3.nsys-rep[1/1] [=========45%                ] report3.nsys-rep[1/1] [==========47%               ] report3.nsys-rep[1/1] [==========48%               ] report3.nsys-rep[1/1] [===========50%              ] report3.nsys-rep[1/1] [========================100%] report3.nsys-rep[1/1] [========================100%] report3.nsys-rep
+Generated:
+	/mnt/zhengcf3/lmp/examples/report3.nsys-rep
