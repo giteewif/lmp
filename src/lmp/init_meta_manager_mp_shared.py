@@ -322,34 +322,29 @@ class InitMetaManagerMPShared:
         
         # 从队列接收结果，直到收到目标 layer
         # 注意：现在收到的是一个列表，包含多个 LayerShareInfo
+        # 直接使用队列中的数据，避免不必要的拷贝
         while True:
             received_data = self.output_queue.get()
             
             # 判断收到的是列表还是单个 LayerShareInfo（兼容性处理）
             if isinstance(received_data, list):
                 # 收到的是列表，遍历处理每个 layer_info
+                # 直接使用列表中的数据，不进行拷贝
                 for layer_info in received_data:
-                    result = layer_info.layer
-                    received_layer_idx = layer_info.layer_idx
-                    
-                    # 缓存结果
-                    self._result_cache[received_layer_idx] = result
+                    # 直接使用 layer_info 的属性，避免中间变量
+                    self._result_cache[layer_info.layer_idx] = layer_info.layer
                     
                     # 如果收到的是当前等待的 layer，直接返回
-                    if received_layer_idx == layer_idx:
-                        return result
+                    if layer_info.layer_idx == layer_idx:
+                        return layer_info.layer
             else:
                 # 兼容旧格式：单个 LayerShareInfo
-                layer_info = received_data
-                result = layer_info.layer
-                received_layer_idx = layer_info.layer_idx
-                
-                # 缓存结果
-                self._result_cache[received_layer_idx] = result
+                # 直接使用 received_data，不进行拷贝
+                self._result_cache[received_data.layer_idx] = received_data.layer
                 
                 # 如果收到的是当前等待的 layer，直接返回
-                if received_layer_idx == layer_idx:
-                    return result
+                if received_data.layer_idx == layer_idx:
+                    return received_data.layer
                     
     
     def wait_all(self, timeout: Optional[float] = None) -> Dict[int, Tuple[Any, Any]]:
@@ -367,26 +362,21 @@ class InitMetaManagerMPShared:
         
         # 从队列接收所有 layer，直到收到所有 num_layers 个结果
         # 注意：现在收到的是一个列表，包含多个 LayerShareInfo
+        # 直接使用队列中的数据，避免不必要的拷贝
         while len(self._result_cache) < self.num_layers:
             received_data = self.output_queue.get()
             
             # 判断收到的是列表还是单个 LayerShareInfo（兼容性处理）
             if isinstance(received_data, list):
                 # 收到的是列表，遍历处理每个 layer_info
+                # 直接使用列表中的数据，不进行拷贝
                 for layer_info in received_data:
-                    result = layer_info.layer
-                    layer_idx = layer_info.layer_idx
-                    
-                    # 缓存结果（如果已存在则更新）
-                    self._result_cache[layer_idx] = result
+                    # 直接使用 layer_info 的属性，避免中间变量
+                    self._result_cache[layer_info.layer_idx] = layer_info.layer
             else:
                 # 兼容旧格式：单个 LayerShareInfo
-                layer_info = received_data
-                result = layer_info.layer
-                layer_idx = layer_info.layer_idx
-                
-                # 缓存结果（如果已存在则更新）
-                self._result_cache[layer_idx] = result
+                # 直接使用 received_data，不进行拷贝
+                self._result_cache[received_data.layer_idx] = received_data.layer
 
         return self._result_cache
     
