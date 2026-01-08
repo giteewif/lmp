@@ -1,8 +1,9 @@
 """
 多进程版本的 InitMetaManager - 独立初始化进程版本
-使用 torch.multiprocessing 启动一个独立进程初始化所有 DecoderLayer
-主进程从该进程获取初始化好的 DecoderLayer 对象
+使用 torch.multiprocessing 启动多个独立进程初始化所有 DecoderLayer
+主进程从这些进程获取初始化好的 DecoderLayer 对象
 torch.multiprocessing 支持 CUDA 张量的共享
+支持配置进程数量，多个进程共享任务队列（工作窃取模式）
 """
 import torch.multiprocessing as mp
 from torch.multiprocessing import Process, Queue
@@ -45,6 +46,7 @@ class InitRequest:
     layer_idx: int
     init_func: Callable  # 初始化函数
     config: Any  # 模型配置
+    batch_finish: bool = False
 
 
 def _init_process_func(input_queue: Queue, output_queue: Queue, exit_event):
@@ -73,7 +75,7 @@ def _init_process_func(input_queue: Queue, output_queue: Queue, exit_event):
     from utils.cuda_h import cuda_hook_time, cuda_hook_time_end
     
     # print(f"Init process {os.getpid()}: Started, waiting for initialization requests...")
-    
+    local_queue = queue.Queue()
     try:
         # 持续运行，从队列获取初始化请求
         while not exit_event.is_set():
@@ -101,7 +103,8 @@ def _init_process_func(input_queue: Queue, output_queue: Queue, exit_event):
                     layer = init_func(layer_idx, config)
                     
                     # 通过队列发送给主进程
-                    layer_info = LayerShareInfo(layer_idx=layer_idx, layer=layer)
+                    # layer_info = LayerShareInfo(layer_idx=layer_idx, layer=layer)
+                    layer_info = LayerShareInfo(layer_idx=layer_idx, layer=None)
                     output_queue.put(layer_info)
                     
                     cuda_hook_time_end(f"init_layer_{layer_idx}")
@@ -136,9 +139,10 @@ class InitMetaManagerMPShared:
     多进程版本的 InitMetaManager - 独立初始化进程版本
     
     使用 torch.multiprocessing 实现：
-    1. 启动一个独立进程初始化所有 DecoderLayer
-    2. 主进程从该进程获取初始化好的 DecoderLayer 对象
+    1. 启动多个独立进程初始化所有 DecoderLayer（支持配置进程数量）
+    2. 主进程从这些进程获取初始化好的 DecoderLayer 对象
     3. torch.multiprocessing 支持 CUDA 张量共享，可以直接传递对象
+    4. 多个进程共享同一个任务队列（工作窃取模式），自动负载均衡
     
     注意：
     1. 初始化进程需要独立的 CUDA 上下文
@@ -146,9 +150,12 @@ class InitMetaManagerMPShared:
     3. DecoderLayer 对象可以直接传递，无需序列化
     """
     
-    def __init__(self):
+    def __init__(self, num_processes: int = 1):
         """
         初始化管理器
+        
+        Args:
+            num_processes: 初始化进程数量，默认为1（单进程模式）
         """
         # 设置启动方法（torch.multiprocessing 推荐使用 'spawn'）
         try:
@@ -170,15 +177,16 @@ class InitMetaManagerMPShared:
             except Exception:
                 pass
         
+        self.num_processes = num_processes
         self.running = False
-        self.init_process = None
-        self.input_queue = None  # 输入队列（向初始化进程发送请求）
-        self.output_queue = None  # 输出队列（从初始化进程接收结果）
+        self.init_processes = []  # 初始化进程列表
+        self.input_queues = []  # 输入队列列表（每个进程一个独立的输入队列）
+        self.output_queue = None  # 输出队列（所有进程共享，主进程接收结果）
         
         # Manager 和共享状态延迟创建（避免在导入时创建）
         self.manager = None
-        self.exit_event = None  # 退出事件（用于通知初始化进程退出）
-        self.result_cache = {}  # 主进程中的结果缓存（从 Queue 接收）
+        self.exit_event = None  # 退出事件（用于通知所有初始化进程退出）
+        self._result_cache = {}  # 主进程中的结果缓存（从 Queue 接收）
         
         # 存储任务信息（主进程）
         self.layer_tasks: Dict[int, int] = {}  # layer_idx -> status
@@ -209,14 +217,16 @@ class InitMetaManagerMPShared:
         for layer_idx in range(self.num_layers):
             self.layer_tasks[layer_idx] = LayerStatus.PENDING.value
         
-        # 创建初始化请求并发送到队列
+        # 创建初始化请求并均分到各个进程的输入队列
         for layer_idx in range(self.num_layers):
             request = InitRequest(
                 layer_idx=layer_idx,
                 init_func=init_func,
                 config=config
             )
-            self.input_queue.put(request)
+            # 将请求均分到各个进程的输入队列（轮询分配）
+            process_idx = layer_idx % self.num_processes
+            self.input_queues[process_idx].put(request)
     def submit_layer(self, layer_idx: int, init_func: Callable[[int, Any], Any], config: Any):
         """
         提交特定 layer 的初始化任务
@@ -227,13 +237,17 @@ class InitMetaManagerMPShared:
             config=config
         )
         self.layer_tasks[layer_idx] = LayerStatus.PENDING.value
-        self.input_queue.put(request)
+        # 将请求分配到对应的进程队列（轮询分配）
+        process_idx = layer_idx % self.num_processes
+        self.input_queues[process_idx].put(request)
 
     def start(self):
         """启动初始化进程"""
         if self.running:
             return
         
+        if self.num_processes < 1:
+            raise ValueError(f"num_processes must be >= 1, got {self.num_processes}")
         
         self.running = True
         
@@ -243,24 +257,30 @@ class InitMetaManagerMPShared:
             self.manager = mp.Manager()
             self.exit_event = self.manager.Event()  # 退出事件
             # 使用 torch.multiprocessing.Queue（对 CUDA 张量更友好）
-            self.input_queue = Queue()  # 输入队列
-            self.output_queue = Queue()  # 输出队列
+            # 为每个进程创建独立的输入队列
+            self.input_queues = [Queue() for _ in range(self.num_processes)]
+            self.output_queue = Queue()  # 输出队列（所有进程共享）
         
-        # 启动初始化进程
-        self.init_process = Process(
-            target=_init_process_func,
-            args=(self.input_queue, self.output_queue, self.exit_event),
-            name="InitMetaManagerMPShared-InitProcess"
-        )
-        self.init_process.start()
+        # 启动多个初始化进程，每个进程使用自己的输入队列
+        self.init_processes = []
+        for i in range(self.num_processes):
+            process = Process(
+                target=_init_process_func,
+                args=(self.input_queues[i], self.output_queue, self.exit_event),
+                name=f"InitMetaManagerMPShared-InitProcess-{i}"
+            )
+            process.start()
+            self.init_processes.append(process)
+            print(f"Started initialization process {i} (PID: {process.pid})")
         
-        print(f"Started initialization process (PID: {self.init_process.pid})")
+        print(f"Started {self.num_processes} initialization process(es)")
     
     def wait_layer(self, layer_idx: int, timeout: Optional[float] = None) -> Any:
         """
         等待特定 layer 初始化完成
         
-        只从队列接收 layer，不使用状态信号
+        从共享输出队列接收 layer，可能收到任意 layer（因为多进程并行执行）
+        如果收到的是其他 layer，缓存起来并继续等待目标 layer
         """
         if layer_idx not in self.layer_tasks:
             raise KeyError(f"Layer {layer_idx} not found in tasks")
@@ -271,15 +291,23 @@ class InitMetaManagerMPShared:
         if not self.running:
             raise RuntimeError("Initialization process not started. Call start() first.")
         
+        # 如果已经在缓存中，直接返回
+        if layer_idx in self._result_cache:
+            return self._result_cache[layer_idx]
         
-        layer_info: Optional[LayerShareInfo] = self.output_queue.get()
-        
-        result = layer_info.layer
-        self.result_cache[layer_info.layer_idx] = result
-        
-        # 如果收到的是当前等待的 layer，直接返回
-        if layer_info.layer_idx == layer_idx:
-            return result
+        # 从队列接收结果，直到收到目标 layer
+        while True:
+            layer_info: Optional[LayerShareInfo] = self.output_queue.get()
+            
+            result = layer_info.layer
+            received_layer_idx = layer_info.layer_idx
+            
+            # 缓存结果
+            self._result_cache[received_layer_idx] = result
+            
+            # 如果收到的是当前等待的 layer，直接返回
+            if received_layer_idx == layer_idx:
+                return result
                     
     
     def wait_all(self, timeout: Optional[float] = None) -> Dict[int, Tuple[Any, Any]]:
@@ -290,47 +318,60 @@ class InitMetaManagerMPShared:
             timeout: 超时时间（秒），None 表示无限等待
             
         Returns:
-            字典：layer_idx -> (layer, layer_copy)
+            字典：layer_idx -> layer
         """
         if not self.running:
             raise RuntimeError("Initialization process not started. Call start() first.")
         
-        for i in range(self.num_layers):
-            self.wait_layer(i)
+        # 从队列接收所有 layer，直到收到所有 num_layers 个结果
+        while len(self._result_cache) < self.num_layers:
+            layer_info: Optional[LayerShareInfo] = self.output_queue.get()
+            
+            result = layer_info.layer
+            layer_idx = layer_info.layer_idx
+            
+            # 缓存结果（如果已存在则更新）
+            self._result_cache[layer_idx] = result
 
-        return self.result_cache
+        return self._result_cache
     
+    def _reset_cache(self):
+        self._result_cache = {}
+
     def stop(self):
-        """停止初始化进程"""
+        """停止所有初始化进程"""
         if not self.running:
             return
         
         self.running = False
         
-        # 发送退出信号给初始化进程
+        # 发送退出信号给所有初始化进程
         if self.exit_event is not None:
             self.exit_event.set()
         
-        # 等待初始化进程结束
-        if self.init_process is not None:
-            self.init_process.join(timeout=10.0)
-            if self.init_process.is_alive():
-                print(f"Terminating initialization process (PID: {self.init_process.pid})...")
-                self.init_process.terminate()
-                self.init_process.join(timeout=5.0)
-                if self.init_process.is_alive():
-                    self.init_process.kill()
-                    self.init_process.join()
+        # 等待所有初始化进程结束
+        for i, process in enumerate(self.init_processes):
+            if process is not None:
+                process.join(timeout=10.0)
+                if process.is_alive():
+                    print(f"Terminating initialization process {i} (PID: {process.pid})...")
+                    process.terminate()
+                    process.join(timeout=5.0)
+                    if process.is_alive():
+                        process.kill()
+                        process.join()
         
-        self.init_process = None
+        self.init_processes = []
         
         # 清理队列
-        if self.input_queue is not None:
-            while not self.input_queue.empty():
-                try:
-                    self.input_queue.get_nowait()
-                except Exception:
-                    break
+        if self.input_queues is not None:
+            for input_queue in self.input_queues:
+                if input_queue is not None:
+                    while not input_queue.empty():
+                        try:
+                            input_queue.get_nowait()
+                        except Exception:
+                            break
         
         if self.output_queue is not None:
             while not self.output_queue.empty():

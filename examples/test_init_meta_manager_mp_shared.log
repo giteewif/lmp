@@ -1,0 +1,289 @@
+DEBUG 01-08 16:16:56.289622.289622 cuda_h.py:10] start load_config
+DEBUG 01-08 16:16:56.298215.298215 cuda_h.py:19] end load_config cost 0.007979154586791992 seconds
+DEBUG 01-08 16:16:56.298079.298079 cuda_h.py:10] start init_meta
+DEBUG 01-08 16:16:56.306441.306441 cuda_h.py:19] end init_meta cost 0.0077784061431884766 seconds
+DEBUG 01-08 16:16:56.306603.306603 cuda_h.py:10] start start_workers
+Started initialization process 0 (PID: 1052235)
+Started initialization process 1 (PID: 1052236)
+Started 2 initialization process(es)
+DEBUG 01-08 16:16:59.484702.484702 cuda_h.py:19] end start_workers cost 3.178502321243286 seconds
+DEBUG 01-08 16:17:02.488509.488509 cuda_h.py:10] start one_submit_all
+DEBUG 01-08 16:17:02.488782.488782 cuda_h.py:10] start submit_all
+DEBUG 01-08 16:17:02.491121.491121 cuda_h.py:19] end submit_all cost 0.0029036998748779297 seconds
+DEBUG 01-08 16:17:02.491796.491796 cuda_h.py:10] start wait_all
+DEBUG 01-08 16:17:02.497398.497398 cuda_h.py:10] start init_layer_1
+DEBUG 01-08 16:17:02.511720.511720 cuda_h.py:10] start init_layer_0
+Init process 1052235: Layer 0 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:02.542600.542600 cuda_h.py:19] end init_layer_0 cost 0.030779361724853516 seconds
+DEBUG 01-08 16:17:02.543154.543154 cuda_h.py:10] start init_layer_2
+Init process 1052235: Layer 2 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:02.581433.581433 cuda_h.py:19] end init_layer_2 cost 0.03800368309020996 seconds
+DEBUG 01-08 16:17:02.582846.582846 cuda_h.py:10] start init_layer_4
+Init process 1052236: Layer 1 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:02.601721.601721 cuda_h.py:19] end init_layer_1 cost 0.10388779640197754 seconds
+DEBUG 01-08 16:17:02.602963.602963 cuda_h.py:10] start init_layer_3
+Init process 1052235: Layer 4 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:02.620415.620415 cuda_h.py:19] end init_layer_4 cost 0.03846597671508789 seconds
+DEBUG 01-08 16:17:02.621212.621212 cuda_h.py:10] start init_layer_6
+Init process 1052236: Layer 3 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:02.640639.640639 cuda_h.py:19] end init_layer_3 cost 0.03788566589355469 seconds
+DEBUG 01-08 16:17:02.640072.640072 cuda_h.py:10] start init_layer_5
+Init process 1052235: Layer 6 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:02.658954.658954 cuda_h.py:19] end init_layer_6 cost 0.03731703758239746 seconds
+DEBUG 01-08 16:17:02.659189.659189 cuda_h.py:10] start init_layer_8
+Init process 1052236: Layer 5 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:02.669338.669338 cuda_h.py:19] end init_layer_5 cost 0.028636932373046875 seconds
+DEBUG 01-08 16:17:02.669952.669952 cuda_h.py:10] start init_layer_7
+Init process 1052235: Layer 8 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:02.687897.687897 cuda_h.py:19] end init_layer_8 cost 0.027817487716674805 seconds
+DEBUG 01-08 16:17:02.687509.687509 cuda_h.py:10] start init_layer_10
+Init process 1052236: Layer 7 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:02.697494.697494 cuda_h.py:19] end init_layer_7 cost 0.02738499641418457 seconds
+DEBUG 01-08 16:17:02.697923.697923 cuda_h.py:10] start init_layer_9
+Init process 1052235: Layer 10 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:02.715758.715758 cuda_h.py:19] end init_layer_10 cost 0.027938127517700195 seconds
+DEBUG 01-08 16:17:02.715927.715927 cuda_h.py:10] start init_layer_12
+Init process 1052236: Layer 9 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:02.725490.725490 cuda_h.py:19] end init_layer_9 cost 0.02792668342590332 seconds
+DEBUG 01-08 16:17:02.725734.725734 cuda_h.py:10] start init_layer_11
+Init process 1052235: Layer 12 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:02.743221.743221 cuda_h.py:19] end init_layer_12 cost 0.02810955047607422 seconds
+DEBUG 01-08 16:17:02.744965.744965 cuda_h.py:10] start init_layer_14
+Init process 1052236: Layer 11 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:02.762192.762192 cuda_h.py:19] end init_layer_11 cost 0.0365140438079834 seconds
+DEBUG 01-08 16:17:02.762284.762284 cuda_h.py:10] start init_layer_13
+Init process 1052235: Layer 14 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:02.775227.775227 cuda_h.py:19] end init_layer_14 cost 0.03093433380126953 seconds
+DEBUG 01-08 16:17:02.775696.775696 cuda_h.py:10] start init_layer_16
+Init process 1052236: Layer 13 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:02.789510.789510 cuda_h.py:19] end init_layer_13 cost 0.027042388916015625 seconds
+DEBUG 01-08 16:17:02.790072.790072 cuda_h.py:10] start init_layer_15
+Init process 1052235: Layer 16 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:02.808142.808142 cuda_h.py:19] end init_layer_16 cost 0.03284406661987305 seconds
+DEBUG 01-08 16:17:02.808000.808000 cuda_h.py:10] start init_layer_18
+Init process 1052236: Layer 15 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:02.827573.827573 cuda_h.py:19] end init_layer_15 cost 0.03684210777282715 seconds
+DEBUG 01-08 16:17:02.828684.828684 cuda_h.py:10] start init_layer_17
+Init process 1052235: Layer 18 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:02.847972.847972 cuda_h.py:19] end init_layer_18 cost 0.03858685493469238 seconds
+DEBUG 01-08 16:17:02.848226.848226 cuda_h.py:10] start init_layer_20
+Init process 1052236: Layer 17 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:02.864024.864024 cuda_h.py:19] end init_layer_17 cost 0.035962820053100586 seconds
+DEBUG 01-08 16:17:02.864750.864750 cuda_h.py:10] start init_layer_19
+Init process 1052235: Layer 20 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:02.886304.886304 cuda_h.py:19] end init_layer_20 cost 0.03719639778137207 seconds
+DEBUG 01-08 16:17:02.886162.886162 cuda_h.py:10] start init_layer_22
+Init process 1052236: Layer 19 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:02.895427.895427 cuda_h.py:19] end init_layer_19 cost 0.030425548553466797 seconds
+DEBUG 01-08 16:17:02.895518.895518 cuda_h.py:10] start init_layer_21
+Init process 1052235: Layer 22 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:02.915950.915950 cuda_h.py:19] end init_layer_22 cost 0.02896904945373535 seconds
+DEBUG 01-08 16:17:02.916565.916565 cuda_h.py:10] start init_layer_24
+Init process 1052236: Layer 21 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:02.926361.926361 cuda_h.py:19] end init_layer_21 cost 0.03062915802001953 seconds
+DEBUG 01-08 16:17:02.926748.926748 cuda_h.py:10] start init_layer_23
+Init process 1052235: Layer 24 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:02.945298.945298 cuda_h.py:19] end init_layer_24 cost 0.028743267059326172 seconds
+DEBUG 01-08 16:17:02.945036.945036 cuda_h.py:10] start init_layer_26
+Init process 1052236: Layer 23 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:02.954874.954874 cuda_h.py:19] end init_layer_23 cost 0.02799367904663086 seconds
+DEBUG 01-08 16:17:02.955945.955945 cuda_h.py:10] start init_layer_25
+Init process 1052235: Layer 26 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:02.972869.972869 cuda_h.py:19] end init_layer_26 cost 0.027384519577026367 seconds
+Init process 1052236: Layer 25 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:02.983063.983063 cuda_h.py:19] end init_layer_25 cost 0.028749465942382812 seconds
+DEBUG 01-08 16:17:02.984285.984285 cuda_h.py:10] start init_layer_27
+Init process 1052236: Layer 27 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.011355.011355 cuda_h.py:19] end init_layer_27 cost 0.027321815490722656 seconds
+DEBUG 01-08 16:17:03.011654.011654 cuda_h.py:19] end wait_all cost 0.5199644565582275 seconds
+DEBUG 01-08 16:17:03.011962.011962 cuda_h.py:19] end one_submit_all cost 0.5236213207244873 seconds
+DEBUG 01-08 16:17:03.011931.011931 cuda_h.py:10] start one_submit_all
+DEBUG 01-08 16:17:03.012608.012608 cuda_h.py:10] start submit_all
+DEBUG 01-08 16:17:03.012336.012336 cuda_h.py:19] end submit_all cost 0.00014472007751464844 seconds
+DEBUG 01-08 16:17:03.012477.012477 cuda_h.py:10] start wait_all
+DEBUG 01-08 16:17:03.012127.012127 cuda_h.py:10] start init_layer_0
+DEBUG 01-08 16:17:03.012897.012897 cuda_h.py:10] start init_layer_1
+Init process 1052235: Layer 0 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.031715.031715 cuda_h.py:19] end init_layer_0 cost 0.018467187881469727 seconds
+DEBUG 01-08 16:17:03.031932.031932 cuda_h.py:10] start init_layer_2
+Init process 1052235: Layer 2 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.055853.055853 cuda_h.py:19] end init_layer_2 cost 0.023866653442382812 seconds
+DEBUG 01-08 16:17:03.055673.055673 cuda_h.py:10] start init_layer_4
+Init process 1052236: Layer 1 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.131312.131312 cuda_h.py:19] end init_layer_1 cost 0.1190946102142334 seconds
+DEBUG 01-08 16:17:03.132172.132172 cuda_h.py:10] start init_layer_3
+Init process 1052235: Layer 4 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.167789.167789 cuda_h.py:19] end init_layer_4 cost 0.11176037788391113 seconds
+DEBUG 01-08 16:17:03.168358.168358 cuda_h.py:10] start init_layer_6
+Init process 1052236: Layer 3 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.187543.187543 cuda_h.py:19] end init_layer_3 cost 0.05440497398376465 seconds
+DEBUG 01-08 16:17:03.187803.187803 cuda_h.py:10] start init_layer_5
+Init process 1052235: Layer 6 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.206653.206653 cuda_h.py:19] end init_layer_6 cost 0.037644386291503906 seconds
+DEBUG 01-08 16:17:03.206061.206061 cuda_h.py:10] start init_layer_8
+Init process 1052236: Layer 5 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.224896.224896 cuda_h.py:19] end init_layer_5 cost 0.03632664680480957 seconds
+DEBUG 01-08 16:17:03.224791.224791 cuda_h.py:10] start init_layer_7
+Init process 1052235: Layer 8 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.242385.242385 cuda_h.py:19] end init_layer_8 cost 0.036136627197265625 seconds
+DEBUG 01-08 16:17:03.243948.243948 cuda_h.py:10] start init_layer_10
+Init process 1052236: Layer 7 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.261350.261350 cuda_h.py:19] end init_layer_7 cost 0.036399126052856445 seconds
+DEBUG 01-08 16:17:03.261906.261906 cuda_h.py:10] start init_layer_9
+Init process 1052235: Layer 10 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.275097.275097 cuda_h.py:19] end init_layer_10 cost 0.03207802772521973 seconds
+DEBUG 01-08 16:17:03.275518.275518 cuda_h.py:10] start init_layer_12
+Init process 1052236: Layer 9 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.289978.289978 cuda_h.py:19] end init_layer_9 cost 0.02756190299987793 seconds
+DEBUG 01-08 16:17:03.290909.290909 cuda_h.py:10] start init_layer_11
+Init process 1052235: Layer 12 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.303095.303095 cuda_h.py:19] end init_layer_12 cost 0.027440786361694336 seconds
+DEBUG 01-08 16:17:03.303887.303887 cuda_h.py:10] start init_layer_14
+Init process 1052236: Layer 11 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.320792.320792 cuda_h.py:19] end init_layer_11 cost 0.030228853225708008 seconds
+DEBUG 01-08 16:17:03.320228.320228 cuda_h.py:10] start init_layer_13
+Init process 1052235: Layer 14 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.337593.337593 cuda_h.py:19] end init_layer_14 cost 0.03446006774902344 seconds
+DEBUG 01-08 16:17:03.338921.338921 cuda_h.py:10] start init_layer_16
+Init process 1052236: Layer 13 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.348490.348490 cuda_h.py:19] end init_layer_13 cost 0.02752971649169922 seconds
+DEBUG 01-08 16:17:03.348827.348827 cuda_h.py:10] start init_layer_15
+Init process 1052235: Layer 16 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.367159.367159 cuda_h.py:19] end init_layer_16 cost 0.02880573272705078 seconds
+DEBUG 01-08 16:17:03.367030.367030 cuda_h.py:10] start init_layer_18
+Init process 1052236: Layer 15 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.385758.385758 cuda_h.py:19] end init_layer_15 cost 0.03722429275512695 seconds
+DEBUG 01-08 16:17:03.386795.386795 cuda_h.py:10] start init_layer_17
+Init process 1052235: Layer 18 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.404502.404502 cuda_h.py:19] end init_layer_18 cost 0.03719472885131836 seconds
+DEBUG 01-08 16:17:03.405627.405627 cuda_h.py:10] start init_layer_20
+Init process 1052236: Layer 17 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.423979.423979 cuda_h.py:19] end init_layer_17 cost 0.03708052635192871 seconds
+DEBUG 01-08 16:17:03.423340.423340 cuda_h.py:10] start init_layer_19
+Init process 1052235: Layer 20 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.442241.442241 cuda_h.py:19] end init_layer_20 cost 0.0370485782623291 seconds
+DEBUG 01-08 16:17:03.442113.442113 cuda_h.py:10] start init_layer_22
+Init process 1052236: Layer 19 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.460129.460129 cuda_h.py:19] end init_layer_19 cost 0.03713726997375488 seconds
+DEBUG 01-08 16:17:03.461245.461245 cuda_h.py:10] start init_layer_21
+Init process 1052235: Layer 22 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.472105.472105 cuda_h.py:19] end init_layer_22 cost 0.02957320213317871 seconds
+DEBUG 01-08 16:17:03.472776.472776 cuda_h.py:10] start init_layer_24
+Init process 1052236: Layer 21 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.491751.491751 cuda_h.py:19] end init_layer_21 cost 0.02970099449157715 seconds
+DEBUG 01-08 16:17:03.491814.491814 cuda_h.py:10] start init_layer_23
+Init process 1052235: Layer 24 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.511667.511667 cuda_h.py:19] end init_layer_24 cost 0.038388729095458984 seconds
+DEBUG 01-08 16:17:03.511514.511514 cuda_h.py:10] start init_layer_26
+Init process 1052236: Layer 23 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.530421.530421 cuda_h.py:19] end init_layer_23 cost 0.03883099555969238 seconds
+DEBUG 01-08 16:17:03.530106.530106 cuda_h.py:10] start init_layer_25
+Init process 1052235: Layer 26 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.544190.544190 cuda_h.py:19] end init_layer_26 cost 0.03278088569641113 seconds
+Init process 1052236: Layer 25 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.558130.558130 cuda_h.py:19] end init_layer_25 cost 0.02754378318786621 seconds
+DEBUG 01-08 16:17:03.558107.558107 cuda_h.py:10] start init_layer_27
+Init process 1052236: Layer 27 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.583824.583824 cuda_h.py:19] end init_layer_27 cost 0.0246889591217041 seconds
+DEBUG 01-08 16:17:03.583419.583419 cuda_h.py:19] end wait_all cost 0.5709676742553711 seconds
+DEBUG 01-08 16:17:03.583728.583728 cuda_h.py:19] end one_submit_all cost 0.5714380741119385 seconds
+DEBUG 01-08 16:17:03.583266.583266 cuda_h.py:10] start one_submit_all
+DEBUG 01-08 16:17:03.583612.583612 cuda_h.py:10] start submit_all
+DEBUG 01-08 16:17:03.583757.583757 cuda_h.py:19] end submit_all cost 0.0001385211944580078 seconds
+DEBUG 01-08 16:17:03.583520.583520 cuda_h.py:10] start init_layer_1
+DEBUG 01-08 16:17:03.584905.584905 cuda_h.py:10] start wait_all
+DEBUG 01-08 16:17:03.584696.584696 cuda_h.py:10] start init_layer_0
+Init process 1052235: Layer 0 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.587267.587267 cuda_h.py:19] end init_layer_0 cost 0.00353240966796875 seconds
+DEBUG 01-08 16:17:03.588020.588020 cuda_h.py:10] start init_layer_2
+Init process 1052236: Layer 1 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.612970.612970 cuda_h.py:19] end init_layer_1 cost 0.02834486961364746 seconds
+DEBUG 01-08 16:17:03.612212.612212 cuda_h.py:10] start init_layer_3
+Init process 1052235: Layer 2 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.621500.621500 cuda_h.py:19] end init_layer_2 cost 0.03352689743041992 seconds
+DEBUG 01-08 16:17:03.622906.622906 cuda_h.py:10] start init_layer_4
+Init process 1052236: Layer 3 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.641344.641344 cuda_h.py:19] end init_layer_3 cost 0.028539180755615234 seconds
+DEBUG 01-08 16:17:03.641719.641719 cuda_h.py:10] start init_layer_5
+Init process 1052235: Layer 4 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.649529.649529 cuda_h.py:19] end init_layer_4 cost 0.027410507202148438 seconds
+DEBUG 01-08 16:17:03.650704.650704 cuda_h.py:10] start init_layer_6
+Init process 1052236: Layer 5 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.676808.676808 cuda_h.py:19] end init_layer_5 cost 0.03420901298522949 seconds
+DEBUG 01-08 16:17:03.676468.676468 cuda_h.py:10] start init_layer_7
+Init process 1052235: Layer 6 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.681708.681708 cuda_h.py:19] end init_layer_6 cost 0.03166842460632324 seconds
+DEBUG 01-08 16:17:03.682943.682943 cuda_h.py:10] start init_layer_8
+Init process 1052235: Layer 8 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.716082.716082 cuda_h.py:19] end init_layer_8 cost 0.034078121185302734 seconds
+DEBUG 01-08 16:17:03.717891.717891 cuda_h.py:10] start init_layer_10
+Init process 1052235: Layer 10 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.746566.746566 cuda_h.py:19] end init_layer_10 cost 0.02933812141418457 seconds
+DEBUG 01-08 16:17:03.747043.747043 cuda_h.py:10] start init_layer_12
+Init process 1052236: Layer 7 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.817559.817559 cuda_h.py:19] end init_layer_7 cost 0.1406388282775879 seconds
+DEBUG 01-08 16:17:03.817367.817367 cuda_h.py:10] start init_layer_9
+Init process 1052236: Layer 9 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.846986.846986 cuda_h.py:19] end init_layer_9 cost 0.028102874755859375 seconds
+DEBUG 01-08 16:17:03.846487.846487 cuda_h.py:10] start init_layer_11
+Init process 1052236: Layer 11 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.883801.883801 cuda_h.py:19] end init_layer_11 cost 0.027883529663085938 seconds
+DEBUG 01-08 16:17:03.884429.884429 cuda_h.py:10] start init_layer_13
+Init process 1052235: Layer 12 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.887916.887916 cuda_h.py:19] end init_layer_12 cost 0.1406385898590088 seconds
+DEBUG 01-08 16:17:03.888420.888420 cuda_h.py:10] start init_layer_14
+Init process 1052235: Layer 14 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.916404.916404 cuda_h.py:19] end init_layer_14 cost 0.027335405349731445 seconds
+DEBUG 01-08 16:17:03.920615.920615 cuda_h.py:10] start init_layer_16
+Init process 1052236: Layer 13 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.921549.921549 cuda_h.py:19] end init_layer_13 cost 0.03648090362548828 seconds
+DEBUG 01-08 16:17:03.924036.924036 cuda_h.py:10] start init_layer_15
+Init process 1052235: Layer 16 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.949307.949307 cuda_h.py:19] end init_layer_16 cost 0.02839827537536621 seconds
+DEBUG 01-08 16:17:03.949613.949613 cuda_h.py:10] start init_layer_18
+Init process 1052236: Layer 15 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.959647.959647 cuda_h.py:19] end init_layer_15 cost 0.03378558158874512 seconds
+DEBUG 01-08 16:17:03.965969.965969 cuda_h.py:10] start init_layer_17
+Init process 1052235: Layer 18 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.978230.978230 cuda_h.py:19] end init_layer_18 cost 0.028839588165283203 seconds
+DEBUG 01-08 16:17:03.978891.978891 cuda_h.py:10] start init_layer_20
+Init process 1052236: Layer 17 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:03.995014.995014 cuda_h.py:19] end init_layer_17 cost 0.029680490493774414 seconds
+DEBUG 01-08 16:17:03.995981.995981 cuda_h.py:10] start init_layer_19
+Init process 1052235: Layer 20 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:04.011225.011225 cuda_h.py:19] end init_layer_20 cost 0.029350757598876953 seconds
+DEBUG 01-08 16:17:04.011872.011872 cuda_h.py:10] start init_layer_22
+Init process 1052236: Layer 19 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:04.025588.025588 cuda_h.py:19] end init_layer_19 cost 0.029108762741088867 seconds
+DEBUG 01-08 16:17:04.025600.025600 cuda_h.py:10] start init_layer_21
+Init process 1052235: Layer 22 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:04.044977.044977 cuda_h.py:19] end init_layer_22 cost 0.03230619430541992 seconds
+DEBUG 01-08 16:17:04.044362.044362 cuda_h.py:10] start init_layer_24
+Init process 1052236: Layer 21 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:04.062100.062100 cuda_h.py:19] end init_layer_21 cost 0.03737807273864746 seconds
+DEBUG 01-08 16:17:04.063016.063016 cuda_h.py:10] start init_layer_23
+Init process 1052235: Layer 24 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:04.082456.082456 cuda_h.py:19] end init_layer_24 cost 0.037564754486083984 seconds
+DEBUG 01-08 16:17:04.082429.082429 cuda_h.py:10] start init_layer_26
+Init process 1052236: Layer 23 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:04.100960.100960 cuda_h.py:19] end init_layer_23 cost 0.03721284866333008 seconds
+DEBUG 01-08 16:17:04.101502.101502 cuda_h.py:10] start init_layer_25
+Init process 1052235: Layer 26 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:04.120356.120356 cuda_h.py:19] end init_layer_26 cost 0.03769421577453613 seconds
+Init process 1052236: Layer 25 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:04.129586.129586 cuda_h.py:19] end init_layer_25 cost 0.028163671493530273 seconds
+DEBUG 01-08 16:17:04.129968.129968 cuda_h.py:10] start init_layer_27
+Init process 1052236: Layer 27 initialized, dtype=torch.bfloat16
+DEBUG 01-08 16:17:04.154318.154318 cuda_h.py:19] end init_layer_27 cost 0.024396896362304688 seconds
+DEBUG 01-08 16:17:04.154189.154189 cuda_h.py:19] end wait_all cost 0.5700984001159668 seconds
+DEBUG 01-08 16:17:04.154650.154650 cuda_h.py:19] end one_submit_all cost 0.5709555149078369 seconds
+DEBUG 01-08 16:17:04.154334.154334 cuda_h.py:10] start stop_workers
+Terminating initialization process 0 (PID: 1052235)...
+Terminating initialization process 1 (PID: 1052236)...
+DEBUG 01-08 16:17:24.288798.288798 cuda_h.py:19] end stop_workers cost 20.134029865264893 seconds
+Test completed!
+Collecting data...
+Generating '/tmp/nsys-report-ad1d.qdstrm'
+[1/1] [0%                          ] report4_testmp.nsys-rep[1/1] [0%                          ] report4_testmp.nsys-rep[1/1] [=17%                        ] report4_testmp.nsys-rep[1/1] [=====31%                    ] report4_testmp.nsys-rep[1/1] [=========44%                ] report4_testmp.nsys-rep[1/1] [===========50%              ] report4_testmp.nsys-rep[1/1] [========================100%] report4_testmp.nsys-rep[1/1] [========================100%] report4_testmp.nsys-rep
+Generated:
+	/mnt/zhengcf3/lmp/examples/report4_testmp.nsys-rep

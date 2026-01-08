@@ -58,8 +58,6 @@ class MLPLLM:
         device1 = "cuda:1"
         device2 = "cuda:2"
         device_list = [device1, device2]
-        # test 4 gpu
-        # device_list = ["cuda:0","cuda:1","cuda:2","cuda:3"]
         self.device1 = device_list[0]
         self.device_list = device_list
 
@@ -147,10 +145,8 @@ class MLPLLM:
         )
         cuda_hook_time_end("init_inputs_tokens")
 
-        if len(self.device_list) == 4:
-            self.num_experts_on_cpu_ratio = 0.1
-        if len(self.device_list) == 2:
-            self.num_experts_on_cpu_ratio = 0.3
+
+        self.num_experts_on_cpu_ratio = 0.3
         cuda_hook_time("prefill_layer")
         ghidden_states = inputs_tokens
         for layer_idx in range(self.mlpm.config.num_hidden_layers):
@@ -500,7 +496,7 @@ class MLPLLM:
         cuda_hook_time("async_load_ce")
         self.cmv.async_load_experts_decode_cpu_weight()
         cuda_hook_time_end("async_load_ce")
-        num_step=5
+        num_step=2
         for i in range(num_step):
             cuda_hook_time("decode_layer")
             cuda_hook_time("init_inputs_tokens")
@@ -623,23 +619,23 @@ class MLPLLM:
         # 使用固定值
         num_experts_on_cpu = int(num_experts_total * self.num_experts_on_cpu_ratio)
         
-        cpu_expert_ids = set(expert_id for expert_id, _ in sorted_experts_by_load[:num_experts_on_cpu])
-        gpu_expert_ids = set(expert_id for expert_id, _ in sorted_experts_by_load[num_experts_on_cpu:])
+            cpu_expert_ids = set(expert_id for expert_id, _ in sorted_experts_by_load[:num_experts_on_cpu])
+            gpu_expert_ids = set(expert_id for expert_id, _ in sorted_experts_by_load[num_experts_on_cpu:])
             
             # 打印调试信息
         cpu_ratio = num_experts_on_cpu / num_experts_total if num_experts_total > 0 else 0
-        logger.debug(f"\nExpert Token Distribution & Device Allocation:")
-        logger.debug(f"  Total experts: {num_experts_total}")
+            logger.debug(f"\nExpert Token Distribution & Device Allocation:")
+            logger.debug(f"  Total experts: {num_experts_total}")
         logger.debug(f"  CPU experts: {num_experts_on_cpu} ({cpu_ratio*100:.0f}%)")
         logger.debug(f"  GPU experts: {num_experts_total - num_experts_on_cpu} ({(1-cpu_ratio)*100:.0f}%)")
-        logger.debug(f"\n  Expert ID | Tokens | Device")
-        logger.debug(f"  {'-'*35}")
-        
+            logger.debug(f"\n  Expert ID | Tokens | Device")
+            logger.debug(f"  {'-'*35}")
+            
         total_tokens_cpu = sum(count for _, count in sorted_experts_by_load[:num_experts_on_cpu])
         total_tokens_gpu = sum(count for _, count in sorted_experts_by_load[num_experts_on_cpu:])
-        for expert_id, token_count in sorted_experts_by_load:
-            device = "CPU" if expert_id in cpu_expert_ids else "GPU"
-            logger.debug(f"  Expert {expert_id:2d} | {token_count:6d} | {device}")
+            for expert_id, token_count in sorted_experts_by_load:
+                device = "CPU" if expert_id in cpu_expert_ids else "GPU"
+                logger.debug(f"  Expert {expert_id:2d} | {token_count:6d} | {device}")
         logger.debug(f"\n  CPU total tokens: {total_tokens_cpu} ({total_tokens_cpu/(total_tokens_cpu+total_tokens_gpu)*100:.1f}%)")
         logger.debug(f"  GPU total tokens: {total_tokens_gpu} ({total_tokens_gpu/(total_tokens_cpu+total_tokens_gpu)*100:.1f}%)")
         
@@ -1004,7 +1000,7 @@ class MLPLLM:
                     # 处理 expert_cache：如果是主设备直接使用，否则创建临时cache
                     if device == main_device:
                         device_expert_cache = expert_cache
-                    else:
+                else:
                         # 为其他设备创建临时cache，最后累加到主设备
                         device_expert_cache = torch.zeros_like(device_flat_hidden_states)
                     
@@ -1027,10 +1023,6 @@ class MLPLLM:
                     # 如果 device_expert_cache 就是 expert_cache（同一设备），则已经直接修改了
         
         cuda_hook_time_end("gpu_experts_multi_device")
-
-        # cuda_hook_time("wait_cetm_experts")
-        # result = self.cetm.get_result()
-        # cuda_hook_time_end("wait_cetm_experts")
 
         # Step 15: 合并结果
         layer_output = expert_cache.view(*orig_shape) + y
@@ -1358,19 +1350,7 @@ class MLPLLM:
                         device_expert_cache = torch.zeros_like(device_flat_hidden_states)
                     
                     # 执行专家计算
-                    # device_expert_cache = self.mlpm.experts_func(
-                    #     self.cmv.mlpm_ci, layer_idx=layer_idx,
-                    #     expert_idx_list=list(device_expert_ids),
-                    #     expert_indices_map={eid: expert_indices_map[eid] for eid in device_expert_ids},
-                    #     expert_token_indices_map=device_expert_token_indices_map,
-                    #     flat_hidden_states=device_flat_hidden_states,
-                    #     flat_experts_weight=device_flat_experts_weight,
-                    #     idxs=device_idxs,
-                    #     final_hidden_states=device_expert_cache,
-                    #     device=device
-                    # )
-                    # 执行专家计算
-                    device_expert_cache = self.mlpm.experts_func_gpu_einsum(
+                    device_expert_cache = self.mlpm.experts_func(
                         self.cmv.mlpm_ci, layer_idx=layer_idx,
                         expert_idx_list=list(device_expert_ids),
                         expert_indices_map={eid: expert_indices_map[eid] for eid in device_expert_ids},
@@ -1378,8 +1358,20 @@ class MLPLLM:
                         flat_hidden_states=device_flat_hidden_states,
                         flat_experts_weight=device_flat_experts_weight,
                         idxs=device_idxs,
-                        final_hidden_states=device_expert_cache
-                    )
+                        final_hidden_states=device_expert_cache,
+                    device=device
+                )
+                    # 执行专家计算
+                    # device_expert_cache = self.mlpm.experts_func_gpu_einsum(
+                    #     self.cmv.mlpm_ci, layer_idx=layer_idx,
+                    #     expert_idx_list=list(device_expert_ids),
+                    #     expert_indices_map={eid: expert_indices_map[eid] for eid in device_expert_ids},
+                    #     expert_token_indices_map=device_expert_token_indices_map,
+                    #     flat_hidden_states=device_flat_hidden_states,
+                    #     flat_experts_weight=device_flat_experts_weight,
+                    #     idxs=device_idxs,
+                    #     final_hidden_states=device_expert_cache
+                    # )
                     
                     # 如果 device_expert_cache 不在主设备上，需要将结果传回主设备并累加
                     if device != main_device:
