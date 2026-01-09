@@ -619,23 +619,23 @@ class MLPLLM:
         # 使用固定值
         num_experts_on_cpu = int(num_experts_total * self.num_experts_on_cpu_ratio)
         
-            cpu_expert_ids = set(expert_id for expert_id, _ in sorted_experts_by_load[:num_experts_on_cpu])
-            gpu_expert_ids = set(expert_id for expert_id, _ in sorted_experts_by_load[num_experts_on_cpu:])
+        cpu_expert_ids = set(expert_id for expert_id, _ in sorted_experts_by_load[:num_experts_on_cpu])
+        gpu_expert_ids = set(expert_id for expert_id, _ in sorted_experts_by_load[num_experts_on_cpu:])
             
             # 打印调试信息
         cpu_ratio = num_experts_on_cpu / num_experts_total if num_experts_total > 0 else 0
-            logger.debug(f"\nExpert Token Distribution & Device Allocation:")
-            logger.debug(f"  Total experts: {num_experts_total}")
+        logger.debug(f"\nExpert Token Distribution & Device Allocation:")
+        logger.debug(f"  Total experts: {num_experts_total}")
         logger.debug(f"  CPU experts: {num_experts_on_cpu} ({cpu_ratio*100:.0f}%)")
         logger.debug(f"  GPU experts: {num_experts_total - num_experts_on_cpu} ({(1-cpu_ratio)*100:.0f}%)")
-            logger.debug(f"\n  Expert ID | Tokens | Device")
-            logger.debug(f"  {'-'*35}")
+        logger.debug(f"\n  Expert ID | Tokens | Device")
+        logger.debug(f"  {'-'*35}")
             
         total_tokens_cpu = sum(count for _, count in sorted_experts_by_load[:num_experts_on_cpu])
         total_tokens_gpu = sum(count for _, count in sorted_experts_by_load[num_experts_on_cpu:])
-            for expert_id, token_count in sorted_experts_by_load:
-                device = "CPU" if expert_id in cpu_expert_ids else "GPU"
-                logger.debug(f"  Expert {expert_id:2d} | {token_count:6d} | {device}")
+        for expert_id, token_count in sorted_experts_by_load:
+            device = "CPU" if expert_id in cpu_expert_ids else "GPU"
+            logger.debug(f"  Expert {expert_id:2d} | {token_count:6d} | {device}")
         logger.debug(f"\n  CPU total tokens: {total_tokens_cpu} ({total_tokens_cpu/(total_tokens_cpu+total_tokens_gpu)*100:.1f}%)")
         logger.debug(f"  GPU total tokens: {total_tokens_gpu} ({total_tokens_gpu/(total_tokens_cpu+total_tokens_gpu)*100:.1f}%)")
         
@@ -1000,27 +1000,27 @@ class MLPLLM:
                     # 处理 expert_cache：如果是主设备直接使用，否则创建临时cache
                     if device == main_device:
                         device_expert_cache = expert_cache
-                else:
+                    else:
                         # 为其他设备创建临时cache，最后累加到主设备
                         device_expert_cache = torch.zeros_like(device_flat_hidden_states)
-                    
-                    # 执行专家计算
-                    # 注意：mlpm_ci 的权重应该已经通过 restore2model 设置到对应设备上
-                    device_expert_cache = self.mlpm.experts_func_gpu_einsum(
-                        self.cmv.mlpm_ci, layer_idx=layer_idx,
-                        expert_idx_list=list(device_expert_ids),
-                        expert_indices_map={eid: expert_indices_map[eid] for eid in device_expert_ids},
-                        expert_token_indices_map=device_expert_token_indices_map,
-                        flat_hidden_states=device_flat_hidden_states,
-                        flat_experts_weight=device_flat_experts_weight,
-                        idxs=device_idxs,
-                        final_hidden_states=device_expert_cache
-                    )
-                    
-                    # 如果 device_expert_cache 不在主设备上，需要将结果传回主设备并累加
-                    if device != main_device:
-                        expert_cache.add_(device_expert_cache.to(main_device, non_blocking=True))
-                    # 如果 device_expert_cache 就是 expert_cache（同一设备），则已经直接修改了
+                        
+                        # 执行专家计算
+                        # 注意：mlpm_ci 的权重应该已经通过 restore2model 设置到对应设备上
+                        device_expert_cache = self.mlpm.experts_func_gpu_einsum(
+                            self.cmv.mlpm_ci, layer_idx=layer_idx,
+                            expert_idx_list=list(device_expert_ids),
+                            expert_indices_map={eid: expert_indices_map[eid] for eid in device_expert_ids},
+                            expert_token_indices_map=device_expert_token_indices_map,
+                            flat_hidden_states=device_flat_hidden_states,
+                            flat_experts_weight=device_flat_experts_weight,
+                            idxs=device_idxs,
+                            final_hidden_states=device_expert_cache
+                        )
+                        
+                        # 如果 device_expert_cache 不在主设备上，需要将结果传回主设备并累加
+                        if device != main_device:
+                            expert_cache.add_(device_expert_cache.to(main_device, non_blocking=True))
+                        # 如果 device_expert_cache 就是 expert_cache（同一设备），则已经直接修改了
         
         cuda_hook_time_end("gpu_experts_multi_device")
 
