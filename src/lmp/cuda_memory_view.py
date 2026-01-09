@@ -33,7 +33,6 @@ from utils.helper import (
 )
 from utils.cuda_h import *
 from utils.logger import init_logger
-from lmp.pinpool import gpinpool
 from lmp.sllm_thread_manager import SLLMTM
 from lmp.init_meta_manager import InitMetaManager
 from lmp.init_meta_manager_mp_shared import InitMetaManagerMPShared
