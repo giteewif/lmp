@@ -8,6 +8,10 @@ source /mnt/zhengcf3/env/lmp/bin/activate
 /mnt/zhengcf3/nvidia/nsight-systems/2025.6.1/bin/nsys profile --force-overwrite true -o report3.nsys-rep python test_sllm_store.py > test_sllm_store_b2.log 
 
 /mnt/zhengcf3/nvidia/nsight-systems/2025.6.1/bin/nsys profile --force-overwrite true -o report4_testmp.nsys-rep python test_init_meta_manager_mp_shared.py > test_init_meta_manager_mp_shared.log
+
+/mnt/zhengcf3/nvidia/nsight-systems/2025.6.1/bin/nsys profile --force-overwrite true -o report5.nsys-rep python test_device_mp.py > test_device_mp.
+
+/mnt/zhengcf3/nvidia/nsight-systems/2025.6.1/bin/nsys profile --force-overwrite true -o report6.nsys-rep python test_cpu_mp.py > test_cpu_mp.log
 ## protoc
 
 cd /mnt/zhengcf3/lmp/src/sllm_store && python -m grpc_tools.protoc --proto_path=proto --python_out=sllm_store --grpc_python_out=sllm_store proto/storage.proto  

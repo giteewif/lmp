@@ -77,12 +77,12 @@ class MLPLLM:
         self.sllmtm = sllmtm
         self.sllmtm.start()  # 启动工作线程
 
-        imm = InitMetaManager()
-        imm.start()
-        self.imm = imm
+        # imm = InitMetaManager()
+        # imm.start()
+        # self.imm = imm
 
         self.cmv.sllmtm = sllmtm     # 将sllmtm绑定到cmv中  
-        self.cmv.imm = imm
+        # self.cmv.imm = imm
         
         # CPU专家数量：使用固定值 0.5 * total
         # stream = torch.cuda.Stream(device=device1)
@@ -1143,13 +1143,13 @@ class MLPLLM:
             logger.debug(f"\n  Computing {len(experts_cpu_list)} experts on CPU...")
             # 使用 CETM 在后台线程执行
             task = ExpertEinsumTask(
-                layer_idx=layer_idx,
+                    layer_idx=layer_idx,
                     expert_idx_list=experts_cpu_list,
-                expert_indices_map={eid: expert_indices_map[eid] for eid in experts_cpu_list},
-                expert_token_indices_map={eid: expert_token_indices_map[eid] for eid in experts_cpu_list},
-                flat_hidden_states=flat_hidden_states,
-                flat_experts_weight=flat_experts_weight,
-                idxs=idxs,
+                    expert_indices_map={eid: expert_indices_map[eid] for eid in experts_cpu_list},
+                    expert_token_indices_map={eid: expert_token_indices_map[eid] for eid in experts_cpu_list},
+                    flat_hidden_states=flat_hidden_states,
+                    flat_experts_weight=flat_experts_weight,
+                    idxs=idxs,
                     final_hidden_states=expert_cache
                 )
             self.cetm.submit(task)
@@ -1383,3 +1383,77 @@ class MLPLLM:
 
         cuda_hook_time_end(f"layer_moe_dgenerate_multi_device_{layer_idx}")
         return layer_output
+
+    def init_mp_process(self):
+        from lmp.cpu_thread_manager_mp import CPUExpertsManagerMP
+        from lmp.device_mp import DeviceMP
+        cuda_hook_time("init_mp_process")
+        self.cpu_thread_manager_mp = CPUExpertsManagerMP(num_workers=1, model_path=self.mlpm.model_abs_path, model_name_type=self.mlpm.model_name_type)
+        self.cpu_thread_manager_mp.start()
+
+        self.dp = DeviceMP(num_processes=len(self.device_list))
+        self.dp.start()
+        cuda_hook_time_end("init_mp_process")
+
+        pass
+
+    def test_mp_prefill_generate(self):
+        cuda_hook_time("generate_input_ids")
+        batch_size = 32
+        seq_len = 64
+        dtype = self.mlpm.config.torch_dtype
+        hidden_size = self.mlpm.config.hidden_size
+        
+        device_list = self.device_list
+        device1 = device_list[0]
+        inputs_tokens = torch.randn(batch_size, seq_len, hidden_size, dtype=dtype, device=device1)
+
+        tokenizer=AutoTokenizer.from_pretrained(self.mlpm.model_abs_path, trust_remote_code=True)
+        inputs_ids = generate_input_ids(tokenizer, batch_size, seq_len, device1)
+        cuda_hook_time_end("generate_input_ids")
+
+        cuda_hook_time("init_cache")
+        past_key_value = DynamicCache()
+        past_key_values_length = past_key_value.get_usable_length(seq_len)
+        cuda_hook_time_end("init_cache")
+
+        cuda_hook("init_meta")
+        self.cmv.start_init_meta_model(hmv=self.hmv)
+        cuda_hook_end("init_meta")
+
+        cuda_hook_time("init_weights")
+        self.cmv.load_general_and_init()
+        self.cmv.init_load_qkvogn_es_weight(layer_idx=0)
+        cuda_hook_time_end("init_weights")
+
+        cuda_hook_time("copy_emodel")
+        model_cpy = copy.deepcopy(self.cmv.mlpm_ci)
+        cuda_hook_time_end("copy_emodel")
+
+        cuda_hook_time("init_hmv")
+        self.hmv.mlpm_hi = model_cpy
+        self.mlpm.restore_hm_state_dict2model(self.hmv.hm_state_dict, self.hmv.mlpm_hi)
+        cuda_hook_time_end("init_hmv")
+
+        cuda_hook_time("init_inputs_tokens")
+        inputs_tokens = self.cmv.mlpm_ci.model.embed_tokens(inputs_ids)
+        position_ids = torch.arange(
+            past_key_values_length, seq_len + past_key_values_length, dtype=torch.long, device=device1
+        )
+        position_ids = position_ids.unsqueeze(0)
+        # sdpa flash attention
+        attention_mask = _prepare_4d_causal_attention_mask_for_sdpa(
+            None,
+            (batch_size, seq_len),
+            inputs_tokens,
+            past_key_values_length=past_key_values_length,
+        )
+        cuda_hook_time_end("init_inputs_tokens")
+
+        self.num_experts_on_cpu_ratio = 0.5
+        cuda_hook_time("prefill_layer")
+        ghidden_states = inputs_tokens
+        for layer_idx in range(self.mlpm.config.num_hidden_layers):
+            logger.debug(f"-------------------------------- start prefill layer {layer_idx} --------------------------------")
+            logger.debug(f"-------------------------------- end prefill layer {layer_idx} --------------------------------")            
+        cuda_hook_time_end("prefill_layer")

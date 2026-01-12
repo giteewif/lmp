@@ -1,5 +1,5 @@
 """
-测试 DeviceMP - 共享 DecoderLayer 对象版本
+测试 CPUMP - 执行CPU einsum推理
 """
 import sys
 import os
@@ -38,6 +38,7 @@ from models.Deepseek.deepseek_moe_16b_base.modeling_deepseek import DeepseekDeco
 from models.Deepseek.mlpmodule import DeepseekOCalModel
 from accelerate import init_empty_weights
 from lmp.device_mp import DeviceMP
+from lmp.cpu_thread_manager_mp import CPUExpertsManagerMP
 from utils.cuda_h import cuda_hook, cuda_hook_end, cuda_hook_time, cuda_hook_time_end
 
 from lmp.lmp import MLPLLM
@@ -47,8 +48,8 @@ def main():
     model_path = "deepseek-moe-16b-base-bfloat16"
     model_name_type = "Deepseek"
 
-    dp = DeviceMP(num_processes=2)
-    dp.start()
+    cpu_thread_manager_mp = CPUExpertsManagerMP(num_workers=2, model_path=model_path, model_name_type=model_name_type)
+    cpu_thread_manager_mp.start()
 
     mlpllm =MLPLLM( model_name_type=model_name_type, model_path=model_path )
 
@@ -98,6 +99,8 @@ def main():
     num_experts_total = len(sorted_experts_by_load)
     gpu_experts_list = sorted_experts_by_load[:num_experts_total]
 
+    cpu_experts_list = [ i[0] for i in sorted_experts_by_load][:num_experts_total//2]
+
     num_device = len(mlpllm.device_list)
     # 将 GPU 专家平均分配到多个设备，同时尽量平衡每个设备的 token 数量
     # 使用贪心算法：按 token 数量从大到小排序，每次分配给当前 token 数量最少的设备
@@ -131,38 +134,27 @@ def main():
     # mlpllm.cmv.wait_load_into_gpu(replica_uuid=replica_uuid)
 
     # mlpllm.cmv.restore2model(state_dict, mlpllm.cmv.mlpm_ci)
-    
+    final_hidden_states = torch.zeros_like(flat_hidden_states)
     for i in range(8):
         cuda_hook_time("task_processing_mp")
-   
-        dp.submit_worker(
+        
+        cpu_thread_manager_mp.submit_worker(
             worker_idx=0,
             layer_idx=layer_idx,
-            expert_idx_list=list(device1_expert_ids),
+            expert_idx_list=list(cpu_experts_list),
             expert_indices_map=expert_indices_map,
             flat_hidden_states=flat_hidden_states,
             flat_experts_weight=flat_experts_weight,
             idxs=idxs,
-            final_hidden_states=None,
-        )
-        dp.submit_worker(
-            worker_idx=1,
-            layer_idx=layer_idx+1,
-            expert_idx_list=list(device1_expert_ids),
-            expert_indices_map=expert_indices_map,
-            flat_hidden_states=flat_hidden_states,
-            flat_experts_weight=flat_experts_weight,
-            idxs=idxs,
-            final_hidden_states=None,
+            final_hidden_states=final_hidden_states,
         )
 
-        output_tensor = dp.wait()
-        output_tensor = dp.wait()
+        output_tensor = cpu_thread_manager_mp.wait()
         # print(output_tensor.shape)
         cuda_hook_time_end("task_processing_mp")
     
     time.sleep(1)
-    dp.stop()
+    cpu_thread_manager_mp.stop()
 
 if __name__ == '__main__':
     main()

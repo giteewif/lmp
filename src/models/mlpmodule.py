@@ -381,7 +381,7 @@ class MLPModuleWrapper:
             return hidden_states
         else:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")
-
+    @torch.no_grad()
     def experts_func(self, mi, layer_idx: int, 
         expert_idx_list: list[int], 
         expert_indices_map: Dict[int, Tuple[int, int]],  # {expert_id: (start_idx, end_idx)}
@@ -569,16 +569,17 @@ class MLPModuleWrapper:
         cuda_hook("gpu_group_einsum")
         # 使用 einsum 批量计算（在 GPU 上）
         # w1_out: [E, max_tokens, I]
+        logger.debug(f"start_w1")
         w1_out = torch.einsum('eth,eih->eti', stacked_inputs, group_w1)
         act_fn = ACT2FN[self.config.hidden_act]
         w1_out = act_fn(w1_out)
-        
+        logger.debug(f"start_w3")
         # w3_out: [E, max_tokens, I]
         w3_out = torch.einsum('eth,eih->eti', stacked_inputs, group_w3)
         
         # intermediate: [E, max_tokens, I]
         intermediate = w1_out * w3_out
-        
+        logger.debug(f"start_w2")
         # outputs: [E, max_tokens, H]
         outputs = torch.einsum('eti,ehi->eth', intermediate, group_w2)
         logger.debug(f"gpu group einsum cost {time.time() - time_start_einsum} s")

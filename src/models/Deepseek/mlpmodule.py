@@ -55,6 +55,7 @@ class DeepseekModule():
         topk_idx, topk_weight, aux_loss = mi.model.layers[layer_idx].mlp.gate(hidden_states)
         return topk_idx, topk_weight, aux_loss
 
+    @torch.no_grad()
     def experts_func(
         mi: DeepseekForCausalLM, 
         layer_idx: int, 

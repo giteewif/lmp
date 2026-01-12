@@ -1,0 +1,210 @@
+here pin
+INFO 01-12 10:11:49.697243.697243 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+DEBUG 01-12 10:11:50.531336.531336 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+DEBUG 01-12 10:11:50.989888.989888 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 01-12 10:11:50.990866.990866 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 1.293s
+DEBUG 01-12 10:11:51.812672.812672 cuda_memory_view.py:567] 
+DEBUG 01-12 10:11:51.812672.812672 cuda_memory_view.py:567] restore_tensors_from_shared_memory_names time: 0.015622615814208984
+DEBUG 01-12 10:11:54.363221.363221 cuda_h.py:10] start allocate_cuda_memory_and_load_into_gpu
+DEBUG 01-12 10:11:54.363999.363999 cuda_h.py:10] start allocate_cuda_memory
+DEBUG 01-12 10:11:54.509499.509499 cuda_h.py:19] end allocate_cuda_memory cost 0.145766019821167 seconds
+DEBUG 01-12 10:11:54.509866.509866 cuda_h.py:10] start load_into_gpu_async
+DEBUG 01-12 10:11:54.509087.509087 sllm_store_c.py:27] get device uuid map
+DEBUG 01-12 10:11:54.509844.509844 sllm_store_c.py:29] call client load into gpu
+DEBUG 01-12 10:11:54.509414.509414 client.py:72] load_into_gpu: deepseek-moe-16b-base-bfloat16, 2692b294-88a2-47a4-abdc-7ad9cf31c864
+DEBUG 01-12 10:11:54.509682.509682 client.py:106] call stub.LoadModelAsync
+INFO 01-12 10:11:54.511732.511732 client.py:115] Model loaded: deepseek-moe-16b-base-bfloat16, 2692b294-88a2-47a4-abdc-7ad9cf31c864
+DEBUG 01-12 10:11:54.511211.511211 cuda_h.py:19] end load_into_gpu_async cost 0.002140045166015625 seconds
+DEBUG 01-12 10:11:54.511914.511914 cuda_h.py:10] start restore_tensors2
+DEBUG 01-12 10:11:54.512468.512468 cuda_h.py:19] end restore_tensors2 cost 0.00010132789611816406 seconds
+DEBUG 01-12 10:11:54.512270.512270 cuda_h.py:19] end allocate_cuda_memory_and_load_into_gpu cost 0.14886927604675293 seconds
+DEBUG 01-12 10:11:54.512337.512337 cuda_h.py:10] start restore2model
+DEBUG 01-12 10:11:54.512665.512665 cuda_h.py:19] end restore2model cost 0.00026702880859375 seconds
+INFO 01-12 10:11:54.512872.512872 client.py:119] confirm_model_loaded: deepseek-moe-16b-base-bfloat16, 2692b294-88a2-47a4-abdc-7ad9cf31c864
+INFO 01-12 10:11:54.593102.593102 client.py:127] Model loaded
+DEBUG 01-12 10:11:54.593204.593204 cuda_h.py:10] start load_qkvogns_weight_l_0
+DEBUG 01-12 10:11:54.594084.594084 cuda_h.py:10] start allocate_cuda_memory_and_load_into_gpu
+DEBUG 01-12 10:11:54.594784.594784 cuda_h.py:10] start allocate_cuda_memory
+DEBUG 01-12 10:11:54.594947.594947 cuda_h.py:19] end allocate_cuda_memory cost 0.00043892860412597656 seconds
+DEBUG 01-12 10:11:54.594873.594873 cuda_h.py:10] start load_into_gpu_async
+DEBUG 01-12 10:11:54.595373.595373 sllm_store_c.py:27] get device uuid map
+DEBUG 01-12 10:11:54.595754.595754 sllm_store_c.py:29] call client load into gpu
+DEBUG 01-12 10:11:54.595809.595809 client.py:72] load_into_gpu: deepseek-moe-16b-base-bfloat16, fa816d72-4d78-4361-9c07-7517c736ee3e
+DEBUG 01-12 10:11:54.595491.595491 client.py:106] call stub.LoadModelAsync
+INFO 01-12 10:11:54.596849.596849 client.py:115] Model loaded: deepseek-moe-16b-base-bfloat16, fa816d72-4d78-4361-9c07-7517c736ee3e
+DEBUG 01-12 10:11:54.597006.597006 cuda_h.py:19] end load_into_gpu_async cost 0.0022814273834228516 seconds
+DEBUG 01-12 10:11:54.597658.597658 cuda_h.py:10] start restore_tensors2
+DEBUG 01-12 10:11:54.597794.597794 cuda_h.py:19] end restore_tensors2 cost 0.00015306472778320312 seconds
+DEBUG 01-12 10:11:54.597731.597731 cuda_h.py:19] end allocate_cuda_memory_and_load_into_gpu cost 0.003622770309448242 seconds
+INFO 01-12 10:11:54.597409.597409 client.py:119] confirm_model_loaded: deepseek-moe-16b-base-bfloat16, fa816d72-4d78-4361-9c07-7517c736ee3e
+INFO 01-12 10:11:54.614925.614925 client.py:127] Model loaded
+DEBUG 01-12 10:11:54.614160.614160 cuda_h.py:10] start restore2model
+DEBUG 01-12 10:11:54.615230.615230 cuda_h.py:19] end restore2model cost 0.0009298324584960938 seconds
+DEBUG 01-12 10:11:54.615559.615559 cuda_h.py:19] end load_qkvogns_weight_l_0 cost 0.021744728088378906 seconds
+here pin
+INFO 01-12 10:11:54.785174.785174 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+here pin
+INFO 01-12 10:11:54.860303.860303 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+DEBUG 01-12 10:11:55.694909.694909 mlpmodule.py:207] restore_hm_state_dict2model loaded 5265 expert tensors (including shared_experts) for Deepseek model
+DEBUG 01-12 10:11:55.721449.721449 cuda_h.py:10] start start_load_qkvogn_s_weight_l_1
+DEBUG 01-12 10:11:55.722249.722249 cuda_h.py:19] end start_load_qkvogn_s_weight_l_1 cost 5.364418029785156e-05 seconds
+DEBUG 01-12 10:11:55.722295.722295 cuda_h.py:10] start sllm_worker_task
+DEBUG 01-12 10:11:55.722189.722189 cuda_h.py:10] start allocate_cuda_memory_and_load_into_gpu
+DEBUG 01-12 10:11:55.722208.722208 cuda_h.py:10] start allocate_cuda_memory
+DEBUG 01-12 10:11:55.723053.723053 cuda_h.py:19] end allocate_cuda_memory cost 0.0006263256072998047 seconds
+DEBUG 01-12 10:11:55.723370.723370 cuda_h.py:10] start load_into_gpu_async
+DEBUG 01-12 10:11:55.723115.723115 sllm_store_c.py:27] get device uuid map
+DEBUG 01-12 10:11:55.723264.723264 sllm_store_c.py:29] call client load into gpu
+DEBUG 01-12 10:11:55.723942.723942 client.py:72] load_into_gpu: deepseek-moe-16b-base-bfloat16, 31f8a8ef-52a8-4f8a-96ae-0f819a1b372c
+DEBUG 01-12 10:11:55.723830.723830 client.py:106] call stub.LoadModelAsync
+INFO 01-12 10:11:55.725506.725506 client.py:115] Model loaded: deepseek-moe-16b-base-bfloat16, 31f8a8ef-52a8-4f8a-96ae-0f819a1b372c
+DEBUG 01-12 10:11:55.726405.726405 cuda_h.py:19] end load_into_gpu_async cost 0.002527475357055664 seconds
+DEBUG 01-12 10:11:55.726553.726553 cuda_h.py:10] start restore_tensors2
+DEBUG 01-12 10:11:55.726356.726356 cuda_h.py:19] end restore_tensors2 cost 0.00016260147094726562 seconds
+DEBUG 01-12 10:11:55.726716.726716 cuda_h.py:19] end allocate_cuda_memory_and_load_into_gpu cost 0.0039789676666259766 seconds
+INFO 01-12 10:11:55.726785.726785 client.py:119] confirm_model_loaded: deepseek-moe-16b-base-bfloat16, 31f8a8ef-52a8-4f8a-96ae-0f819a1b372c
+DEBUG 01-12 10:11:55.730034.730034 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+DEBUG 01-12 10:11:55.731250.731250 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+INFO 01-12 10:11:55.734798.734798 client.py:127] Model loaded
+DEBUG 01-12 10:11:55.734292.734292 cuda_h.py:10] start restore2model
+DEBUG 01-12 10:11:55.735243.735243 cuda_h.py:19] end restore2model cost 0.0010290145874023438 seconds
+DEBUG 01-12 10:11:55.736367.736367 cuda_h.py:19] end sllm_worker_task cost 0.013634443283081055 seconds
+DEBUG 01-12 10:11:55.736824.736824 cuda_h.py:10] start gate
+DEBUG 01-12 10:11:56.061515.061515 cuda_h.py:19] end gate cost 0.3251063823699951 seconds
+DEBUG 01-12 10:11:56.061930.061930 cuda_h.py:10] start experts_map_get
+DEBUG 01-12 10:11:56.062846.062846 cuda_h.py:19] end experts_map_get cost 0.0004267692565917969 seconds
+DEBUG 01-12 10:11:56.062849.062849 cuda_h.py:10] start task_processing_mp
+DEBUG 01-12 10:11:56.226660.226660 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 01-12 10:11:56.226873.226873 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 1.441s
+DEBUG 01-12 10:11:56.227834.227834 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 01-12 10:11:56.227958.227958 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 1.367s
+DEBUG 01-12 10:11:56.895400.895400 cpu_thread_manager_mp.py:74] 初始化
+DEBUG 01-12 10:11:56.905601.905601 cpu_thread_manager_mp.py:74] 初始化
+DEBUG 01-12 10:11:57.050296.050296 cuda_memory_view.py:567] 
+DEBUG 01-12 10:11:57.050296.050296 cuda_memory_view.py:567] restore_tensors_from_shared_memory_names time: 0.01363372802734375
+DEBUG 01-12 10:11:57.070811.070811 cuda_memory_view.py:567] 
+DEBUG 01-12 10:11:57.070811.070811 cuda_memory_view.py:567] restore_tensors_from_shared_memory_names time: 0.013442754745483398
+DEBUG 01-12 10:11:57.200037.200037 cuda_h.py:10] start experts_func_gpu_einsum_mp
+DEBUG 01-12 10:11:57.224774.224774 mlpmodule.py:750] group tensors cost 0.004486799240112305 s
+DEBUG 01-12 10:11:57.253991.253991 mlpmodule.py:788] pad cost 0.02821660041809082 s
+DEBUG 01-12 10:11:57.253480.253480 mlpmodule.py:794] create cpu tensor cost 8.0108642578125e-05 s
+DEBUG 01-12 10:11:57.253404.253404 mlpmodule.py:799] move to cpu cost 3.600120544433594e-05 s
+DEBUG 01-12 10:11:57.289052.289052 mlpmodule.py:813] group_w3: shape=torch.Size([32, 1408, 2048]), device=cpu, dtype=torch.bfloat16, numel=92274688
+DEBUG 01-12 10:11:57.289263.289263 mlpmodule.py:814] group_w3 strides: (2883584, 2048, 1), is_contiguous: True
+DEBUG 01-12 10:11:57.290362.290362 mlpmodule.py:819] group_w3 first element: -0.0245361328125
+WARNING 01-12 10:11:57.290955.290955 mlpmodule.py:829] start einsum2
+DEBUG 01-12 10:11:57.306559.306559 mlpmodule.py:839] group einsum cost 0.05242443084716797 s
+DEBUG 01-12 10:11:57.307982.307982 mlpmodule.py:847] cpy2cputensor cost 0.0007669925689697266 s
+DEBUG 01-12 10:11:57.343140.343140 mlpmodule.py:708]  experts func einsum cost 0.12306094169616699 s
+DEBUG 01-12 10:11:57.343798.343798 cuda_h.py:19] end experts_func_gpu_einsum_mp cost 0.14284133911132812 seconds
+DEBUG 01-12 10:11:57.343948.343948 cuda_h.py:19] end task_processing_mp cost 1.2813115119934082 seconds
+DEBUG 01-12 10:11:57.344409.344409 cuda_h.py:10] start task_processing_mp
+DEBUG 01-12 10:11:57.345311.345311 cuda_h.py:10] start experts_func_gpu_einsum_mp
+DEBUG 01-12 10:11:57.349967.349967 mlpmodule.py:750] group tensors cost 0.003828287124633789 s
+DEBUG 01-12 10:11:57.351246.351246 mlpmodule.py:788] pad cost 0.0015223026275634766 s
+DEBUG 01-12 10:11:57.351944.351944 mlpmodule.py:794] create cpu tensor cost 3.838539123535156e-05 s
+DEBUG 01-12 10:11:57.351437.351437 mlpmodule.py:799] move to cpu cost 4.863739013671875e-05 s
+DEBUG 01-12 10:11:57.360493.360493 mlpmodule.py:813] group_w3: shape=torch.Size([32, 1408, 2048]), device=cpu, dtype=torch.bfloat16, numel=92274688
+DEBUG 01-12 10:11:57.360704.360704 mlpmodule.py:814] group_w3 strides: (2883584, 2048, 1), is_contiguous: True
+DEBUG 01-12 10:11:57.360224.360224 mlpmodule.py:819] group_w3 first element: -0.0245361328125
+WARNING 01-12 10:11:57.360084.360084 mlpmodule.py:829] start einsum2
+DEBUG 01-12 10:11:57.373336.373336 mlpmodule.py:839] group einsum cost 0.02183699607849121 s
+DEBUG 01-12 10:11:57.374997.374997 mlpmodule.py:847] cpy2cputensor cost 0.0007383823394775391 s
+DEBUG 01-12 10:11:57.398627.398627 mlpmodule.py:708]  experts func einsum cost 0.0530247688293457 s
+DEBUG 01-12 10:11:57.399167.399167 cuda_h.py:19] end experts_func_gpu_einsum_mp cost 0.05341053009033203 seconds
+DEBUG 01-12 10:11:57.399695.399695 cuda_h.py:19] end task_processing_mp cost 0.055109500885009766 seconds
+DEBUG 01-12 10:11:57.399242.399242 cuda_h.py:10] start task_processing_mp
+DEBUG 01-12 10:11:57.400081.400081 cuda_h.py:10] start experts_func_gpu_einsum_mp
+DEBUG 01-12 10:11:57.404318.404318 mlpmodule.py:750] group tensors cost 0.0037093162536621094 s
+DEBUG 01-12 10:11:57.406233.406233 mlpmodule.py:788] pad cost 0.0015175342559814453 s
+DEBUG 01-12 10:11:57.406600.406600 mlpmodule.py:794] create cpu tensor cost 3.886222839355469e-05 s
+DEBUG 01-12 10:11:57.406570.406570 mlpmodule.py:799] move to cpu cost 4.982948303222656e-05 s
+DEBUG 01-12 10:11:57.417940.417940 mlpmodule.py:813] group_w3: shape=torch.Size([32, 1408, 2048]), device=cpu, dtype=torch.bfloat16, numel=92274688
+DEBUG 01-12 10:11:57.417542.417542 mlpmodule.py:814] group_w3 strides: (2883584, 2048, 1), is_contiguous: True
+DEBUG 01-12 10:11:57.417340.417340 mlpmodule.py:819] group_w3 first element: -0.0245361328125
+WARNING 01-12 10:11:57.417112.417112 mlpmodule.py:829] start einsum2
+DEBUG 01-12 10:11:57.431991.431991 mlpmodule.py:839] group einsum cost 0.024959325790405273 s
+DEBUG 01-12 10:11:57.432552.432552 mlpmodule.py:847] cpy2cputensor cost 0.0007529258728027344 s
+DEBUG 01-12 10:11:57.454644.454644 mlpmodule.py:708]  experts func einsum cost 0.05382061004638672 s
+DEBUG 01-12 10:11:57.454450.454450 cuda_h.py:19] end experts_func_gpu_einsum_mp cost 0.054274797439575195 seconds
+DEBUG 01-12 10:11:57.455785.455785 cuda_h.py:19] end task_processing_mp cost 0.055504560470581055 seconds
+DEBUG 01-12 10:11:57.455173.455173 cuda_h.py:10] start task_processing_mp
+DEBUG 01-12 10:11:57.456156.456156 cuda_h.py:10] start experts_func_gpu_einsum_mp
+DEBUG 01-12 10:11:57.460729.460729 mlpmodule.py:750] group tensors cost 0.0036745071411132812 s
+DEBUG 01-12 10:11:57.462030.462030 mlpmodule.py:788] pad cost 0.0015196800231933594 s
+DEBUG 01-12 10:11:57.462471.462471 mlpmodule.py:794] create cpu tensor cost 5.602836608886719e-05 s
+DEBUG 01-12 10:11:57.462679.462679 mlpmodule.py:799] move to cpu cost 4.76837158203125e-05 s
+DEBUG 01-12 10:11:57.470767.470767 mlpmodule.py:813] group_w3: shape=torch.Size([32, 1408, 2048]), device=cpu, dtype=torch.bfloat16, numel=92274688
+DEBUG 01-12 10:11:57.470163.470163 mlpmodule.py:814] group_w3 strides: (2883584, 2048, 1), is_contiguous: True
+DEBUG 01-12 10:11:57.470968.470968 mlpmodule.py:819] group_w3 first element: -0.0245361328125
+WARNING 01-12 10:11:57.471145.471145 mlpmodule.py:829] start einsum2
+DEBUG 01-12 10:11:57.484749.484749 mlpmodule.py:839] group einsum cost 0.022194385528564453 s
+DEBUG 01-12 10:11:57.485475.485475 mlpmodule.py:847] cpy2cputensor cost 0.0007312297821044922 s
+DEBUG 01-12 10:11:57.510994.510994 mlpmodule.py:708]  experts func einsum cost 0.05371356010437012 s
+DEBUG 01-12 10:11:57.510772.510772 cuda_h.py:19] end experts_func_gpu_einsum_mp cost 0.05415010452270508 seconds
+DEBUG 01-12 10:11:57.510080.510080 cuda_h.py:19] end task_processing_mp cost 0.0552973747253418 seconds
+DEBUG 01-12 10:11:57.510959.510959 cuda_h.py:10] start task_processing_mp
+DEBUG 01-12 10:11:57.511585.511585 cuda_h.py:10] start experts_func_gpu_einsum_mp
+DEBUG 01-12 10:11:57.515584.515584 mlpmodule.py:750] group tensors cost 0.0037178993225097656 s
+DEBUG 01-12 10:11:57.517554.517554 mlpmodule.py:788] pad cost 0.0015621185302734375 s
+DEBUG 01-12 10:11:57.517591.517591 mlpmodule.py:794] create cpu tensor cost 3.933906555175781e-05 s
+DEBUG 01-12 10:11:57.517137.517137 mlpmodule.py:799] move to cpu cost 5.2928924560546875e-05 s
+DEBUG 01-12 10:11:57.528216.528216 mlpmodule.py:813] group_w3: shape=torch.Size([32, 1408, 2048]), device=cpu, dtype=torch.bfloat16, numel=92274688
+DEBUG 01-12 10:11:57.528016.528016 mlpmodule.py:814] group_w3 strides: (2883584, 2048, 1), is_contiguous: True
+DEBUG 01-12 10:11:57.529583.529583 mlpmodule.py:819] group_w3 first element: -0.0245361328125
+WARNING 01-12 10:11:57.529329.529329 mlpmodule.py:829] start einsum2
+DEBUG 01-12 10:11:57.543832.543832 mlpmodule.py:839] group einsum cost 0.02505779266357422 s
+DEBUG 01-12 10:11:57.543406.543406 mlpmodule.py:847] cpy2cputensor cost 0.0007159709930419922 s
+DEBUG 01-12 10:11:57.562151.562151 mlpmodule.py:708]  experts func einsum cost 0.05014467239379883 s
+DEBUG 01-12 10:11:57.562692.562692 cuda_h.py:19] end experts_func_gpu_einsum_mp cost 0.05058002471923828 seconds
+DEBUG 01-12 10:11:57.562220.562220 cuda_h.py:19] end task_processing_mp cost 0.05183219909667969 seconds
+DEBUG 01-12 10:11:57.562654.562654 cuda_h.py:10] start task_processing_mp
+DEBUG 01-12 10:11:57.563822.563822 cuda_h.py:10] start experts_func_gpu_einsum_mp
+DEBUG 01-12 10:11:57.567848.567848 mlpmodule.py:750] group tensors cost 0.003742694854736328 s
+DEBUG 01-12 10:11:57.569664.569664 mlpmodule.py:788] pad cost 0.0015668869018554688 s
+DEBUG 01-12 10:11:57.569913.569913 mlpmodule.py:794] create cpu tensor cost 5.53131103515625e-05 s
+DEBUG 01-12 10:11:57.569439.569439 mlpmodule.py:799] move to cpu cost 3.647804260253906e-05 s
+DEBUG 01-12 10:11:57.577268.577268 mlpmodule.py:813] group_w3: shape=torch.Size([32, 1408, 2048]), device=cpu, dtype=torch.bfloat16, numel=92274688
+DEBUG 01-12 10:11:57.577193.577193 mlpmodule.py:814] group_w3 strides: (2883584, 2048, 1), is_contiguous: True
+DEBUG 01-12 10:11:57.577382.577382 mlpmodule.py:819] group_w3 first element: -0.0245361328125
+WARNING 01-12 10:11:57.577175.577175 mlpmodule.py:829] start einsum2
+DEBUG 01-12 10:11:57.590388.590388 mlpmodule.py:839] group einsum cost 0.02036452293395996 s
+DEBUG 01-12 10:11:57.591200.591200 mlpmodule.py:847] cpy2cputensor cost 0.0007243156433105469 s
+DEBUG 01-12 10:11:57.609858.609858 mlpmodule.py:708]  experts func einsum cost 0.04578733444213867 s
+DEBUG 01-12 10:11:57.609465.609465 cuda_h.py:19] end experts_func_gpu_einsum_mp cost 0.0462346076965332 seconds
+DEBUG 01-12 10:11:57.610251.610251 cuda_h.py:19] end task_processing_mp cost 0.04741859436035156 seconds
+DEBUG 01-12 10:11:57.610115.610115 cuda_h.py:10] start task_processing_mp
+DEBUG 01-12 10:11:57.611992.611992 cuda_h.py:10] start experts_func_gpu_einsum_mp
+DEBUG 01-12 10:11:57.615408.615408 mlpmodule.py:750] group tensors cost 0.003746509552001953 s
+DEBUG 01-12 10:11:57.617994.617994 mlpmodule.py:788] pad cost 0.0015556812286376953 s
+DEBUG 01-12 10:11:57.617699.617699 mlpmodule.py:794] create cpu tensor cost 3.886222839355469e-05 s
+DEBUG 01-12 10:11:57.617986.617986 mlpmodule.py:799] move to cpu cost 3.647804260253906e-05 s
+DEBUG 01-12 10:11:57.626448.626448 mlpmodule.py:813] group_w3: shape=torch.Size([32, 1408, 2048]), device=cpu, dtype=torch.bfloat16, numel=92274688
+DEBUG 01-12 10:11:57.626228.626228 mlpmodule.py:814] group_w3 strides: (2883584, 2048, 1), is_contiguous: True
+DEBUG 01-12 10:11:57.626702.626702 mlpmodule.py:819] group_w3 first element: -0.0245361328125
+WARNING 01-12 10:11:57.626700.626700 mlpmodule.py:829] start einsum2
+DEBUG 01-12 10:11:57.637227.637227 mlpmodule.py:839] group einsum cost 0.019981861114501953 s
+DEBUG 01-12 10:11:57.638251.638251 mlpmodule.py:847] cpy2cputensor cost 0.0007216930389404297 s
+DEBUG 01-12 10:11:57.656537.656537 mlpmodule.py:708]  experts func einsum cost 0.044794321060180664 s
+DEBUG 01-12 10:11:57.656535.656535 cuda_h.py:19] end experts_func_gpu_einsum_mp cost 0.04524850845336914 seconds
+DEBUG 01-12 10:11:57.656778.656778 cuda_h.py:19] end task_processing_mp cost 0.04641389846801758 seconds
+DEBUG 01-12 10:11:57.656258.656258 cuda_h.py:10] start task_processing_mp
+DEBUG 01-12 10:11:57.657061.657061 cuda_h.py:10] start experts_func_gpu_einsum_mp
+DEBUG 01-12 10:11:57.661528.661528 mlpmodule.py:750] group tensors cost 0.003853321075439453 s
+DEBUG 01-12 10:11:57.663729.663729 mlpmodule.py:788] pad cost 0.0015451908111572266 s
+DEBUG 01-12 10:11:57.664196.664196 mlpmodule.py:794] create cpu tensor cost 3.981590270996094e-05 s
+DEBUG 01-12 10:11:57.664529.664529 mlpmodule.py:799] move to cpu cost 3.5762786865234375e-05 s
+DEBUG 01-12 10:11:57.670651.670651 mlpmodule.py:813] group_w3: shape=torch.Size([32, 1408, 2048]), device=cpu, dtype=torch.bfloat16, numel=92274688
+DEBUG 01-12 10:11:57.671669.671669 mlpmodule.py:814] group_w3 strides: (2883584, 2048, 1), is_contiguous: True
+DEBUG 01-12 10:11:57.671772.671772 mlpmodule.py:819] group_w3 first element: -0.0245361328125
+WARNING 01-12 10:11:57.671326.671326 mlpmodule.py:829] start einsum2
+DEBUG 01-12 10:11:57.682570.682570 mlpmodule.py:839] group einsum cost 0.0179593563079834 s
+DEBUG 01-12 10:11:57.683380.683380 mlpmodule.py:847] cpy2cputensor cost 0.0008614063262939453 s
+DEBUG 01-12 10:11:57.701023.701023 mlpmodule.py:708]  experts func einsum cost 0.04376411437988281 s
+DEBUG 01-12 10:11:57.701941.701941 cuda_h.py:19] end experts_func_gpu_einsum_mp cost 0.044198036193847656 seconds
+DEBUG 01-12 10:11:57.702541.702541 cuda_h.py:19] end task_processing_mp cost 0.04536318778991699 seconds
+Collecting data...
+Generating '/tmp/nsys-report-752e.qdstrm'
+[1/1] [0%                          ] report6.nsys-rep[1/1] [0%                          ] report6.nsys-rep[1/1] [=15%                        ] report6.nsys-rep[1/1] [====27%                     ] report6.nsys-rep[1/1] [========41%                 ] report6.nsys-rep[1/1] [===========50%              ] report6.nsys-rep[1/1] [========================100%] report6.nsys-rep[1/1] [========================100%] report6.nsys-rep
+Generated:
+	/mnt/zhengcf3/lmp/examples/report6.nsys-rep
