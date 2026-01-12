@@ -21,13 +21,16 @@ def test():
     model_path = "deepseek-moe-16b-base-bfloat16"
     model_name_type = "Deepseek"
     mlpllm = MLPLLM( model_name_type=model_name_type, model_path=model_path )
-    for i in range(3):
+    # only for mp process
+    mlpllm.init_mp_process()
+    for i in range(5):
         mlpllm.free_cmv()
         torch.cuda.empty_cache()
         sleep(2)
         # mlpllm.test_generate_multi_layer()
-        mlpllm.test_generate_multi_device_layer()
+        mlpllm.test_mp_prefill_generate()
     sleep(2)
-    mlpllm.imm.stop()
+    # mlpllm.imm.stop()
+    mlpllm.mp_stop()
 if __name__ == "__main__":
     test()

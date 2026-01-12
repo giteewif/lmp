@@ -37,7 +37,13 @@ class CPUExpertsInput:
     final_hidden_states: torch.Tensor
     if_decode: bool = False
 
-def _cpu_experts_worker(input_queue: Queue, output_queue: Queue, model_path: str, model_name_type: str, exit_event):
+def _cpu_experts_worker(
+    input_queue: Queue, 
+    output_queue: Queue, 
+    model_path: str, 
+    model_name_type: str, 
+    exit_event
+):
     """
     CPU experts worker 进程主函数
     
@@ -99,8 +105,8 @@ def _cpu_experts_worker(input_queue: Queue, output_queue: Queue, model_path: str
         
         # 使用一个临时的本地队列，因为 experts_func_einsum 需要 output_queue 参数
         # 但结果已经通过 in-place 修改写入到 final_hidden_states 中
-        output_queue_tmp = queue.Queue()
-        result = mlpllm.mlpm.experts_func_einsum(
+        # output_queue_tmp = queue.Queue()
+        _ = mlpllm.mlpm.experts_func_einsum_mp(
             hmv=mlpllm.hmv,
             layer_idx=input_data.layer_idx,
             expert_idx_list=expert_idx_list,
@@ -110,7 +116,7 @@ def _cpu_experts_worker(input_queue: Queue, output_queue: Queue, model_path: str
             flat_experts_weight=flat_experts_weight,
             idxs=idxs,
             final_hidden_states=final_hidden_states,
-            output_queue=output_queue_tmp
+            output_queue=output_queue
         )
         
         # 关键：final_hidden_states 是通过共享内存传递的，子进程的 in-place 修改
@@ -120,12 +126,12 @@ def _cpu_experts_worker(input_queue: Queue, output_queue: Queue, model_path: str
         # 重要：必须从 output_queue_tmp 获取结果，即使不使用它
         # 因为 experts_func_einsum 内部会执行 output_queue.put(result)，
         # 如果不获取，put 操作可能会阻塞（如果队列满了），导致后续代码无法执行
-        einsum_result = output_queue_tmp.get()
+        # einsum_result = output_queue_tmp.get()
         # 不使用 einsum_result，因为结果已经在 final_hidden_states 中
         
         # 只发送完成标记，不发送张量（主进程已经有结果了）
         # 使用 None 或一个简单的标记表示计算完成
-        output_queue.put(None)
+        # output_queue.put(None)
         
         cuda_hook_time_end("experts_func_gpu_einsum_mp")
         # 注意：不要 return，继续循环处理下一个任务

@@ -113,23 +113,7 @@ def _init_process_func(input_queue: Queue, output_queue: Queue, device_list_idx:
 
     # 根据 mlpllm.device1 更新设备索引
     device_index = int(device_str.split(":")[1])
-    
-    # 如果设备索引改变了，需要重新设置设备
-    # if torch.cuda.is_available() and torch.cuda.current_device() != device_index:
-    #     torch.cuda.set_device(device_index)
-    #     torch.cuda.synchronize(device=device_index)
-    #     logger.info(f"Init process {os.getpid()}: Switched to CUDA device {device_index}")
-    layer_idx = layer_idx
 
-    gpu_experts_names = mlpllm.mlpm.get_experts_names(layer_idx=layer_idx, expert_idx_list=[i for i in range(0, 64)])
-    ret, replica_uuid, state_dict = \
-        mlpllm.cmv.allocate_cuda_memory_and_load_into_gpu(
-            gpu_experts_names, device_index_int=device_index
-        )
-    mlpllm.cmv.wait_load_into_gpu(replica_uuid=replica_uuid)
-    mlpllm.cmv.restore2model(state_dict, mlpllm.cmv.mlpm_ci)
-
-    local_list = list()
     # 持续运行，从队列获取初始化请求
     while not exit_event.is_set():
         # try:
@@ -162,8 +146,18 @@ def _init_process_func(input_queue: Queue, output_queue: Queue, device_list_idx:
             #     out = expert(device_flat_hidden_states)
             #     # out = expert(tokens)
             #     print(f"expert {i} out: {out.shape}")
+            layer_idx = layer_idx
 
+            gpu_experts_names = mlpllm.mlpm.get_experts_names(layer_idx=layer_idx, expert_idx_list=[i for i in range(0, 64)])
+            ret, replica_uuid, state_dict = \
+                mlpllm.cmv.allocate_cuda_memory_and_load_into_gpu(
+                    gpu_experts_names, device_index_int=device_index
+                )
+            mlpllm.cmv.restore2model(state_dict, mlpllm.cmv.mlpm_ci)
+            # mlpllm.cmv.wait_load_into_gpu(replica_uuid=replica_uuid)
+            
             with torch.no_grad():
+                
                 device = device_str  # 使用 device1，确保与模型权重在同一设备上
                 
                 device_flat_hidden_states = request.flat_hidden_states
@@ -193,6 +187,10 @@ def _init_process_func(input_queue: Queue, output_queue: Queue, device_list_idx:
                     f"device_idxs.device: {device_idxs.device}"
                     f"device_expert_cache.device: {device_expert_cache.device}"
                 )
+
+                # wait before call gpu einsum
+                mlpllm.cmv.wait_load_into_gpu(replica_uuid=replica_uuid)
+
                 device_expert_cache = mlpllm.mlpm.experts_func_gpu_einsum(
                     mi=mlpllm.cmv.mlpm_ci,
                     layer_idx=request.layer_idx,
