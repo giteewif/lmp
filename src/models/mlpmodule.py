@@ -52,8 +52,8 @@ class ExpertEinsumResult:
 DEEPSEEK_MODEL_NAME_TYPE = "Deepseek"
 MIXTRAL_MODEL_NAME_TYPE = "Mixtral"
 
-
-
+# original_dtype = torch.get_default_dtype()
+# torch.set_default_dtype(torch.bfloat16)
 
 class WeightType(enum.Enum):
     W1 = 1
@@ -91,22 +91,48 @@ class MLPModuleWrapper:
             return
         else:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")
+    def init_set_layer_func(
+        self, layer_idx: int, config, model
+    ):
+        if self.model_name_type == DEEPSEEK_MODEL_NAME_TYPE:
+            with init_empty_weights():
+                layer = DeepseekDecoderLayer(config, layer_idx)
+                # if layer_idx >= self.config.first_k_dense_replace:
+                #         layer = copy.deepcopy(self.layerc)
+                #         layer.self_attn.layer_idx = layer_idx
+                # else:
+                # # with init_empty_weights():
+                #     layer = DeepseekDecoderLayer(config, layer_idx)
+            # 优化：在 init_empty_weights() 上下文外调用 to() 和 eval()
+            # 原因：layer.to() 需要递归遍历所有子模块（attention、MLP/MoE、layernorm）
+            # 对于 MoE 层，包含 n_routed_experts 个 experts，每个都需要遍历
+            # 在上下文外调用可以减少上下文管理器的一些开销
+            layer.eval()
+            # 注意：即使参数是空的，to() 仍然需要遍历模块树来设置 dtype 属性
+            # 这是 PyTorch 的设计，无法完全避免，但可以减少上下文开销
+            layer.to(config.torch_dtype)
+            # mlpm_ci DeepseekOCalModel or DeepseekForCausalLM
+            # self.cmv.mlpm_ci.model.layers[layer_idx]
+            model.model.layers[layer_idx] = layer
+            return layer
+        else:
+            raise ValueError(f"Invalid model name type: {self.model_name_type}")
 
     def init_layer_func(
         self, layer_idx: int, config):
         if self.model_name_type == DEEPSEEK_MODEL_NAME_TYPE:
-            # with init_empty_weights():
-            #     layer = DeepseekDecoderLayer(config, layer_idx)
+            with init_empty_weights():
+                layer = DeepseekDecoderLayer(config, layer_idx)
             #     layer.to(config.torch_dtype)
             #     layer.eval()
             #     return layer
-                if layer_idx >= 1:
-                    layer = copy.deepcopy(self.layerc)
-                    layer.self_attn.layer_idx = layer_idx
-                else:
-                    with init_empty_weights():
-                        layer = DeepseekDecoderLayer(config, layer_idx)
-                print(layer)
+                # if layer_idx >= 1:
+                #     layer = copy.deepcopy(self.layerc)
+                #     layer.self_attn.layer_idx = layer_idx
+                # else:
+                #     with init_empty_weights():
+                #         layer = DeepseekDecoderLayer(config, layer_idx)
+                # print(layer)
                 layer.to(config.torch_dtype)
                 layer.eval()
                 return layer

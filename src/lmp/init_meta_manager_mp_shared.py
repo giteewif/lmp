@@ -49,7 +49,7 @@ class InitRequest:
     batch_finish: bool = False
 
 
-def _init_process_func(input_queue: Queue, shared_dict, exit_event):
+def _init_process_func(input_queue: Queue, shared_dict, exit_event, output_queue: Queue):
     """
     独立初始化进程主函数
     
@@ -60,6 +60,7 @@ def _init_process_func(input_queue: Queue, shared_dict, exit_event):
         input_queue: 输入队列（从主进程接收初始化请求，包含函数和参数）
         shared_dict: 共享字典（向主进程传递初始化好的 layer）
         exit_event: 退出事件（主进程设置此事件来通知初始化进程退出）
+        output_queue: 输出队列（向主进程传递初始化好的 layer）
     """
     # 导入必要的模块（在初始化进程中）
     import sys
@@ -105,7 +106,7 @@ def _init_process_func(input_queue: Queue, shared_dict, exit_event):
                     layer_info = LayerShareInfo(layer_idx=layer_idx, layer=layer)
                     # layer_info = LayerShareInfo(layer_idx=layer_idx, layer=layer)
                     # layer_info = LayerShareInfo(layer_idx=layer_idx, layer=None)
-                    # output_queue.put(layer_info)
+                    output_queue.put(layer_info)
                     cuda_hook_time_end(f"init_layer_{layer_idx}")
                     
                     # 通过共享字典发送给主进程
@@ -287,13 +288,15 @@ class InitMetaManagerMPShared:
             # 使用 torch.multiprocessing.Queue（对 CUDA 张量更友好）
             # 为每个进程创建独立的输入队列
             self.input_queues = [Queue() for _ in range(self.num_processes)]
+
+            self.output_queue = Queue()
         
         # 启动多个初始化进程，每个进程使用自己的输入队列和共享字典
         self.init_processes = []
         for i in range(self.num_processes):
             process = Process(
                 target=_init_process_func,
-                args=(self.input_queues[i], self.shared_dict, self.exit_event),
+                args=(self.input_queues[i], self.shared_dict, self.exit_event, self.output_queue),
                 name=f"InitMetaManagerMPShared-InitProcess-{i}"
             )
             process.start()
@@ -317,25 +320,8 @@ class InitMetaManagerMPShared:
         if not self.running:
             raise RuntimeError("Initialization process not started. Call start() first.")
         
-        # 从共享字典轮询检查，直到目标 layer 出现
-        # 直接使用共享字典中的数据，避免不必要的拷贝
-        import time as time_module
-        start_time = time_module.time()
-        
-        while True:
-            # 检查超时
-            if timeout is not None:
-                elapsed = time_module.time() - start_time
-                if elapsed > timeout:
-                    raise TimeoutError(f"wait_layer timed out after {timeout} seconds for layer {layer_idx}")
-            
-            # 检查共享字典中是否有目标 layer
-            if layer_idx in self.shared_dict:
-                # 直接从共享字典获取并返回，避免拷贝
-                return self.shared_dict[layer_idx]
-            
-            # 稍作等待，避免CPU占用过高
-            time_module.sleep(0.001)  # 1ms
+        layer_info = self.output_queue.get()
+        return layer_info.layer
                     
     
     def wait_all(self, timeout: Optional[float] = None) -> Dict[int, Any]:

@@ -1387,10 +1387,13 @@ class MLPLLM:
     def init_mp_process(self):
         from lmp.cpu_thread_manager_mp import CPUExpertsManagerMP
         from lmp.device_mp import DeviceMP
+        from lmp.init_meta_manager_mp_shared import InitMetaManagerMPShared
         cuda_hook_time("init_mp_process")
         self.cpu_thread_manager_mp = CPUExpertsManagerMP(num_workers=1, model_path=self.mlpm.model_path, model_name_type=self.mlpm.model_name_type)
         self.cpu_thread_manager_mp.start()
 
+        # self.imm_mp = InitMetaManagerMPShared(num_processes=1)
+        # self.imm_mp.start()
         # self.dp = DeviceMP(num_processes=len(self.device_list))
         # self.dp.start()
         cuda_hook_time_end("init_mp_process")
@@ -1422,6 +1425,22 @@ class MLPLLM:
         self.cmv.start_init_meta_model(hmv=self.hmv)
         cuda_hook_end("init_meta")
 
+        cuda_hook_time("init_meta_layer")
+        # self.mlpm.init_set_layer_func(layer_idx=0, config=self.mlpm.config, model=self.cmv.mlpm_ci)
+        # self.mlpm.init_set_layer_func(layer_idx=1, config=self.mlpm.config, model=self.cmv.mlpm_ci)
+        # self.mlpm.init_set_layer_func(layer_idx=2, config=self.mlpm.config, model=self.cmv.mlpm_ci)
+        # self.imm_mp.submit_layer(layer_idx=0, init_func=self.mlpm.init_layer_func, config=self.mlpm.config)
+        # self.imm_mp.submit_layer(layer_idx=1, init_func=self.mlpm.init_layer_func, config=self.mlpm.config)
+        # self.imm_mp.submit_layer(layer_idx=2, init_func=self.mlpm.init_layer_func, config=self.mlpm.config)
+        # layer0 = self.imm_mp.wait_layer(layer_idx=0)
+        # layer1 = self.imm_mp.wait_layer(layer_idx=1)
+        # layer2 = self.imm_mp.wait_layer(layer_idx=2)
+        # self.cmv.mlpm_ci.model.layers[0] = layer0
+        # self.cmv.mlpm_ci.model.layers[1] = layer1
+        # self.cmv.mlpm_ci.model.layers[2] = layer2
+
+        cuda_hook_time_end("init_meta_layer")
+
         cuda_hook_time("init_weights")
         self.cmv.load_general_and_init()
         self.cmv.init_load_qkvogn_es_weight(layer_idx=0)
@@ -1451,16 +1470,21 @@ class MLPLLM:
         )
         cuda_hook_time_end("init_inputs_tokens")
 
-        cuda_hook_time("load_all_qkvogn_s")
-        for layer_idx in range(self.mlpm.config.num_hidden_layers):
-            cuda_hook_time(f"start_load_qkvogn_s_weight_l_{layer_idx+1}")
-            self.cmv.start_load_qkvogn_s_weight(layer_idx=layer_idx+1, device=self.device1)
-            cuda_hook_time_end(f"start_load_qkvogn_s_weight_l_{layer_idx+1}")
+        # cuda_hook_time("load_all_qkvogn_s")
+        # for layer_idx in range(0, self.mlpm.config.num_hidden_layers):
+        #     if layer_idx < self.mlpm.config.num_hidden_layers-1:
+        #         cuda_hook_time("init_set_layer_func")
+        #         self.mlpm.init_set_layer_func(layer_idx=layer_idx+1, config=self.mlpm.config, model=self.cmv.mlpm_ci)
+        #         cuda_hook_time_end("init_set_layer_func")
 
-            cuda_hook_time("wait_load_qkvogn_s_weight")
-            self.cmv.wait_load_qkvogn_s_weight(layer_idx=layer_idx+1)
-            cuda_hook_time_end("wait_load_qkvogn_s_weight")
-        cuda_hook_time_end("load_all_qkvogn_s")
+        #         cuda_hook_time(f"start_load_qkvogn_s_weight_l_{layer_idx+1}")
+        #         self.cmv.start_load_qkvogn_s_weight(layer_idx=layer_idx+1, device=self.device1)
+        #         cuda_hook_time_end(f"start_load_qkvogn_s_weight_l_{layer_idx+1}")
+
+        #         cuda_hook_time("wait_load_qkvogn_s_weight")
+        #         self.cmv.wait_load_qkvogn_s_weight(layer_idx=layer_idx+1)
+        #         cuda_hook_time_end("wait_load_qkvogn_s_weight")
+        # cuda_hook_time_end("load_all_qkvogn_s")
 
         self.num_experts_on_cpu_ratio = 0.5
         cuda_hook_time("prefill_layer")
@@ -1468,18 +1492,30 @@ class MLPLLM:
         for layer_idx in range(self.mlpm.config.num_hidden_layers):
             logger.debug(f"-------------------------------- start prefill layer {layer_idx} --------------------------------")
             
+            if layer_idx < self.mlpm.config.num_hidden_layers-1:
+                cuda_hook_time(f"start_load_qkvogn_s_weight_l_{layer_idx+1}")
+                self.cmv.start_load_qkvogn_s_weight(layer_idx=layer_idx+1, device=self.device1)
+                cuda_hook_time_end(f"start_load_qkvogn_s_weight_l_{layer_idx+1}")
+
+            # if layer_idx < self.mlpm.config.num_hidden_layers-2:
+            #     cuda_hook_time(f"init_set_layer_func_l_{layer_idx+2}")
+            #     self.imm_mp.submit_layer(layer_idx=layer_idx+2, init_func=self.mlpm.init_layer_func, config=self.mlpm.config)
+            #     cuda_hook_time_end(f"init_set_layer_func_l_{layer_idx+2}")
+                # cuda_hook_time("wait_load_qkvogn_s_weight")
+                # self.cmv.wait_load_qkvogn_s_weight(layer_idx=layer_idx+1)
+                # cuda_hook_time_end("wait_load_qkvogn_s_weight")
 
             cuda_hook_time("iln_self_attn_paln")
             residual = ghidden_states
             ghidden_states = self.mlpm.iln_func(self.cmv.mlpm_ci, layer_idx=layer_idx, hidden_states=ghidden_states)
             cuda_hook_time("self_attn")
             ghidden_states = self.mlpm.self_attn_func(
-                    self.cmv.mlpm_ci, layer_idx=layer_idx,
-                    hidden_states=ghidden_states,
-                    attention_mask=attention_mask,
-                    position_ids=position_ids,
-                    past_key_value=past_key_value,
-                )
+                self.cmv.mlpm_ci, layer_idx=layer_idx,
+                hidden_states=ghidden_states,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                past_key_value=past_key_value,
+            )
             cuda_hook_time_end("self_attn")
 
             ghidden_states = residual + ghidden_states
@@ -1490,7 +1526,7 @@ class MLPLLM:
                 cuda_hook_time("dense_mlp")
                 # self.cmv.start_load_qkvogn_s_weight(layer_idx=layer_idx+1,  device=device1)
                 ghidden_states = self.mlpm.dense_mlp_func(self.cmv.mlpm_ci, layer_idx=layer_idx, hidden_states=ghidden_states)
-                # self.cmv.wait_load_qkvogn_s_weight(layer_idx=layer_idx+1)
+                self.cmv.wait_load_qkvogn_s_weight(layer_idx=layer_idx+1)
                 cuda_hook_time_end("dense_mlp")
 
                 # cuda_hook_time(f"waiting_meta_l{layer_idx}")
@@ -1504,6 +1540,12 @@ class MLPLLM:
                 ghidden_states = self.layer_moe_generate_mp(layer_idx=layer_idx, hidden_states=ghidden_states)
                 # ghidden_states = self.layer_moe_generate(layer_idx=layer_idx, hidden_states=ghidden_states)
             ghidden_states = ghidden_states + residual
+
+            # if layer_idx < self.mlpm.config.num_hidden_layers-2:
+            #     cuda_hook_time("wait_init_set_layer_func")
+            #     layer = self.imm_mp.wait_layer(layer_idx=layer_idx+2)
+            #     self.cmv.mlpm_ci.model.layers[layer_idx+2] = layer
+            #     cuda_hook_time_end("wait_init_set_layer_func")
 
             logger.debug(f"-------------------------------- end prefill layer {layer_idx} --------------------------------")            
         cuda_hook_time_end("prefill_layer")
@@ -1618,6 +1660,15 @@ class MLPLLM:
             hidden_states=hidden_states,
         )
         cuda_hook_time_end("gpu_sexperts")
+
+        # if layer_idx < self.mlpm.config.num_hidden_layers-2:
+        #     cuda_hook_time("init_set_layer_func")
+        #     self.mlpm.init_set_layer_func(layer_idx=layer_idx+2, config=self.mlpm.config, model=self.cmv.mlpm_ci)
+        #     cuda_hook_time_end("init_set_layer_func")
+        if layer_idx < self.mlpm.config.num_hidden_layers-1:
+            cuda_hook_time("wait_load_qkvogn_s_weight")
+            self.cmv.wait_load_qkvogn_s_weight(layer_idx=layer_idx+1)
+            cuda_hook_time_end("wait_load_qkvogn_s_weight")
 
         cuda_hook_time("wait_experts")
         self.cmv.wait_load_into_gpu(replica_uuid1)
