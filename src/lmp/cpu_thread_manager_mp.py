@@ -79,7 +79,8 @@ def _cpu_experts_worker(
                 torch.cuda.init()
             except RuntimeError as e:
                 logger.warning(f"Init process {os.getpid()}: torch.cuda.init() failed: {e}")
-
+    torch.set_num_threads(64)
+    
     from models.mlpmodule import MLPModuleWrapper
     from lmp.cuda_memory_view import HostMemoryView
     

@@ -1656,7 +1656,7 @@ class MLPModuleWrapper:
         token_idxs_cpu_pin = token_idxs.cpu()
         cuda_hook_time_end("move_flatidxs")
 
-        cuda_hook_time("group group_tensors")
+        cuda_hook_time("group_tensors")
         # 获取 group tensors (已经是堆叠好的 [E, ...] 形状)
         group_dict = hmv.group_experts_tensor(layer_idx, expert_idx_list)
         group_w1 = group_dict['group_w1']  # [E, I, H]
@@ -1718,11 +1718,33 @@ class MLPModuleWrapper:
         cuda_hook_time_end("group_einsum")
         
 
-        result = ExpertEinsumResult(final_hidden_states=outputs_result, time_einsum_end=time.time())
+        cuda_hook_time("get_outputs_cpu1")
+        ce_out_list = []
+        for i, expert_idx in enumerate(expert_idx_list):
+            token_ids = expert_token_indices_map[expert_idx]
+            num_tokens = token_ids.shape[0]
+            expert_out = outputs_result[i][:num_tokens]
+            ce_out_list.append(expert_out)
+        concat_ce_out = torch.cat(ce_out_list, dim=0)
+        outputs_result_cpu_pin = gpinpool.alloc_same_pin_tensor(concat_ce_out)
+        outputs_result_cpu_pin.copy_(concat_ce_out, non_blocking=False)
+        output_gpu = outputs_result_cpu_pin.to(flat_hidden_states.device, non_blocking=False)
+        cuda_hook_time_end("get_outputs_cpu1")
+
+        # cuda_hook_time("get_outputs_cpu2")
+        # outputs_result_cpu_pin = gpinpool.alloc_same_pin_tensor(outputs_result)
+        # outputs_result_cpu_pin.copy_(outputs_result, non_blocking=False)
+        # output_gpu = outputs_result_cpu_pin.to(flat_hidden_states.device, non_blocking=False)
+        # cuda_hook_time_end("get_outputs_cpu2")
+
+        result = ExpertEinsumResult(final_hidden_states=output_gpu, time_einsum_end=time.time())
         output_queue.put(result)
-        del group_w1, group_w2, group_w3
+        # del group_w1, group_w2, group_w3
+        gpinpool.free(flat_hidden_states_cpu_pin)
+        gpinpool.free(token_idxs_cpu_pin)
+        gpinpool.free(outputs_result_cpu_pin)
         group_list = []
-        # group_list.append(group_w1)
-        # group_list.append(group_w2)
-        # group_list.append(group_w3)
-        return outputs_result, group_list
+        group_list.append(group_w1)
+        group_list.append(group_w2)
+        group_list.append(group_w3)
+        return output_gpu, group_list

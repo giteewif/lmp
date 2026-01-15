@@ -34,6 +34,14 @@ class CETM:
                 break
             
             try:
+                gpu_out = self.mlpm.experts_func_einsum_mp(
+                    hmv=self.hmv,
+                    layer_idx=task.layer_idx,
+                    expert_idx_list=task.expert_idx_list,
+                    flat_hidden_states=task.flat_hidden_states,
+                    idxs=task.idxs,
+                    output_queue=self.output_queue
+                )
                 if not task.if_decode:
                     # 执行 experts_func_einsum
                     final_hidden_states = self.mlpm.experts_func_einsum(
@@ -74,9 +82,8 @@ class CETM:
     def get_result(self, timeout: Optional[float] = None) -> ExpertEinsumResult:
         """获取结果"""
         result = self.output_queue.get(timeout=timeout)
-        if isinstance(result, Exception):
-            raise result
-        return result
+        outputs_tensor=result.final_hidden_states
+        return outputs_tensor
         
     def has_result(self):
         """检查是否有结果"""

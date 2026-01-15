@@ -1630,21 +1630,19 @@ class MLPLLM:
         cuda_hook_time_end("experts_map_get")
 
         expert_cache = torch.zeros_like(flat_hidden_states)
-        # cuda_hook_time("cpu_experts_submit")
+        cuda_hook_time("cpu_experts_submit")
         # # CPU experts - 传递索引信息，延迟创建 tensor maps
-        # if cpu_expert_ids:
-        #     logger.debug(f"\n  Computing {len(cpu_expert_ids)} experts on CPU MP...")
-        #     self.cpu_thread_manager_mp.submit_worker(
-        #         worker_idx=0,
-        #         layer_idx=layer_idx,
-        #         expert_idx_list=list(cpu_expert_ids),
-        #         expert_indices_map={eid: expert_indices_map[eid] for eid in cpu_expert_ids},
-        #         flat_hidden_states=flat_hidden_states,
-        #         flat_experts_weight=flat_experts_weight,
-        #         idxs=idxs,
-        #         final_hidden_states=expert_cache
-        #     )
-        # cuda_hook_time_end("cpu_experts_submit")
+        if cpu_expert_ids:
+            logger.debug(f"\n  Computing {len(cpu_expert_ids)} experts on CPU MP...")
+            self.cpu_thread_manager_mp.submit_worker(
+                worker_idx=0,
+                layer_idx=layer_idx,
+                expert_idx_list=list(cpu_expert_ids),
+                expert_indices_map={eid: expert_indices_map[eid] for eid in cpu_expert_ids},
+                flat_hidden_states=flat_hidden_states,
+                idxs=idxs,
+            )
+        cuda_hook_time_end("cpu_experts_submit")
 
         cuda_hook_time("allocate_experts_cuda_memory_and_restore_model")
         # 在上层提前加载
@@ -1666,18 +1664,18 @@ class MLPLLM:
         cuda_hook_time_end("gpu_sexperts")
 
         # expert_cache = torch.zeros_like(flat_hidden_states)
-        cuda_hook_time("cpu_experts_submit")
-        # # CPU experts - 传递索引信息，延迟创建 tensor maps
-        if cpu_expert_ids:
-            logger.debug(f"\n  Computing {len(cpu_expert_ids)} experts on CPU MP...")
-            self.cpu_thread_manager_mp.submit_worker(
-                worker_idx=0,
-                layer_idx=layer_idx,
-                expert_idx_list=list(cpu_expert_ids),
-                expert_indices_map={eid: expert_indices_map[eid] for eid in cpu_expert_ids},
-                flat_hidden_states=flat_hidden_states,
-                idxs=idxs,
-            )
+        # cuda_hook_time("cpu_experts_submit")
+        # # # CPU experts - 传递索引信息，延迟创建 tensor maps
+        # if cpu_expert_ids:
+        #     logger.debug(f"\n  Computing {len(cpu_expert_ids)} experts on CPU MP...")
+        #     self.cpu_thread_manager_mp.submit_worker(
+        #         worker_idx=0,
+        #         layer_idx=layer_idx,
+        #         expert_idx_list=list(cpu_expert_ids),
+        #         expert_indices_map={eid: expert_indices_map[eid] for eid in cpu_expert_ids},
+        #         flat_hidden_states=flat_hidden_states,
+        #         idxs=idxs,
+        #     )
         # if cpu_expert_ids:
         #     logger.debug(f"\n  Computing {len(cpu_expert_ids)} experts on CPU...")
         #     # 使用 CETM 在后台线程执行
@@ -1692,7 +1690,7 @@ class MLPLLM:
         #             final_hidden_states=expert_cache
         #         )
         #     self.cetm.submit(task)
-        cuda_hook_time_end("cpu_experts_submit")
+        # cuda_hook_time_end("cpu_experts_submit")
         
 
         device_expert_idx_list = list(gpu_expert_ids)
@@ -1745,16 +1743,38 @@ class MLPLLM:
         
         cuda_hook_time_end("acpu_expert_weight_slices")
 
-        cuda_hook_time("cpu_thread_manager_mp_wait")
-        output_cpu = self.cpu_thread_manager_mp.wait()
-        output_cpu_pin = gpinpool.alloc_same_pin_tensor(output_cpu)
-        output_cpu_pin.copy_(output_cpu, non_blocking=False)
-        cuda_hook_time_end("cpu_thread_manager_mp_wait")
 
         if layer_idx < self.mlpm.config.num_hidden_layers-1:
             cuda_hook_time("wait_load_qkvogn_s_weight")
             self.cmv.wait_load_qkvogn_s_weight(layer_idx=layer_idx+1)
             cuda_hook_time_end("wait_load_qkvogn_s_weight")
+
+        cuda_hook_time("cpu_thread_manager_mp_wait")
+        output_cpu2gpu = self.cpu_thread_manager_mp.wait()
+        cuda_hook_time_end("cpu_thread_manager_mp_wait")
+        cuda_hook_time("cpuoutputsdeal")
+        # for i, expert_idx in enumerate(list(cpu_expert_ids)):
+        #     token_ids = expert_token_indices_map[expert_idx]
+        #     num_tokens = token_ids.shape[0]
+        #     expert_out_slice = output_cpu2gpu[i, :num_tokens]
+        #     acpu_expert_outs_slices.append(expert_out_slice)
+        # concat_expert_out = torch.cat(acpu_expert_outs_slices, dim=0)  # [total_tokens, H]
+        concat_expert_out = output_cpu2gpu
+        concat_expert_weights = torch.cat(acpu_expert_weights, dim=0)  # [total_tokens, 1]
+        concat_token_ids = torch.cat(acpu_token_ids, dim=0)  # [total_tokens]
+        concat_expert_out = concat_expert_out.mul_(concat_expert_weights)
+        cuda_hook_time("index_scatter")
+        index = concat_token_ids.view(-1, 1).expand(-1, expert_cache.shape[-1])
+        expert_cache.scatter_reduce_(
+            dim=0,
+            index=index,
+            src=concat_expert_out,
+            reduce='sum',
+        )
+        cuda_hook_time_end("index_scatter")
+        del output_cpu2gpu, concat_expert_out
+        cuda_hook_time_end("cpuoutputsdeal")
+
 
         cuda_hook_time("wait_experts")
         self.cmv.wait_load_into_gpu(replica_uuid1)
@@ -1776,9 +1796,6 @@ class MLPLLM:
 
         device1_id = flat_hidden_states.device.index
         
-        cuda_hook_time("output_cpu2gpu")
-        output_cpu2gpu = output_cpu_pin.to(device1_id, non_blocking=True)
-        cuda_hook_time_end("output_cpu2gpu")
 
         # cuda_hook_time("wait_cetm_experts")
         # result = self.cetm.get_result()
@@ -1803,32 +1820,6 @@ class MLPLLM:
             expert_token_indices_map=expert_token_indices_map,
         )
         cuda_hook_time_end("gpu_experts")
-
-       
-
-        cuda_hook_time("cpuoutputsdeal")
-
-        for i, expert_idx in enumerate(list(cpu_expert_ids)):
-            token_ids = expert_token_indices_map[expert_idx]
-            num_tokens = token_ids.shape[0]
-            expert_out_slice = output_cpu2gpu[i, :num_tokens]
-            acpu_expert_outs_slices.append(expert_out_slice)
-        concat_expert_out = torch.cat(acpu_expert_outs_slices, dim=0)  # [total_tokens, H]
-        concat_expert_weights = torch.cat(acpu_expert_weights, dim=0)  # [total_tokens, 1]
-        concat_token_ids = torch.cat(acpu_token_ids, dim=0)  # [total_tokens]
-        concat_expert_out = concat_expert_out.mul_(concat_expert_weights)
-        cuda_hook_time("index_scatter")
-        index = concat_token_ids.view(-1, 1).expand(-1, expert_cache.shape[-1])
-        expert_cache.scatter_reduce_(
-            dim=0,
-            index=index,
-            src=concat_expert_out,
-            reduce='sum',
-        )
-        cuda_hook_time_end("index_scatter")
-
-        gpinpool.free(output_cpu_pin)
-        cuda_hook_time_end("cpuoutputsdeal")
 
         layer_output = expert_cache.view(*orig_shape) + y
 
