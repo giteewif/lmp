@@ -1407,9 +1407,204 @@ class MLPModuleWrapper:
             output_queue=output_queue
         )
         return final_hidden_states, group_list
-
     @torch.no_grad()
-    def einsum_with_group_tensors(self, 
+    def bmm_with_group_tensors(
+        self, 
+        hmv: "HostMemoryView",
+        layer_idx: int, expert_idx_list: list[int], 
+        expert_indices_map: Dict[int, Tuple[int, int]],  # {expert_id: (start_idx, end_idx)}
+        expert_token_indices_map: Dict[int, torch.Tensor],  # {expert_id: token_ids}
+        flat_hidden_states: torch.Tensor,  # 原始展平的 hidden states
+        flat_experts_weight: torch.Tensor,  # 原始展平的 experts weight
+        idxs: torch.Tensor,  # 排序后的索引
+        final_hidden_states: torch.Tensor,
+        output_queue: queue.Queue
+    ):
+        """
+        使用 group tensors 进行批量 bmm 计算（bmm 版本，通常比 einsum 更快）
+        
+        Args:
+            layer_idx: 层索引
+            expert_idx_list: expert 索引列表
+            expert_indices_map: {expert_id: (start_idx, end_idx)} 索引范围
+            expert_token_indices_map: {expert_id: token_ids} token 索引
+            flat_hidden_states: 原始展平的 hidden states
+            flat_experts_weight: 原始展平的 experts weight
+            idxs: 排序后的索引
+            final_hidden_states: 最终隐藏状态
+            output_queue: 输出队列
+        
+        Returns:
+            final_hidden_states: 最终隐藏状态
+        """
+        time_start_group = time.time()
+        cuda_hook("group tensor")
+        # 获取 group tensors (已经是堆叠好的 [E, ...] 形状)
+        group_dict = hmv.group_experts_tensor(layer_idx, expert_idx_list)
+        group_w1 = group_dict['group_w1']  # [E, I, H]
+        group_w2 = group_dict['group_w2']  # [E, H, I]
+        group_w3 = group_dict['group_w3']  # [E, I, H]
+        
+        cuda_hook_end("group tensor")
+        logger.debug(f"group tensors cost {time.time() - time_start_group} s")
+        
+        cuda_hook_time("move_flat_hidden2cpu")
+        flat_hidden_states_cpu_pin = gpinpool.alloc_same_pin_tensor(flat_hidden_states)
+        flat_hidden_states_cpu_pin.copy_(flat_hidden_states, non_blocking=False)
+
+        token_idxs = idxs // self.config.num_experts_per_tok
+        token_idxs_cpu_pin = token_idxs.cpu()
+
+        H = flat_hidden_states_cpu_pin.shape[1]
+        E = len(expert_idx_list)
+
+        max_tokens = max(
+            expert_token_indices_map[eid].shape[0] 
+            for eid in expert_idx_list
+        )
+        stacked_inputs_cpu = torch.zeros(
+            E, max_tokens, H,
+            dtype=flat_hidden_states_cpu_pin.dtype, device="cpu"
+        )
+
+        # 直接从 flat_hidden_states 复制需要的 token 到 stacked_inputs 的对应位置
+        for i, expert_idx in enumerate(expert_idx_list):
+            start_idx, end_idx = expert_indices_map[expert_idx]
+            token_ids = token_idxs_cpu_pin[start_idx:end_idx]
+            num_tokens = token_ids.shape[0]
+            
+            # 使用 blocking copy 以确保数据完整性（特别是跨设备复制时）
+            stacked_inputs_cpu[i, :num_tokens].copy_(flat_hidden_states_cpu_pin[token_ids], non_blocking=True)
+        cuda_hook_time_end("move_flat_hidden2cpu")
+        gpinpool.free(flat_hidden_states_cpu_pin)
+
+        time_start_pad = time.time()
+        cuda_hook("group pad")
+        # 过滤有效的 expert indices
+        expert_indices = [idx for idx in expert_idx_list if idx in expert_token_indices_map]
+        if not expert_indices:
+            return final_hidden_states
+        
+        # 计算 max_tokens（直接从索引信息计算，避免创建 tensor）
+        max_tokens = max(
+            expert_token_indices_map[eid].shape[0] 
+            for eid in expert_indices
+        )
+
+        # 获取 hidden_dim
+        H = flat_hidden_states.shape[1]  # hidden_dim
+        E = len(expert_indices)  # expert 数量
+        
+        # 优化：直接分配整个 stacked_inputs tensor，避免多次分配和 stack 操作
+        # 形状: [E, max_tokens, H]
+        stacked_inputs = torch.zeros(
+            E, max_tokens, H,
+            dtype=flat_hidden_states.dtype, device=flat_hidden_states.device
+        )
+        
+        # 直接从 flat_hidden_states 复制需要的 token 到 stacked_inputs 的对应位置
+        for i, expert_idx in enumerate(expert_indices):
+            token_ids = expert_token_indices_map[expert_idx]
+            num_tokens = token_ids.shape[0]
+            
+            # 使用 blocking copy 以确保数据完整性（特别是跨设备复制时）
+            stacked_inputs[i, :num_tokens].copy_(flat_hidden_states[token_ids], non_blocking=False)
+        
+        cuda_hook_end("group pad")
+        logger.debug(f"pad cost {time.time() - time_start_pad} s")
+
+        time_start_create_cpu = time.time()
+        cuda_hook("group stack")
+        outputs_pin = gpinpool.alloc_same_pin_tensor(stacked_inputs)
+        stacked_inputs_cpu_pin = gpinpool.alloc_same_pin_tensor(stacked_inputs)
+        logger.debug(f"create cpu tensor cost {time.time() - time_start_create_cpu} s")
+        time_start_move2cpu = time.time()
+        stacked_inputs_cpu_pin.copy_(stacked_inputs, non_blocking=False)
+        stacked_inputs_gpu = stacked_inputs
+        stacked_inputs = stacked_inputs_cpu_pin
+        logger.debug(f"move to cpu cost {time.time() - time_start_move2cpu} s")
+        cuda_hook_end("group stack")
+
+        time_start_bmm = time.time()
+        cuda_hook("group_bmm")
+        # 优化：使用 torch.bmm 替代 einsum，通常更快
+        # stacked_inputs: [E, max_tokens, H]
+        # group_w1: [E, I, H] -> 转置为 [E, H, I]
+        # bmm([E, T, H], [E, H, I]) -> [E, T, I]
+        group_w1_transposed = group_w1.transpose(1, 2)  # [E, H, I]
+        w1_out = torch.bmm(stacked_inputs, group_w1_transposed)  # [E, max_tokens, I]
+        
+        act_fn = ACT2FN[self.config.hidden_act]
+        w1_out = act_fn(w1_out)
+
+        # group_w3: [E, I, H] -> 转置为 [E, H, I]
+        # bmm([E, T, H], [E, H, I]) -> [E, T, I]
+        group_w3_transposed = group_w3.transpose(1, 2)  # [E, H, I]
+        w3_out = torch.bmm(stacked_inputs, group_w3_transposed)  # [E, max_tokens, I]
+        
+        # intermediate: [E, max_tokens, I]
+        intermediate = w1_out * w3_out
+        
+        # group_w2: [E, H, I] -> 转置为 [E, I, H]
+        # bmm([E, T, I], [E, I, H]) -> [E, T, H]
+        group_w2_transposed = group_w2.transpose(1, 2)  # [E, I, H]
+        outputs_result = torch.bmm(intermediate, group_w2_transposed)  # [E, max_tokens, H]
+        
+        logger.debug(f"group bmm cost {time.time() - time_start_bmm} s")
+        cuda_hook_end("group_bmm")
+
+        cuda_hook("cpy2cpu2gpu_tensor")
+        time_start_cpy = time.time()
+        outputs_pin.copy_(outputs_result, non_blocking=False)
+        outputs = outputs_pin
+        outputs_cpu = outputs
+        cuda_hook_end("cpy2cputensor")
+        logger.debug(f"cpy2cputensor cost {time.time() - time_start_cpy} s")
+
+        cuda_hook_time("move_outputs")
+        outputs = outputs.to(final_hidden_states.device, non_blocking=False)
+        cuda_hook_time_end("move_outputs")
+        cuda_hook("final_hidden_states scatter")
+        # 一次性提交
+        
+        # 提取有效结果（去除 padding）
+        for i, expert_idx in enumerate(expert_indices):
+            # 直接从索引信息获取 token 数量，避免访问 tensor
+            token_ids = expert_token_indices_map[expert_idx]
+            num_tokens = token_ids.shape[0]
+            
+            # 使用切片 [:num_tokens] 创建 view，避免拷贝
+            expert_out = outputs[i][:num_tokens]
+            
+            # 直接从 flat_experts_weight 获取 weights，避免中间拷贝
+            start_idx, end_idx = expert_indices_map[expert_idx]
+            expert_weights = flat_experts_weight[idxs[start_idx:end_idx]]
+            
+            expert_out = expert_out.mul_(expert_weights)
+            
+            # 使用 token_ids 进行 scatter
+            final_hidden_states.scatter_reduce_(
+                dim=0,
+                index=token_ids.view(-1, 1).repeat(1, final_hidden_states.shape[-1]),
+                src=expert_out,
+                reduce='sum'
+            )
+        cuda_hook_end("final_hidden_states scatter")
+        
+        # 在 scatter 操作完成后再释放内存
+        # 确保所有对 outputs 的访问都已完成
+        gpinpool.free(outputs_pin)
+        gpinpool.free(stacked_inputs_cpu_pin)
+
+        time_einsum_end = time.time()
+        result = ExpertEinsumResult(final_hidden_states=outputs_cpu, time_einsum_end=time_einsum_end)
+        
+        output_queue.put(result)
+        del group_w1, group_w2, group_w3
+        return final_hidden_states
+    @torch.no_grad()
+    def einsum_with_group_tensors(
+        self, 
         hmv: "HostMemoryView",
         layer_idx: int, expert_idx_list: list[int], 
         expert_indices_map: Dict[int, Tuple[int, int]],  # {expert_id: (start_idx, end_idx)}
