@@ -32,9 +32,7 @@ class CPUExpertsInput:
     expert_idx_list: list[int]
     expert_indices_map: dict[int, tuple[int, int]]
     flat_hidden_states: torch.Tensor
-    flat_experts_weight: torch.Tensor
     idxs: torch.Tensor
-    final_hidden_states: torch.Tensor
     if_decode: bool = False
 
 def _cpu_experts_worker(
@@ -82,10 +80,12 @@ def _cpu_experts_worker(
             except RuntimeError as e:
                 logger.warning(f"Init process {os.getpid()}: torch.cuda.init() failed: {e}")
 
-    from lmp.lmp import MLPLLM
-    mlpllm = MLPLLM(model_name_type=model_name_type, model_path=model_path)
+    from models.mlpmodule import MLPModuleWrapper
+    from lmp.cuda_memory_view import HostMemoryView
     
-    
+    mlpm = MLPModuleWrapper(model_name_type=model_name_type, model_path=model_path)
+    hmv = HostMemoryView(mlpm=mlpm)
+    group_list_list = []
     while not exit_event.is_set():
       
         input_data: CPUExpertsInput = input_queue.get()
@@ -94,31 +94,22 @@ def _cpu_experts_worker(
 
         expert_idx_list = input_data.expert_idx_list
         expert_indices_map = input_data.expert_indices_map
-        expert_token_indices_map = {}
-        token_idxs = input_data.idxs // mlpllm.mlpm.config.num_experts_per_tok
-        for expert_id in expert_idx_list:
-            expert_token_indices_map[expert_id] = token_idxs[expert_indices_map[expert_id][0]:expert_indices_map[expert_id][1]]
         idxs = input_data.idxs
         flat_hidden_states = input_data.flat_hidden_states
-        flat_experts_weight = input_data.flat_experts_weight
-        final_hidden_states = input_data.final_hidden_states
         
         # 使用一个临时的本地队列，因为 experts_func_einsum 需要 output_queue 参数
         # 但结果已经通过 in-place 修改写入到 final_hidden_states 中
         # output_queue_tmp = queue.Queue()
-        _ = mlpllm.mlpm.experts_func_einsum_mp(
-            hmv=mlpllm.hmv,
+        _, group_list = mlpm.experts_func_einsum_mp(
+            hmv=hmv,
             layer_idx=input_data.layer_idx,
             expert_idx_list=expert_idx_list,
             expert_indices_map=expert_indices_map,
-            expert_token_indices_map=expert_token_indices_map,
             flat_hidden_states=flat_hidden_states,
-            flat_experts_weight=flat_experts_weight,
             idxs=idxs,
-            final_hidden_states=final_hidden_states,
             output_queue=output_queue
         )
-        
+        group_list_list.append(group_list)
         # 关键：final_hidden_states 是通过共享内存传递的，子进程的 in-place 修改
         # (scatter_reduce_) 已经直接反映到主进程的原始张量中
         # 因此不需要再通过队列返回结果，只需要发送一个完成标记
@@ -162,9 +153,7 @@ class CPUExpertsManagerMP:
         expert_idx_list: list[int],
         expert_indices_map: dict[int, tuple[int, int]],
         flat_hidden_states: torch.Tensor,
-        flat_experts_weight: torch.Tensor,
         idxs: torch.Tensor,
-        final_hidden_states: torch.Tensor,
     ):
         """
         提交任务到第一个 worker 的队列
@@ -174,9 +163,7 @@ class CPUExpertsManagerMP:
             expert_idx_list=expert_idx_list,
             expert_indices_map=expert_indices_map,
             flat_hidden_states=flat_hidden_states,
-            flat_experts_weight=flat_experts_weight,
             idxs=idxs,
-            final_hidden_states=final_hidden_states,
         )
         self.input_queues[0].put(input_data)
     
@@ -186,9 +173,7 @@ class CPUExpertsManagerMP:
         expert_idx_list: list[int],
         expert_indices_map: dict[int, tuple[int, int]],
         flat_hidden_states: torch.Tensor,
-        flat_experts_weight: torch.Tensor,
         idxs: torch.Tensor,
-        final_hidden_states: torch.Tensor,
     ):
         """
         提交任务到指定 worker 的队列
@@ -202,9 +187,7 @@ class CPUExpertsManagerMP:
             expert_idx_list=expert_idx_list,
             expert_indices_map=expert_indices_map,
             flat_hidden_states=flat_hidden_states,
-            flat_experts_weight=flat_experts_weight,
             idxs=idxs,
-            final_hidden_states=final_hidden_states,
         )
         
         if worker_idx >= len(self.input_queues):
@@ -222,11 +205,10 @@ class CPUExpertsManagerMP:
         Returns:
             None（计算结果已经在主进程的 final_hidden_states 中）
         """
-        result = self.output_queue.get()
-        if isinstance(result, Exception):
-            raise result
+        result: ExpertEinsumResult = self.output_queue.get()
+        output_tensor = result.final_hidden_states
         # result 应该是 None（完成标记），计算结果已经在主进程的 final_hidden_states 中
-        return result
+        return output_tensor
     
     def start(self):
         """

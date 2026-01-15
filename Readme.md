@@ -9,7 +9,7 @@ source /mnt/zhengcf3/env/lmp/bin/activate
 
 /mnt/zhengcf3/nvidia/nsight-systems/2025.6.1/bin/nsys profile --force-overwrite true -o report4_testmp.nsys-rep python test_init_meta_manager_mp_shared.py > test_init_meta_manager_mp_shared.log
 
-/mnt/zhengcf3/nvidia/nsight-systems/2025.6.1/bin/nsys profile --force-overwrite true -o report5.nsys-rep python test_device_mp.py > test_device_mp.
+/mnt/zhengcf3/nvidia/nsight-systems/2025.6.1/bin/nsys profile --force-overwrite true -o report5.nsys-rep python test_device_mp.py > test_device_mp.log
 
 /mnt/zhengcf3/nvidia/nsight-systems/2025.6.1/bin/nsys profile --force-overwrite true -o report6.nsys-rep python test_cpu_mp.py > test_cpu_mp.log
 ## protoc

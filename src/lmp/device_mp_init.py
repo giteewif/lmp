@@ -5,6 +5,7 @@
 torch.multiprocessing 支持 CUDA 张量的共享
 支持配置进程数量，多个进程共享任务队列（工作窃取模式）
 """
+from models.mlpmodule import MLPModuleWrapper
 import torch.multiprocessing as mp
 from torch.multiprocessing import Process, Queue
 import time
@@ -34,12 +35,16 @@ except RuntimeError:
 
 @dataclass
 class DeviceOutput:
-    output_tensor: torch.Tensor
+    output_flag: bool
 
 @dataclass
 class InitRequest:
     """初始化请求"""
     layer_idx: int
+    group_w1: torch.Tensor
+    group_w2: torch.Tensor
+    group_w3: torch.Tensor
+    stacked_inputs: torch.Tensor
     expert_idx_list: list[int]
     expert_indices_map: dict[int, tuple[int, int]]
     # expert_token_indices_map: dict[int, torch.Tensor]
@@ -49,7 +54,7 @@ class InitRequest:
     final_hidden_states: torch.Tensor
     if_decode: bool = False
 
-def _init_process_func(input_queue: Queue, output_queue: Queue, device_list_idx: int, layer_idx: int, exit_event):
+def _init_process_func(input_queue: Queue, output_queue: Queue, exit_event):
     """
     独立初始化进程主函数
     
@@ -75,16 +80,6 @@ def _init_process_func(input_queue: Queue, output_queue: Queue, device_list_idx:
     )
     logger = init_logger(__name__)
 
-    # ===== 关键修复：在创建任何可能使用 CUDA 的对象之前，先初始化 CUDA =====
-    # 在子进程中，CUDA 需要在使用之前显式初始化
-    # 这是因为子进程不会自动继承父进程的 CUDA 上下文
-    # 如果父进程在使用 CUDA，子进程可能无法初始化，所以需要先初始化
-    
-    # 设置环境变量，帮助 CUDA 初始化
-    # 这可以避免某些 CUDA 初始化问题
-    os.environ.setdefault('CUDA_LAUNCH_BLOCKING', '0')
-    
-    
 
     if torch.cuda.is_available():
         # 方法1: 先检查 CUDA 是否已初始化
@@ -98,39 +93,12 @@ def _init_process_func(input_queue: Queue, output_queue: Queue, device_list_idx:
             except RuntimeError as e:
                 logger.warning(f"Init process {os.getpid()}: torch.cuda.init() failed: {e}")
                 # 继续尝试，可能通过创建张量可以初始化
-    from lmp.lmp import MLPLLM
     # 现在 CUDA 已经初始化，可以安全地创建 MLPLLM 对象
     model_path = "deepseek-moe-16b-base-bfloat16"
     model_name_type = "Deepseek"
 
-    mlpllm =MLPLLM( model_name_type=model_name_type, model_path=model_path )
-    mlpllm.cmv.start_init_meta_model(hmv=mlpllm.hmv)
+    mlpm = MLPModuleWrapper(model_name_type=model_name_type, model_path=model_path)
 
-    # 先初始化 CUDA（在创建 MLPLLM 之前）
-    # 默认使用设备 1（根据后续代码中的 device_memory 使用设备 1）
-    # 注意：这里我们先使用一个默认设备，稍后再根据 mlpllm.device1 调整
-    device_str = mlpllm.device_list[device_list_idx]  # 默认设备，稍后会根据 mlpllm.device1 更新
-
-    # 根据 mlpllm.device1 更新设备索引
-    device_index = int(device_str.split(":")[1])
-    
-    # 如果设备索引改变了，需要重新设置设备
-    # if torch.cuda.is_available() and torch.cuda.current_device() != device_index:
-    #     torch.cuda.set_device(device_index)
-    #     torch.cuda.synchronize(device=device_index)
-    #     logger.info(f"Init process {os.getpid()}: Switched to CUDA device {device_index}")
-    layer_idx = layer_idx
-
-    gpu_experts_names = mlpllm.mlpm.get_experts_names(layer_idx=layer_idx, expert_idx_list=[i for i in range(0, 64)])
-    ret, replica_uuid, state_dict = \
-        mlpllm.cmv.allocate_cuda_memory_and_load_into_gpu(
-            gpu_experts_names, device_index_int=device_index
-        )
-    mlpllm.cmv.wait_load_into_gpu(replica_uuid=replica_uuid)
-    mlpllm.cmv.restore2model(state_dict, mlpllm.cmv.mlpm_ci)
-
-    local_list = list()
-    # 持续运行，从队列获取初始化请求
     while not exit_event.is_set():
         # try:
             request: Optional[InitRequest] = input_queue.get()
@@ -138,101 +106,52 @@ def _init_process_func(input_queue: Queue, output_queue: Queue, device_list_idx:
             # 处理初始化请求
             # try:    
             cuda_hook_time("experts_func_gpu_einsum_mp")
-            
-                
-            # expert0 = mlpllm.cmv.mlpm_ci.model.layers[1].mlp.experts[0]
-            # out = expert0(request.flat_hidden_states)
-            # device_flat_hidden_states = request.flat_hidden_states
-            # device_idxs = request.idxs // mlpllm.cmv.mlpm_ci.config.num_experts_per_tok
-            # device_expert_token_indices_map = {
-            #     eid: device_idxs[request.expert_indices_map[eid][0]:request.expert_indices_map[eid][1]]
-            #     for eid in request.expert_idx_list
-            # }
-            # device_flat_hidden_states = device_flat_hidden_states.to(device="cuda:1", non_blocking=True)
-            # logger.debug(f"dtype {request.flat_hidden_states.dtype}")
-            # for i in request.expert_idx_list:
-            #     expert = mlpllm.cmv.mlpm_ci.model.layers[1].mlp.experts[i]
-            #     tokens = device_flat_hidden_states[device_expert_token_indices_map[i]]
-            #     logger.debug(f"tokens dtype {tokens.dtype} tokens shape {tokens.shape} "
-            #         f"tokens device {tokens.device}"
-            #     )
-            #     logger.debug(f"device_flat_hidden_states dtype {device_flat_hidden_states.dtype} tokens shape {device_flat_hidden_states.shape} "
-            #         f"device_flat_hidden_states device {device_flat_hidden_states.device}"
-            #     )
-            #     out = expert(device_flat_hidden_states)
-            #     # out = expert(tokens)
-            #     print(f"expert {i} out: {out.shape}")
-
-            with torch.no_grad():
-                device = device_str  # 使用 device1，确保与模型权重在同一设备上
-                
-                device_flat_hidden_states = request.flat_hidden_states
-                device_flat_experts_weight = request.flat_experts_weight
-                device_idxs = request.idxs // mlpllm.cmv.mlpm_ci.config.num_experts_per_tok
-                
-                device_flat_hidden_states = request.flat_hidden_states.to(device, non_blocking=True)
-                device_flat_experts_weight = request.flat_experts_weight.to(device, non_blocking=True)
-                device_idxs = device_idxs.to(device, non_blocking=True)
-
-                # 同步数据传输，确保所有张量都已到达设备
-                torch.cuda.synchronize(device=device_index)
-                
-                device_expert_token_indices_map = {
-                    eid: device_idxs[request.expert_indices_map[eid][0]:request.expert_indices_map[eid][1]]
-                    for eid in request.expert_idx_list
-                }
-                device_expert_cache = torch.zeros_like(device_flat_hidden_states, device=device)
-
-                # tokens = flat_hidden_states[expert_token_indices_map[expert_id]]
-                
-
-                logger.debug(
-                    f"device_idx device: {device_index}, device_idxs.device: {device_idxs.device}"
-                    f"device_flat_hidden_states.device: {device_flat_hidden_states.device}"
-                    f"device_flat_experts_weight.device: {device_flat_experts_weight.device}"
-                    f"device_idxs.device: {device_idxs.device}"
-                    f"device_expert_cache.device: {device_expert_cache.device}"
-                )
-                device_expert_cache = mlpllm.mlpm.experts_func_gpu_einsum(
-                    mi=mlpllm.cmv.mlpm_ci,
-                    layer_idx=request.layer_idx,
-                    expert_idx_list=request.expert_idx_list,
-                    expert_indices_map=request.expert_indices_map,
-                    expert_token_indices_map=device_expert_token_indices_map,
-                    flat_hidden_states=device_flat_hidden_states,
-                    flat_experts_weight=device_flat_experts_weight,
-                    idxs=device_idxs,
-                    final_hidden_states=device_expert_cache
-                )
-                # device_expert_cache = mlpllm.mlpm.experts_func(
-                #     mi=mlpllm.cmv.mlpm_ci,
-                #     layer_idx=request.layer_idx,
-                #     expert_idx_list=request.expert_idx_list,
-                #     expert_indices_map=request.expert_indices_map,
-                #     expert_token_indices_map=device_expert_token_indices_map,
-                #     flat_hidden_states=device_flat_hidden_states,
-                #     flat_experts_weight=device_flat_experts_weight,
-                #     idxs=device_idxs,
-                #     final_hidden_states=device_expert_cache,
-                #     device=device  # 显式传递设备参数
-                # )
-                
-                # 关键：同步所有 CUDA 操作，确保 einsum 计算完成
-                # 这对于跨进程传递 CUDA 张量非常重要
-                torch.cuda.synchronize(device=device_index)
-                
-                output_tensor = device_expert_cache
+            layer_idx = request.layer_idx
+            group_w1 = request.group_w1
+            group_w2 = request.group_w2
+            group_w3 = request.group_w3
+            stacked_inputs = request.stacked_inputs
+            expert_idx_list = request.expert_idx_list
+            expert_indices_map = request.expert_indices_map
+            flat_hidden_states = request.flat_hidden_states
+            flat_experts_weight = request.flat_experts_weight
+            idxs = request.idxs
+            final_hidden_states = request.final_hidden_states
+            if_decode = request.if_decode
 
 
-                output_queue.put(DeviceOutput(output_tensor=output_tensor))
+            _ = mlpm.experts_func_mgpu_einsum_mp(
+                layer_idx=layer_idx,
+                group_w1=group_w1,
+                group_w2=group_w2,
+                group_w3=group_w3,
+                stacked_inputs=stacked_inputs,
+                expert_idx_list=expert_idx_list,
+                expert_indices_map=expert_indices_map,
+                flat_hidden_states=flat_hidden_states,
+                flat_experts_weight=flat_experts_weight,
+                idxs=idxs,
+                final_hidden_states=final_hidden_states
+            )
+
+            # _ = mlpm.experts_func_mgpu_einsum_mp(
+            #     layer_idx=layer_idx,
+            #     group_w1=group_w1,
+            #     group_w2=group_w2,
+            #     group_w3=group_w3,
+            #     expert_idx_list=expert_idx_list,
+            #     expert_indices_map=expert_indices_map,
+            #     flat_hidden_states=flat_hidden_states,
+            #     flat_experts_weight=flat_experts_weight,
+            #     idxs=idxs,
+            #     final_hidden_states=final_hidden_states
+            # )
+
+            output_queue.put(DeviceOutput(output_flag=True))
             cuda_hook_time_end("experts_func_gpu_einsum_mp")
-        #     except Exception as e:
-        #         print(f"Init process {os.getpid()}: Failed to write result: {e}")
+
                 
-        # except Exception as e:
-        #     print(f"Init process {os.getpid()}: Error in main loop: {e}")
-                
-class DeviceMP:
+class DeviceMP2:
     """
     多进程版本的 DeviceManager
     使用 torch.multiprocessing 启动多个独立进程初始化所有 DecoderLayer
@@ -252,6 +171,10 @@ class DeviceMP:
         layer_idx: int,
         expert_idx_list: list[int],
         expert_indices_map: dict[int, tuple[int, int]],
+        group_w1: torch.Tensor,
+        group_w2: torch.Tensor,
+        group_w3: torch.Tensor,
+        stacked_inputs: torch.Tensor,
         flat_hidden_states: torch.Tensor,
         flat_experts_weight: torch.Tensor,
         idxs: torch.Tensor,
@@ -262,7 +185,11 @@ class DeviceMP:
             InitRequest(
                 layer_idx=layer_idx, 
                 expert_idx_list=expert_idx_list, 
-                expert_indices_map=expert_indices_map, 
+                expert_indices_map=expert_indices_map,
+                group_w1=group_w1,
+                group_w2=group_w2,
+                group_w3=group_w3,
+                stacked_inputs=stacked_inputs,
                 flat_hidden_states=flat_hidden_states, 
                 flat_experts_weight=flat_experts_weight, idxs=idxs, 
                 final_hidden_states=final_hidden_states, if_decode=if_decode
@@ -273,6 +200,10 @@ class DeviceMP:
         layer_idx: int,
         expert_idx_list: list[int],
         expert_indices_map: dict[int, tuple[int, int]],
+        group_w1: torch.Tensor,
+        group_w2: torch.Tensor,
+        group_w3: torch.Tensor,
+        stacked_inputs: torch.Tensor,
         flat_hidden_states: torch.Tensor,
         flat_experts_weight: torch.Tensor,
         idxs: torch.Tensor,
@@ -283,7 +214,11 @@ class DeviceMP:
             InitRequest(
                 layer_idx=layer_idx, 
                 expert_idx_list=expert_idx_list, 
-                expert_indices_map=expert_indices_map, 
+                expert_indices_map=expert_indices_map,
+                group_w1=group_w1,
+                group_w2=group_w2,
+                group_w3=group_w3,
+                stacked_inputs=stacked_inputs,
                 flat_hidden_states=flat_hidden_states, 
                 flat_experts_weight=flat_experts_weight, idxs=idxs, 
                 final_hidden_states=final_hidden_states, if_decode=if_decode
@@ -295,8 +230,8 @@ class DeviceMP:
         等待初始化完成
         """
         ot =  self.output_queue.get()
-        output_tensor = ot.output_tensor
-        return output_tensor
+        flag = ot.output_flag
+        return flag
 
     def start(self):
         """
@@ -326,7 +261,7 @@ class DeviceMP:
         
         self.processes = []
         for i in range(self.num_processes):
-            process = Process(target=_init_process_func, args=(self.input_queue[i], self.output_queue, i, i+1, self.exit_event))
+            process = Process(target=_init_process_func, args=(self.input_queue[i], self.output_queue, self.exit_event))
             process.start()
             self.processes.append(process)
 

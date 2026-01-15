@@ -491,6 +491,52 @@ class CudaMemoryView:
                 # print(f"{name}: device={param.device}, dtype={param.dtype} shape={param.shape}")
                 set_module_tensor_to_device(model, name, param.device, param, clear_cache=False)
         cuda_hook_time_end("restore2model")
+    def allocate_cuda_memory_and_load_into_gpu_multi_device(
+        self, 
+        tensor_index_names_device_map: dict[int, list[str]]
+    ):
+        cuda_hook_time("allocate_cuda_memory_and_load_into_gpu_multi_device")
+        tensor_meta_index = {}
+        tensor_data_index = {}
+        tensor_device_offsets_device_map = {}
+        tensor_copy_chunks_device_map = {}
+        tensor_device_size_device_map = {}
+        for device_index_int, tensor_index_names in tensor_index_names_device_map.items():
+            tensor_meta_index_device, tensor_data_index_device, tensor_device_offsets, tensor_copy_chunks, tensor_device_size = \
+                self.get_meta_data_offsets_and_copy_chunks(tensor_index_names, device_index_int)
+            tensor_meta_index.update(tensor_meta_index_device)
+            tensor_data_index.update(tensor_data_index_device)
+            tensor_device_offsets_device_map.update(tensor_device_offsets)
+            tensor_copy_chunks_device_map.update(tensor_copy_chunks)
+            tensor_device_size_device_map[device_index_int] = tensor_device_size
+        
+        device_memory = {
+            device_index_int: tensor_device_size
+            for device_index_int, tensor_device_size in tensor_device_size_device_map.items()
+        }
+        cuda_memory_ptrs_device_map = allocate_cuda_memory(device_memory)
+        self.cuda_memory_ptrs_allocated.append(cuda_memory_ptrs_device_map)
+
+        logger.debug(
+            f"tensor_device_offsets_device_map {tensor_device_offsets_device_map}"
+            f"tensor_copy_chunks_device_map {tensor_copy_chunks_device_map}"
+            f"cuda_memory_handles_device_map {cuda_memory_ptrs_device_map}"
+        )
+        cuda_memory_handles_device_map = get_cuda_memory_handles(cuda_memory_ptrs_device_map)
+
+        ret1, replica_uuid1 = load_into_gpu_async(
+            client=self.client,
+            device_uuid_map=self.device_uuid_map,
+            model_path=self.mlpm.model_path,
+            tensor_copy_chunks=tensor_copy_chunks_device_map,
+            cuda_memory_handles=cuda_memory_handles_device_map,
+            use_fixed_gpu_ptrs=False
+        )
+        state_dict = restore_tensors2(
+            tensor_meta_index, cuda_memory_ptrs_device_map, tensor_device_offsets_device_map
+        )
+        cuda_hook_time_end("allocate_cuda_memory_and_load_into_gpu_multi_device")
+        return ret1, replica_uuid1, state_dict
     def allocate_cuda_memory_and_load_into_gpu(self, tensor_index_names: list[str], device_index_int: int):
         cuda_hook_time("allocate_cuda_memory_and_load_into_gpu")
         tensor_meta_index, tensor_data_index, tensor_device_offsets, tensor_copy_chunks, tensor_device_size = \

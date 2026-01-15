@@ -49,7 +49,7 @@ class InitRequest:
     final_hidden_states: torch.Tensor
     if_decode: bool = False
 
-def _init_process_func(input_queue: Queue, output_queue: Queue, device_list_idx: int, layer_idx: int, exit_event):
+def _init_process_func(input_queue: Queue, output_queue: Queue, device_list_idx: int, layer_idx: int, exit_event, model):
     """
     独立初始化进程主函数
     
@@ -103,7 +103,9 @@ def _init_process_func(input_queue: Queue, output_queue: Queue, device_list_idx:
     model_path = "deepseek-moe-16b-base-bfloat16"
     model_name_type = "Deepseek"
 
-    mlpllm =MLPLLM( model_name_type=model_name_type, model_path=model_path )
+    print(f"model: {model}")
+
+    mlpllm = MLPLLM( model_name_type=model_name_type, model_path=model_path )
     mlpllm.cmv.start_init_meta_model(hmv=mlpllm.hmv)
 
     # 先初始化 CUDA（在创建 MLPLLM 之前）
@@ -296,7 +298,7 @@ class DeviceMP:
         output_tensor = ot.output_tensor
         return output_tensor
 
-    def start(self):
+    def start(self, model=None):
         """
         启动多进程设备管理器
         """
@@ -324,7 +326,7 @@ class DeviceMP:
         
         self.processes = []
         for i in range(self.num_processes):
-            process = Process(target=_init_process_func, args=(self.input_queue[i], self.output_queue, i, i+1, self.exit_event))
+            process = Process(target=_init_process_func, args=(self.input_queue[i], self.output_queue, i, i+1, self.exit_event, model))
             process.start()
             self.processes.append(process)
 
