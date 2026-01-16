@@ -41,11 +41,75 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
            py::arg("name_groups"),
            "Restore multiple groups of experts, each group creates a big_tensor"
       )
-      .def("restore_experts_groups_from_shared_memory_cached", &RestoreExpertsGroupsFromSharedMemoryCached,
+      .def("restore_experts_groups_from_shared_memory_profiled", &RestoreExpertsGroupsFromSharedMemoryProfiled,
            py::arg("shm_names"), py::arg("tensor_metadata"), py::arg("chunk_size"),
            py::arg("name_groups"),
-           "Restore multiple groups of experts with memory caching (reuses mapped memory)"
+           py::call_guard<py::gil_scoped_release>(),
+           "Restore multiple groups of experts with performance profiling (outputs to stderr)"
       )
+      .def("restore_experts_groups_from_shared_memory_silent", &RestoreExpertsGroupsFromSharedMemorySilent,
+           py::arg("shm_names"), py::arg("tensor_metadata"), py::arg("chunk_size"),
+           py::arg("name_groups"),
+           py::call_guard<py::gil_scoped_release>(),
+           "Restore multiple groups of experts silently (no output, same functionality as profiled version)"
+      )
+      // 缓存版本：接受 TensorIndexResizeMapCache 对象，避免重复转换
+      .def("restore_experts_groups_from_shared_memory_profiled_cached", &RestoreExpertsGroupsFromSharedMemoryProfiledCached,
+           py::arg("shm_names"), py::arg("tensor_metadata_cache"), py::arg("chunk_size"),
+           py::arg("name_groups"),
+           py::call_guard<py::gil_scoped_release>(),
+           "Restore multiple groups of experts with cached tensor_metadata (avoids repeated Python->C++ conversion)"
+      )
+      .def("restore_experts_groups_from_shared_memory_silent_cached", &RestoreExpertsGroupsFromSharedMemorySilentCached,
+           py::arg("shm_names"), py::arg("tensor_metadata_cache"), py::arg("chunk_size"),
+           py::arg("name_groups"),
+           py::call_guard<py::gil_scoped_release>(),
+           "Restore multiple groups of experts silently with cached tensor_metadata (no output, avoids repeated Python->C++ conversion)"
+      )
+      // TensorIndexResizeMapCache 类，用于缓存转换后的 tensor_metadata
+      .def("create_tensor_index_cache", [](const TensorIndexResizeMap& metadata) {
+        return std::make_shared<TensorIndexResizeMapCache>(metadata);
+      }, py::arg("tensor_metadata"),
+      "Create a cached TensorIndexResizeMap to avoid repeated Python->C++ conversion")
+      .def("restore_experts_groups_from_shared_memory_profiled_cached_ptr", 
+           [](const std::vector<std::string>& shm_names,
+              const std::shared_ptr<TensorIndexResizeMapCache>& tensor_metadata_cache,
+              size_t chunk_size,
+              const std::vector<std::vector<std::string>>& name_groups) {
+             return RestoreExpertsGroupsFromSharedMemorySilentCached(
+                 shm_names, *tensor_metadata_cache, chunk_size, name_groups);
+           },
+           py::arg("shm_names"), py::arg("tensor_metadata_cache"), py::arg("chunk_size"),
+           py::arg("name_groups"),
+           py::call_guard<py::gil_scoped_release>(),
+           "Restore multiple groups of experts with shared_ptr cached tensor_metadata"
+      )
+      .def("restore_experts_groups_from_shared_memory_silent_cached_ptr", 
+           [](const std::vector<std::string>& shm_names,
+              const std::shared_ptr<TensorIndexResizeMapCache>& tensor_metadata_cache,
+              size_t chunk_size,
+              const std::vector<std::vector<std::string>>& name_groups) {
+             return RestoreExpertsGroupsFromSharedMemorySilentCached(
+                 shm_names, *tensor_metadata_cache, chunk_size, name_groups);
+           },
+           py::arg("shm_names"), py::arg("tensor_metadata_cache"), py::arg("chunk_size"),
+           py::arg("name_groups"),
+           py::call_guard<py::gil_scoped_release>(),
+           "Restore multiple groups of experts silently with shared_ptr cached tensor_metadata (no output)"
+      );
+  
+  // 注册 TensorIndexResizeMapCache 类
+  py::class_<TensorIndexResizeMapCache, std::shared_ptr<TensorIndexResizeMapCache>>(m, "TensorIndexResizeMapCache")
+      .def(py::init<const TensorIndexResizeMap&>(), py::arg("tensor_metadata"),
+           "Create a cached TensorIndexResizeMap from Python dict (conversion happens only once)");
+  
+  // 继续注册模块级别的函数
+  m.def("restore_experts_groups_from_shared_memory_cached", &RestoreExpertsGroupsFromSharedMemoryCached,
+        py::arg("shm_names"), py::arg("tensor_metadata"), py::arg("chunk_size"),
+        py::arg("name_groups"),
+        py::call_guard<py::gil_scoped_release>(),
+        "Restore multiple groups of experts with memory caching (reuses mapped memory)"
+       )
       .def("release_cached_group_memory", &ReleaseCachedGroupMemory,
            "Release all cached group memory mappings (only releases if ref count is 0)"
       )

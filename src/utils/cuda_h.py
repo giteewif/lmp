@@ -2,8 +2,10 @@ import torch
 import time
 def cuda_hook(name):
     torch.cuda.nvtx.range_push(name)
+    pass
 def cuda_hook_end(name):
     torch.cuda.nvtx.range_pop()
+    pass
 
 timings = {}
 def cuda_hook_time(name):

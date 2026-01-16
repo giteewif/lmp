@@ -59,8 +59,9 @@ class MLPLLM:
         device1 = "cuda:1"
         device2 = "cuda:2"
         device3 = "cuda:3"
-        device_list = [device1, device2, device0, device3]
+        # device_list = [device1, device2, device0, device3]
         # device_list = [device1, device2]
+        device_list = [device1]
         self.device1 = device_list[0]
         self.device_list = device_list
 
@@ -1489,7 +1490,7 @@ class MLPLLM:
         #         cuda_hook_time_end("wait_load_qkvogn_s_weight")
         # cuda_hook_time_end("load_all_qkvogn_s")
         cuda_hook_time("prefill")
-        self.num_experts_on_cpu_ratio = 0.2
+        self.num_experts_on_cpu_ratio = 0.5
         
         ghidden_states = inputs_tokens
         for layer_idx in range(self.mlpm.config.num_hidden_layers):
@@ -2101,13 +2102,13 @@ class MLPLLM:
                 acpu_expert_weights.append(expert_weights)
                 acpu_token_ids.append(token_ids)
             
-            for i, expert_idx in enumerate(list(cpu_expert_ids)):
-                token_ids = expert_token_indices_map[expert_idx]
-                num_tokens = token_ids.shape[0]
-                expert_out = output_cpu2gpu[i][:num_tokens]
-                acpu_expert_outs_slices.append(expert_out)
-            concat_expert_out = torch.cat(acpu_expert_outs_slices, dim=0)
-            # concat_expert_out = output_cpu2gpu
+            # for i, expert_idx in enumerate(list(cpu_expert_ids)):
+            #     token_ids = expert_token_indices_map[expert_idx]
+            #     num_tokens = token_ids.shape[0]
+            #     expert_out = output_cpu2gpu[i][:num_tokens]
+            #     acpu_expert_outs_slices.append(expert_out)
+            # concat_expert_out = torch.cat(acpu_expert_outs_slices, dim=0)
+            concat_expert_out = output_cpu2gpu
             concat_expert_weights = torch.cat(acpu_expert_weights, dim=0)  # [total_tokens, 1]
             concat_token_ids = torch.cat(acpu_token_ids, dim=0)  # [total_tokens]
             concat_expert_out = concat_expert_out.mul_(concat_expert_weights)

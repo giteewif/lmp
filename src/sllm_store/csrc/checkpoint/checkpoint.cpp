@@ -1557,6 +1557,754 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
   return state_dict;
 }
 
+// 性能分析版本：使用 std::cerr 打印各部分耗时，用于找出性能瓶颈
+std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMemoryProfiled(
+    const std::vector<std::string>& shm_names,
+    const TensorIndexResizeMap& tensor_metadata,
+    size_t chunk_size,
+    const std::vector<std::vector<std::string>>& name_groups
+) {
+  auto total_start = std::chrono::high_resolution_clock::now();
+  std::unordered_map<std::string, torch::Tensor> state_dict;
+
+  if (shm_names.empty()) {
+    std::cerr << "[PROFILE] shm_names is empty" << std::endl;
+    return {};
+  }
+
+  if (name_groups.empty()) {
+    std::cerr << "[PROFILE] name_groups is empty" << std::endl;
+    return {};
+  }
+
+  const size_t page_size = sysconf(_SC_PAGESIZE);
+
+  // Tensor 信息结构
+  struct TensorInfo {
+    std::string name;
+    uint64_t offset;
+    uint64_t size;
+    std::vector<size_t> shape;
+    std::vector<size_t> strides;
+    std::string dtype;
+    size_t chunk_id;
+    size_t chunk_offset;
+    size_t group_id;
+    bool crosses_chunk_boundary;
+    size_t end_chunk_id;
+  };
+
+  // Group 信息结构
+  struct GroupInfo {
+    size_t group_id;
+    std::vector<TensorInfo> tensors;
+    size_t total_size;
+    void* contiguous_memory;
+    std::vector<int64_t> big_tensor_shape;
+    std::vector<int64_t> big_tensor_strides;
+    at::ScalarType dtype;
+  };
+
+  std::vector<GroupInfo> groups_info;
+
+  // 第一步：收集每个 group 的 tensor 信息
+  auto step1_start = std::chrono::high_resolution_clock::now();
+  for (size_t group_id = 0; group_id < name_groups.size(); ++group_id) {
+    const auto& name_group = name_groups[group_id];
+    
+    if (name_group.empty()) {
+      continue;
+    }
+
+    GroupInfo group_info;
+    group_info.group_id = group_id;
+    group_info.total_size = 0;
+    group_info.contiguous_memory = nullptr;
+
+    for (const std::string& name : name_group) {
+      auto it = tensor_metadata.find(name);
+      if (it == tensor_metadata.end()) {
+        continue;
+      }
+
+      auto [offset, tensor_size_bytes, shape, strides, dtype_str] = it->second;
+
+      size_t chunk_id = offset / chunk_size;
+      size_t chunk_offset = offset % chunk_size;
+      size_t end_chunk_id = (offset + tensor_size_bytes - 1) / chunk_size;
+      bool crosses_chunk_boundary = (chunk_id != end_chunk_id);
+
+      TensorInfo info;
+      info.name = name;
+      info.offset = offset;
+      info.size = tensor_size_bytes;
+      info.shape = shape;
+      info.strides = strides;
+      info.dtype = dtype_str;
+      info.chunk_id = chunk_id;
+      info.chunk_offset = chunk_offset;
+      info.group_id = group_id;
+      info.crosses_chunk_boundary = crosses_chunk_boundary;
+      info.end_chunk_id = end_chunk_id;
+
+      group_info.tensors.push_back(info);
+      group_info.total_size += tensor_size_bytes;
+    }
+
+    if (group_info.tensors.empty()) {
+      continue;
+    }
+
+    const auto& first_tensor = group_info.tensors[0];
+    bool same_shape = true;
+    for (const auto& tensor_info : group_info.tensors) {
+      if (tensor_info.shape != first_tensor.shape || tensor_info.dtype != first_tensor.dtype) {
+        same_shape = false;
+        break;
+      }
+    }
+
+    if (!same_shape) {
+      continue;
+    }
+
+    group_info.big_tensor_shape.push_back(static_cast<int64_t>(group_info.tensors.size()));
+    for (size_t s : first_tensor.shape) {
+      group_info.big_tensor_shape.push_back(static_cast<int64_t>(s));
+    }
+
+    int64_t stride = 1;
+    for (int i = static_cast<int>(group_info.big_tensor_shape.size()) - 1; i >= 0; --i) {
+      group_info.big_tensor_strides.insert(group_info.big_tensor_strides.begin(), stride);
+      stride *= group_info.big_tensor_shape[i];
+    }
+
+    group_info.dtype = stringToScalarType(first_tensor.dtype);
+    group_info.total_size = ((group_info.total_size + page_size - 1) / page_size) * page_size;
+
+    groups_info.push_back(group_info);
+  }
+
+  if (groups_info.empty()) {
+    std::cerr << "[PROFILE] No valid groups found" << std::endl;
+    return {};
+  }
+  auto step1_end = std::chrono::high_resolution_clock::now();
+  auto step1_duration = std::chrono::duration_cast<std::chrono::microseconds>(step1_end - step1_start);
+  std::cerr << "[PROFILE] Step1: Collect tensor info cost " 
+            << step1_duration.count() / 1000.0 << " ms" << std::endl;
+
+  // 第二步：为每个 group 分配连续的虚拟地址空间
+  auto step2_start = std::chrono::high_resolution_clock::now();
+  for (auto& group_info : groups_info) {
+    void* contiguous_memory = mmap(nullptr, group_info.total_size, PROT_READ | PROT_WRITE,
+                                    MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (contiguous_memory == MAP_FAILED) {
+      std::cerr << "[PROFILE] ERROR: Failed to allocate contiguous virtual address space for group "
+                << group_info.group_id << " of size " << group_info.total_size
+                << ": " << strerror(errno) << std::endl;
+      for (auto& prev_group : groups_info) {
+        if (prev_group.contiguous_memory != nullptr) {
+          munmap(prev_group.contiguous_memory, prev_group.total_size);
+        }
+      }
+      return {};
+    }
+    group_info.contiguous_memory = contiguous_memory;
+  }
+  auto step2_end = std::chrono::high_resolution_clock::now();
+  auto step2_duration = std::chrono::duration_cast<std::chrono::microseconds>(step2_end - step2_start);
+  std::cerr << "[PROFILE] Step2: Allocate contiguous memory for " << groups_info.size() 
+            << " groups cost " << step2_duration.count() / 1000.0 << " ms" << std::endl;
+
+  // 第三步：为每个 group 映射数据
+  auto step3_start = std::chrono::high_resolution_clock::now();
+  std::unordered_map<size_t, int> chunk_fds;
+  size_t total_shm_open_calls = 0;
+  size_t total_mmap_calls = 0;
+  size_t total_memcpy_bytes = 0;
+  size_t total_cross_chunk_tensors = 0;
+
+  for (auto& group_info : groups_info) {
+    size_t current_offset = 0;
+    size_t page_size = 4096;
+    void* prev_mapped_end = group_info.contiguous_memory;
+
+    auto group_map_start = std::chrono::high_resolution_clock::now();
+
+    for (size_t tensor_idx = 0; tensor_idx < group_info.tensors.size(); ++tensor_idx) {
+      const auto& tensor_info = group_info.tensors[tensor_idx];
+      
+      current_offset = ((current_offset + page_size - 1) / page_size) * page_size;
+      
+      size_t prev_mapped_end_offset = static_cast<size_t>(
+        static_cast<char*>(prev_mapped_end) - static_cast<char*>(group_info.contiguous_memory)
+      );
+      if (current_offset < prev_mapped_end_offset) {
+        current_offset = prev_mapped_end_offset;
+      }
+      
+      int shm_fd;
+      if (chunk_fds.find(tensor_info.chunk_id) == chunk_fds.end()) {
+        if (tensor_info.chunk_id >= shm_names.size()) {
+          continue;
+        }
+        const std::string& shm_name = shm_names[tensor_info.chunk_id];
+        auto shm_open_start = std::chrono::high_resolution_clock::now();
+        shm_fd = shm_open(shm_name.c_str(), O_RDWR, 0);
+        auto shm_open_end = std::chrono::high_resolution_clock::now();
+        auto shm_open_duration = std::chrono::duration_cast<std::chrono::microseconds>(shm_open_end - shm_open_start);
+        if (shm_fd == -1) {
+          continue;
+        }
+        chunk_fds[tensor_info.chunk_id] = shm_fd;
+        total_shm_open_calls++;
+        if (total_shm_open_calls <= 5) {  // 只打印前5次，避免日志过多
+          std::cerr << "[PROFILE] shm_open(" << shm_name << ") cost " 
+                    << shm_open_duration.count() / 1000.0 << " ms" << std::endl;
+        }
+      } else {
+        shm_fd = chunk_fds[tensor_info.chunk_id];
+      }
+
+      void* target_addr = static_cast<char*>(group_info.contiguous_memory) + current_offset;
+      off_t shm_offset = static_cast<off_t>(tensor_info.chunk_offset);
+      off_t aligned_shm_offset = (shm_offset / static_cast<off_t>(page_size)) * static_cast<off_t>(page_size);
+      off_t offset_adjustment = shm_offset - aligned_shm_offset;
+
+      if (tensor_info.crosses_chunk_boundary) {
+        total_cross_chunk_tensors++;
+        auto cross_chunk_start = std::chrono::high_resolution_clock::now();
+        size_t total_copied = 0;
+        size_t remaining_size = tensor_info.size;
+        size_t current_chunk_id = tensor_info.chunk_id;
+        size_t current_chunk_offset = tensor_info.chunk_offset;
+        
+        while (remaining_size > 0) {
+          size_t chunk_remaining = chunk_size - current_chunk_offset;
+          size_t copy_size = (remaining_size < chunk_remaining) ? remaining_size : chunk_remaining;
+          
+          int shm_fd_current;
+          if (chunk_fds.find(current_chunk_id) == chunk_fds.end()) {
+            if (current_chunk_id >= shm_names.size()) {
+              break;
+            }
+            const std::string& shm_name = shm_names[current_chunk_id];
+            shm_fd_current = shm_open(shm_name.c_str(), O_RDWR, 0);
+            if (shm_fd_current == -1) {
+              break;
+            }
+            chunk_fds[current_chunk_id] = shm_fd_current;
+            total_shm_open_calls++;
+          } else {
+            shm_fd_current = chunk_fds[current_chunk_id];
+          }
+          
+          off_t aligned_chunk_offset = (current_chunk_offset / static_cast<off_t>(page_size)) * static_cast<off_t>(page_size);
+          off_t chunk_offset_adjustment = current_chunk_offset - aligned_chunk_offset;
+          size_t map_size = ((copy_size + chunk_offset_adjustment + page_size - 1) / page_size) * page_size;
+          
+          auto mmap_start = std::chrono::high_resolution_clock::now();
+          void* temp_mapped_addr = mmap(nullptr, map_size, PROT_READ, MAP_SHARED, shm_fd_current, aligned_chunk_offset);
+          auto mmap_end = std::chrono::high_resolution_clock::now();
+          auto mmap_duration = std::chrono::duration_cast<std::chrono::microseconds>(mmap_end - mmap_start);
+          total_mmap_calls++;
+          
+          if (temp_mapped_addr == MAP_FAILED) {
+            break;
+          }
+          
+          void* src_addr = static_cast<char*>(temp_mapped_addr) + chunk_offset_adjustment;
+          void* dst_addr = static_cast<char*>(target_addr) + total_copied;
+          
+          auto memcpy_start = std::chrono::high_resolution_clock::now();
+          std::memcpy(dst_addr, src_addr, copy_size);
+          auto memcpy_end = std::chrono::high_resolution_clock::now();
+          auto memcpy_duration = std::chrono::duration_cast<std::chrono::microseconds>(memcpy_end - memcpy_start);
+          total_memcpy_bytes += copy_size;
+          
+          munmap(temp_mapped_addr, map_size);
+          
+          total_copied += copy_size;
+          remaining_size -= copy_size;
+          current_chunk_id++;
+          current_chunk_offset = 0;
+        }
+        
+        auto cross_chunk_end = std::chrono::high_resolution_clock::now();
+        auto cross_chunk_duration = std::chrono::duration_cast<std::chrono::microseconds>(cross_chunk_end - cross_chunk_start);
+        if (total_cross_chunk_tensors <= 3) {  // 只打印前3个跨chunk tensor的详细信息
+          std::cerr << "[PROFILE] Cross-chunk tensor " << tensor_info.name 
+                    << " (size=" << tensor_info.size / 1024 / 1024 << " MB) cost " 
+                    << cross_chunk_duration.count() / 1000.0 << " ms" << std::endl;
+        }
+        
+        prev_mapped_end = static_cast<char*>(target_addr) + tensor_info.size;
+        current_offset += tensor_info.size;
+      } else if (offset_adjustment == 0) {
+        size_t map_size = ((tensor_info.size + page_size - 1) / page_size) * page_size;
+        void* aligned_target_addr = target_addr;
+
+        auto mmap_start = std::chrono::high_resolution_clock::now();
+        void* mapped_addr = mmap(aligned_target_addr, map_size, PROT_READ | PROT_WRITE,
+                                 MAP_SHARED | MAP_FIXED, shm_fd, aligned_shm_offset);
+        auto mmap_end = std::chrono::high_resolution_clock::now();
+        auto mmap_duration = std::chrono::duration_cast<std::chrono::microseconds>(mmap_end - mmap_start);
+        total_mmap_calls++;
+
+        if (mapped_addr == MAP_FAILED || mapped_addr != aligned_target_addr) {
+          continue;
+        }
+
+        msync(mapped_addr, map_size, MS_SYNC);
+        
+        prev_mapped_end = static_cast<char*>(mapped_addr) + map_size;
+        current_offset += tensor_info.size;
+      } else {
+        size_t map_size = ((tensor_info.size + offset_adjustment + page_size - 1) / page_size) * page_size;
+        
+        auto mmap_start = std::chrono::high_resolution_clock::now();
+        void* temp_mapped_addr = mmap(nullptr, map_size, PROT_READ, MAP_SHARED, shm_fd, aligned_shm_offset);
+        auto mmap_end = std::chrono::high_resolution_clock::now();
+        auto mmap_duration = std::chrono::duration_cast<std::chrono::microseconds>(mmap_end - mmap_start);
+        total_mmap_calls++;
+        
+        if (temp_mapped_addr == MAP_FAILED) {
+          continue;
+        }
+        
+        void* src_addr = static_cast<char*>(temp_mapped_addr) + offset_adjustment;
+        
+        auto memcpy_start = std::chrono::high_resolution_clock::now();
+        std::memcpy(target_addr, src_addr, tensor_info.size);
+        auto memcpy_end = std::chrono::high_resolution_clock::now();
+        auto memcpy_duration = std::chrono::duration_cast<std::chrono::microseconds>(memcpy_end - memcpy_start);
+        total_memcpy_bytes += tensor_info.size;
+        
+        munmap(temp_mapped_addr, map_size);
+        
+        prev_mapped_end = static_cast<char*>(target_addr) + tensor_info.size;
+        current_offset += tensor_info.size;
+      }
+    }
+    
+    auto group_map_end = std::chrono::high_resolution_clock::now();
+    auto group_map_duration = std::chrono::duration_cast<std::chrono::microseconds>(group_map_end - group_map_start);
+    std::cerr << "[PROFILE] Group " << group_info.group_id << " mapping cost " 
+              << group_map_duration.count() / 1000.0 << " ms" 
+              << " (tensors=" << group_info.tensors.size() 
+              << ", size=" << group_info.total_size / 1024 / 1024 << " MB)" << std::endl;
+  }
+
+  for (auto& [chunk_id, fd] : chunk_fds) {
+    close(fd);
+  }
+  auto step3_end = std::chrono::high_resolution_clock::now();
+  auto step3_duration = std::chrono::duration_cast<std::chrono::microseconds>(step3_end - step3_start);
+  std::cerr << "[PROFILE] Step3: Map shared memory cost " 
+            << step3_duration.count() / 1000.0 << " ms" << std::endl;
+  std::cerr << "[PROFILE] Step3 details: shm_open calls=" << total_shm_open_calls 
+            << ", mmap calls=" << total_mmap_calls 
+            << ", memcpy bytes=" << total_memcpy_bytes / 1024 / 1024 << " MB"
+            << ", cross-chunk tensors=" << total_cross_chunk_tensors << std::endl;
+
+  // 第四步：为每个 group 创建 big_tensor
+  auto step4_start = std::chrono::high_resolution_clock::now();
+  static std::unordered_map<void*, std::shared_ptr<std::atomic<int>>> memory_ref_counts;
+  static std::mutex ref_count_mutex;
+
+  for (auto& group_info : groups_info) {
+    torch::Tensor big_tensor = torch::from_blob(
+        group_info.contiguous_memory,
+        c10::makeArrayRef(group_info.big_tensor_shape),
+        c10::makeArrayRef(group_info.big_tensor_strides),
+        [](void* ptr) {},
+        torch::TensorOptions().device(torch::kCPU).dtype(group_info.dtype));
+
+    // std::string big_tensor_key = "group_" + std::to_string(group_info.group_id) + "_big_tensor";
+    std::string big_tensor_key = "group_w" + std::to_string(group_info.group_id+1); // w1, w2, w3
+
+    std::lock_guard<std::mutex> lock(ref_count_mutex);
+    auto ref_count = std::make_shared<std::atomic<int>>(1);
+    memory_ref_counts[group_info.contiguous_memory] = ref_count;
+
+    torch::Tensor final_big_tensor = torch::from_blob(
+        big_tensor.data_ptr(),
+        big_tensor.sizes(),
+        big_tensor.strides(),
+        [ref_count, contiguous_memory = group_info.contiguous_memory, total_size = group_info.total_size](void* ptr) {
+          int remaining = ref_count->fetch_sub(1) - 1;
+          if (remaining == 0) {
+            munmap(contiguous_memory, total_size);
+            std::lock_guard<std::mutex> lock(ref_count_mutex);
+            memory_ref_counts.erase(contiguous_memory);
+          }
+        },
+        big_tensor.options());
+
+    state_dict[big_tensor_key] = final_big_tensor;
+  }
+  auto step4_end = std::chrono::high_resolution_clock::now();
+  auto step4_duration = std::chrono::duration_cast<std::chrono::microseconds>(step4_end - step4_start);
+  std::cerr << "[PROFILE] Step4: Create tensors cost " 
+            << step4_duration.count() / 1000.0 << " ms" << std::endl;
+
+  auto total_end = std::chrono::high_resolution_clock::now();
+  auto total_duration = std::chrono::duration_cast<std::chrono::microseconds>(total_end - total_start);
+  std::cerr << "[PROFILE] ========================================" << std::endl;
+  std::cerr << "[PROFILE] Total cost " << total_duration.count() / 1000.0 << " ms" << std::endl;
+  std::cerr << "[PROFILE] Breakdown:" << std::endl;
+  if (total_duration.count() > 0) {
+    std::cerr << "[PROFILE]   Step1 (Collect info): " << step1_duration.count() / 1000.0 << " ms (" 
+              << (step1_duration.count() * 100.0 / total_duration.count()) << "%)" << std::endl;
+    std::cerr << "[PROFILE]   Step2 (Allocate memory): " << step2_duration.count() / 1000.0 << " ms (" 
+              << (step2_duration.count() * 100.0 / total_duration.count()) << "%)" << std::endl;
+    std::cerr << "[PROFILE]   Step3 (Map memory): " << step3_duration.count() / 1000.0 << " ms (" 
+              << (step3_duration.count() * 100.0 / total_duration.count()) << "%)" << std::endl;
+    std::cerr << "[PROFILE]   Step4 (Create tensors): " << step4_duration.count() / 1000.0 << " ms (" 
+              << (step4_duration.count() * 100.0 / total_duration.count()) << "%)" << std::endl;
+  } else {
+    std::cerr << "[PROFILE]   Step1 (Collect info): " << step1_duration.count() / 1000.0 << " ms" << std::endl;
+    std::cerr << "[PROFILE]   Step2 (Allocate memory): " << step2_duration.count() / 1000.0 << " ms" << std::endl;
+    std::cerr << "[PROFILE]   Step3 (Map memory): " << step3_duration.count() / 1000.0 << " ms" << std::endl;
+    std::cerr << "[PROFILE]   Step4 (Create tensors): " << step4_duration.count() / 1000.0 << " ms" << std::endl;
+  }
+  std::cerr << "[PROFILE] ========================================" << std::endl;
+
+  return state_dict;
+}
+
+// 静默版本：功能与 RestoreExpertsGroupsFromSharedMemoryProfiled 相同，但不输出任何日志
+std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMemorySilent(
+    const std::vector<std::string>& shm_names,
+    const TensorIndexResizeMap& tensor_metadata,
+    size_t chunk_size,
+    const std::vector<std::vector<std::string>>& name_groups
+) {
+  std::unordered_map<std::string, torch::Tensor> state_dict;
+
+  if (shm_names.empty() || name_groups.empty()) {
+    return {};
+  }
+
+  const size_t page_size = sysconf(_SC_PAGESIZE);
+
+  // Tensor 信息结构
+  struct TensorInfo {
+    std::string name;
+    uint64_t offset;
+    uint64_t size;
+    std::vector<size_t> shape;
+    std::vector<size_t> strides;
+    std::string dtype;
+    size_t chunk_id;
+    size_t chunk_offset;
+    size_t group_id;
+    bool crosses_chunk_boundary;
+    size_t end_chunk_id;
+  };
+
+  // Group 信息结构
+  struct GroupInfo {
+    size_t group_id;
+    std::vector<TensorInfo> tensors;
+    size_t total_size;
+    void* contiguous_memory;
+    std::vector<int64_t> big_tensor_shape;
+    std::vector<int64_t> big_tensor_strides;
+    at::ScalarType dtype;
+  };
+
+  std::vector<GroupInfo> groups_info;
+
+  // 第一步：收集每个 group 的 tensor 信息
+  for (size_t group_id = 0; group_id < name_groups.size(); ++group_id) {
+    const auto& name_group = name_groups[group_id];
+    
+    if (name_group.empty()) {
+      continue;
+    }
+
+    GroupInfo group_info;
+    group_info.group_id = group_id;
+    group_info.total_size = 0;
+    group_info.contiguous_memory = nullptr;
+
+    for (const std::string& name : name_group) {
+      auto it = tensor_metadata.find(name);
+      if (it == tensor_metadata.end()) {
+        continue;
+      }
+
+      auto [offset, tensor_size_bytes, shape, strides, dtype_str] = it->second;
+
+      size_t chunk_id = offset / chunk_size;
+      size_t chunk_offset = offset % chunk_size;
+      size_t end_chunk_id = (offset + tensor_size_bytes - 1) / chunk_size;
+      bool crosses_chunk_boundary = (chunk_id != end_chunk_id);
+
+      TensorInfo info;
+      info.name = name;
+      info.offset = offset;
+      info.size = tensor_size_bytes;
+      info.shape = shape;
+      info.strides = strides;
+      info.dtype = dtype_str;
+      info.chunk_id = chunk_id;
+      info.chunk_offset = chunk_offset;
+      info.group_id = group_id;
+      info.crosses_chunk_boundary = crosses_chunk_boundary;
+      info.end_chunk_id = end_chunk_id;
+
+      group_info.tensors.push_back(info);
+      group_info.total_size += tensor_size_bytes;
+    }
+
+    if (group_info.tensors.empty()) {
+      continue;
+    }
+
+    const auto& first_tensor = group_info.tensors[0];
+    bool same_shape = true;
+    for (const auto& tensor_info : group_info.tensors) {
+      if (tensor_info.shape != first_tensor.shape || tensor_info.dtype != first_tensor.dtype) {
+        same_shape = false;
+        break;
+      }
+    }
+
+    if (!same_shape) {
+      continue;
+    }
+
+    group_info.big_tensor_shape.push_back(static_cast<int64_t>(group_info.tensors.size()));
+    for (size_t s : first_tensor.shape) {
+      group_info.big_tensor_shape.push_back(static_cast<int64_t>(s));
+    }
+
+    int64_t stride = 1;
+    for (int i = static_cast<int>(group_info.big_tensor_shape.size()) - 1; i >= 0; --i) {
+      group_info.big_tensor_strides.insert(group_info.big_tensor_strides.begin(), stride);
+      stride *= group_info.big_tensor_shape[i];
+    }
+
+    group_info.dtype = stringToScalarType(first_tensor.dtype);
+    group_info.total_size = ((group_info.total_size + page_size - 1) / page_size) * page_size;
+
+    groups_info.push_back(group_info);
+  }
+
+  if (groups_info.empty()) {
+    return {};
+  }
+
+  // 第二步：为每个 group 分配连续的虚拟地址空间
+  for (auto& group_info : groups_info) {
+    void* contiguous_memory = mmap(nullptr, group_info.total_size, PROT_READ | PROT_WRITE,
+                                    MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (contiguous_memory == MAP_FAILED) {
+      for (auto& prev_group : groups_info) {
+        if (prev_group.contiguous_memory != nullptr) {
+          munmap(prev_group.contiguous_memory, prev_group.total_size);
+        }
+      }
+      return {};
+    }
+    group_info.contiguous_memory = contiguous_memory;
+  }
+
+  // 第三步：为每个 group 映射数据
+  std::unordered_map<size_t, int> chunk_fds;
+
+  for (auto& group_info : groups_info) {
+    size_t current_offset = 0;
+    size_t page_size = 4096;
+    void* prev_mapped_end = group_info.contiguous_memory;
+
+    for (size_t tensor_idx = 0; tensor_idx < group_info.tensors.size(); ++tensor_idx) {
+      const auto& tensor_info = group_info.tensors[tensor_idx];
+      
+      current_offset = ((current_offset + page_size - 1) / page_size) * page_size;
+      
+      size_t prev_mapped_end_offset = static_cast<size_t>(
+        static_cast<char*>(prev_mapped_end) - static_cast<char*>(group_info.contiguous_memory)
+      );
+      if (current_offset < prev_mapped_end_offset) {
+        current_offset = prev_mapped_end_offset;
+      }
+      
+      int shm_fd;
+      if (chunk_fds.find(tensor_info.chunk_id) == chunk_fds.end()) {
+        if (tensor_info.chunk_id >= shm_names.size()) {
+          continue;
+        }
+        const std::string& shm_name = shm_names[tensor_info.chunk_id];
+        shm_fd = shm_open(shm_name.c_str(), O_RDWR, 0);
+        if (shm_fd == -1) {
+          continue;
+        }
+        chunk_fds[tensor_info.chunk_id] = shm_fd;
+      } else {
+        shm_fd = chunk_fds[tensor_info.chunk_id];
+      }
+
+      void* target_addr = static_cast<char*>(group_info.contiguous_memory) + current_offset;
+      off_t shm_offset = static_cast<off_t>(tensor_info.chunk_offset);
+      off_t aligned_shm_offset = (shm_offset / static_cast<off_t>(page_size)) * static_cast<off_t>(page_size);
+      off_t offset_adjustment = shm_offset - aligned_shm_offset;
+
+      if (tensor_info.crosses_chunk_boundary) {
+        size_t total_copied = 0;
+        size_t remaining_size = tensor_info.size;
+        size_t current_chunk_id = tensor_info.chunk_id;
+        size_t current_chunk_offset = tensor_info.chunk_offset;
+        
+        while (remaining_size > 0) {
+          size_t chunk_remaining = chunk_size - current_chunk_offset;
+          size_t copy_size = (remaining_size < chunk_remaining) ? remaining_size : chunk_remaining;
+          
+          int shm_fd_current;
+          if (chunk_fds.find(current_chunk_id) == chunk_fds.end()) {
+            if (current_chunk_id >= shm_names.size()) {
+              break;
+            }
+            const std::string& shm_name = shm_names[current_chunk_id];
+            shm_fd_current = shm_open(shm_name.c_str(), O_RDWR, 0);
+            if (shm_fd_current == -1) {
+              break;
+            }
+            chunk_fds[current_chunk_id] = shm_fd_current;
+          } else {
+            shm_fd_current = chunk_fds[current_chunk_id];
+          }
+          
+          off_t aligned_chunk_offset = (current_chunk_offset / static_cast<off_t>(page_size)) * static_cast<off_t>(page_size);
+          off_t chunk_offset_adjustment = current_chunk_offset - aligned_chunk_offset;
+          size_t map_size = ((copy_size + chunk_offset_adjustment + page_size - 1) / page_size) * page_size;
+          
+          void* temp_mapped_addr = mmap(nullptr, map_size, PROT_READ, MAP_SHARED, shm_fd_current, aligned_chunk_offset);
+          
+          if (temp_mapped_addr == MAP_FAILED) {
+            break;
+          }
+          
+          void* src_addr = static_cast<char*>(temp_mapped_addr) + chunk_offset_adjustment;
+          void* dst_addr = static_cast<char*>(target_addr) + total_copied;
+          
+          std::memcpy(dst_addr, src_addr, copy_size);
+          
+          munmap(temp_mapped_addr, map_size);
+          
+          total_copied += copy_size;
+          remaining_size -= copy_size;
+          current_chunk_id++;
+          current_chunk_offset = 0;
+        }
+        
+        prev_mapped_end = static_cast<char*>(target_addr) + tensor_info.size;
+        current_offset += tensor_info.size;
+      } else if (offset_adjustment == 0) {
+        size_t map_size = ((tensor_info.size + page_size - 1) / page_size) * page_size;
+        void* aligned_target_addr = target_addr;
+
+        void* mapped_addr = mmap(aligned_target_addr, map_size, PROT_READ | PROT_WRITE,
+                                 MAP_SHARED | MAP_FIXED, shm_fd, aligned_shm_offset);
+
+        if (mapped_addr == MAP_FAILED || mapped_addr != aligned_target_addr) {
+          continue;
+        }
+
+        msync(mapped_addr, map_size, MS_SYNC);
+        
+        prev_mapped_end = static_cast<char*>(mapped_addr) + map_size;
+        current_offset += tensor_info.size;
+      } else {
+        size_t map_size = ((tensor_info.size + offset_adjustment + page_size - 1) / page_size) * page_size;
+        
+        void* temp_mapped_addr = mmap(nullptr, map_size, PROT_READ, MAP_SHARED, shm_fd, aligned_shm_offset);
+        
+        if (temp_mapped_addr == MAP_FAILED) {
+          continue;
+        }
+        
+        void* src_addr = static_cast<char*>(temp_mapped_addr) + offset_adjustment;
+        
+        std::memcpy(target_addr, src_addr, tensor_info.size);
+        
+        munmap(temp_mapped_addr, map_size);
+        
+        prev_mapped_end = static_cast<char*>(target_addr) + tensor_info.size;
+        current_offset += tensor_info.size;
+      }
+    }
+  }
+
+  for (auto& [chunk_id, fd] : chunk_fds) {
+    close(fd);
+  }
+
+  // 第四步：为每个 group 创建 big_tensor
+  static std::unordered_map<void*, std::shared_ptr<std::atomic<int>>> memory_ref_counts;
+  static std::mutex ref_count_mutex;
+
+  for (auto& group_info : groups_info) {
+    torch::Tensor big_tensor = torch::from_blob(
+        group_info.contiguous_memory,
+        c10::makeArrayRef(group_info.big_tensor_shape),
+        c10::makeArrayRef(group_info.big_tensor_strides),
+        [](void* ptr) {},
+        torch::TensorOptions().device(torch::kCPU).dtype(group_info.dtype));
+
+    std::string big_tensor_key = "group_w" + std::to_string(group_info.group_id+1); // w1, w2, w3
+
+    std::lock_guard<std::mutex> lock(ref_count_mutex);
+    auto ref_count = std::make_shared<std::atomic<int>>(1);
+    memory_ref_counts[group_info.contiguous_memory] = ref_count;
+
+    torch::Tensor final_big_tensor = torch::from_blob(
+        big_tensor.data_ptr(),
+        big_tensor.sizes(),
+        big_tensor.strides(),
+        [ref_count, contiguous_memory = group_info.contiguous_memory, total_size = group_info.total_size](void* ptr) {
+          int remaining = ref_count->fetch_sub(1) - 1;
+          if (remaining == 0) {
+            munmap(contiguous_memory, total_size);
+            std::lock_guard<std::mutex> lock(ref_count_mutex);
+            memory_ref_counts.erase(contiguous_memory);
+          }
+        },
+        big_tensor.options());
+
+    state_dict[big_tensor_key] = final_big_tensor;
+  }
+
+  return state_dict;
+}
+
+// 使用缓存的版本，避免每次调用都转换 tensor_metadata
+std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMemoryProfiledCached(
+    const std::vector<std::string>& shm_names,
+    const TensorIndexResizeMapCache& tensor_metadata_cache,
+    size_t chunk_size,
+    const std::vector<std::vector<std::string>>& name_groups
+) {
+  // 直接使用缓存的 metadata，避免重复转换
+  return RestoreExpertsGroupsFromSharedMemoryProfiled(
+      shm_names, tensor_metadata_cache.get(), chunk_size, name_groups);
+}
+
+// 静默版本的缓存版本，避免每次调用都转换 tensor_metadata
+std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMemorySilentCached(
+    const std::vector<std::string>& shm_names,
+    const TensorIndexResizeMapCache& tensor_metadata_cache,
+    size_t chunk_size,
+    const std::vector<std::vector<std::string>>& name_groups
+) {
+  // 直接使用缓存的 metadata，避免重复转换
+  return RestoreExpertsGroupsFromSharedMemorySilent(
+      shm_names, tensor_metadata_cache.get(), chunk_size, name_groups);
+}
+
 // 全局缓存：存储已分配的虚拟地址空间（不存储数据，只存储地址空间）
 // key 为 group 的唯一标识（基于 tensor 名称）
 struct CachedGroupMemory {

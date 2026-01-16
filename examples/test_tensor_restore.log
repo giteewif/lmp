@@ -1,0 +1,19 @@
+/mnt/zhengcf3/env/lmp/lib/python3.10/site-packages/torch/cuda/__init__.py:61: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+  import pynvml  # type: ignore[import]
+here pin
+INFO 01-16 10:54:27.066115.066115 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+DEBUG 01-16 10:54:27.617543.617543 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+DEBUG 01-16 10:54:28.069082.069082 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 01-16 10:54:28.069221.069221 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 1.003s
+DEBUG 01-16 10:54:30.558832.558832 cuda_memory_view.py:613] 
+DEBUG 01-16 10:54:30.558832.558832 cuda_memory_view.py:613] restore_tensors_from_shared_memory_names time: 0.013427019119262695
+DEBUG 01-16 10:54:30.570739.570739 cuda_h.py:10] start group_tensors
+DEBUG 01-16 10:54:30.578338.578338 cuda_h.py:19] end group_tensors cost 0.008111000061035156 seconds
+DEBUG 01-16 10:54:30.579956.579956 cuda_h.py:10] start group_tensors
+DEBUG 01-16 10:54:30.587754.587754 cuda_h.py:19] end group_tensors cost 0.007558584213256836 seconds
+DEBUG 01-16 10:54:30.587736.587736 cuda_h.py:10] start group_tensors
+DEBUG 01-16 10:54:30.595057.595057 cuda_h.py:19] end group_tensors cost 0.0073511600494384766 seconds
+DEBUG 01-16 10:54:30.595000.595000 cuda_h.py:10] start group_tensors
+DEBUG 01-16 10:54:30.603089.603089 cuda_h.py:19] end group_tensors cost 0.007356166839599609 seconds
+DEBUG 01-16 10:54:30.603554.603554 cuda_h.py:10] start group_tensors
+DEBUG 01-16 10:54:30.611537.611537 cuda_h.py:19] end group_tensors cost 0.007348299026489258 seconds

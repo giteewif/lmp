@@ -1521,24 +1521,24 @@ class MLPModuleWrapper:
         cuda_hook_time_end("group_bmm")
         
 
-        # cuda_hook_time("get_outputs_cpu1")
-        # ce_out_list = []
-        # for i, expert_idx in enumerate(expert_idx_list):
-        #     token_ids = expert_token_indices_map[expert_idx]
-        #     num_tokens = token_ids.shape[0]
-        #     expert_out = outputs_result[i][:num_tokens]
-        #     ce_out_list.append(expert_out)
-        # concat_ce_out = torch.cat(ce_out_list, dim=0)
-        # outputs_result_cpu_pin = gpinpool.alloc_same_pin_tensor(concat_ce_out)
-        # outputs_result_cpu_pin.copy_(concat_ce_out, non_blocking=False)
-        # output_gpu = outputs_result_cpu_pin.to(flat_hidden_states.device, non_blocking=False)
-        # cuda_hook_time_end("get_outputs_cpu1")
-
-        cuda_hook_time("get_outputs_cpu2")
-        outputs_result_cpu_pin = gpinpool.alloc_same_pin_tensor(outputs_result)
-        outputs_result_cpu_pin.copy_(outputs_result, non_blocking=False)
+        cuda_hook_time("get_outputs_cpu1")
+        ce_out_list = []
+        for i, expert_idx in enumerate(expert_idx_list):
+            token_ids = expert_token_indices_map[expert_idx]
+            num_tokens = token_ids.shape[0]
+            expert_out = outputs_result[i][:num_tokens]
+            ce_out_list.append(expert_out)
+        concat_ce_out = torch.cat(ce_out_list, dim=0)
+        outputs_result_cpu_pin = gpinpool.alloc_same_pin_tensor(concat_ce_out)
+        outputs_result_cpu_pin.copy_(concat_ce_out, non_blocking=False)
         output_gpu = outputs_result_cpu_pin.to(flat_hidden_states.device, non_blocking=False)
-        cuda_hook_time_end("get_outputs_cpu2")
+        cuda_hook_time_end("get_outputs_cpu1")
+
+        # cuda_hook_time("get_outputs_cpu2")
+        # outputs_result_cpu_pin = gpinpool.alloc_same_pin_tensor(outputs_result)
+        # outputs_result_cpu_pin.copy_(outputs_result, non_blocking=False)
+        # output_gpu = outputs_result_cpu_pin.to(flat_hidden_states.device, non_blocking=False)
+        # cuda_hook_time_end("get_outputs_cpu2")
 
         result = ExpertEinsumResult(final_hidden_states=output_gpu, time_einsum_end=time.time())
         output_queue.put(result)
@@ -1549,6 +1549,9 @@ class MLPModuleWrapper:
         group_list.append(group_w1)
         group_list.append(group_w2)
         group_list.append(group_w3)
+        group_list.append(group_w1_transposed)
+        group_list.append(group_w2_transposed)
+        group_list.append(group_w3_transposed)
         return output_gpu, group_list
     @torch.no_grad()
     def einsum_with_group_tensors(

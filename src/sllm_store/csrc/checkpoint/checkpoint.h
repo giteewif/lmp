@@ -87,6 +87,17 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsFromSharedMemory(
     size_t chunk_size,
     const std::vector<std::string>& name_continuous_space);
 
+// 优化版本：预先打开所有 chunk 文件描述符，按 chunk 分组批量处理
+// 主要优化：
+// 1. 预先打开所有需要的 chunk 文件描述符，减少系统调用
+// 2. 按 chunk 分组 tensor，批量处理，减少重复映射检查
+// 3. 对同一 chunk 的 tensor 按偏移排序，提高缓存局部性
+std::unordered_map<std::string, torch::Tensor> RestoreExpertsFromSharedMemoryOptimized(
+    const std::vector<std::string>& shm_names,
+    const TensorIndexResizeMap& tensor_metadata,
+    size_t chunk_size,
+    const std::vector<std::string>& name_continuous_space);
+
 // 支持多个 vector，为每个 vector 创建一个 big_tensor
 // shm_names: 共享内存名称列表
 // tensor_metadata: tensor 的元数据
@@ -94,6 +105,26 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsFromSharedMemory(
 // name_groups: 多个 tensor name vectors，每个 vector 中的 tensor 会被拼成一个大 tensor
 // 返回: map 中包含每个 group 的 big_tensor（key: "group_0_big_tensor", "group_1_big_tensor", ...）
 std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMemory(
+    const std::vector<std::string>& shm_names,
+    const TensorIndexResizeMap& tensor_metadata,
+    size_t chunk_size,
+    const std::vector<std::vector<std::string>>& name_groups);
+
+// 性能分析版本：使用 std::cerr 打印各部分耗时，用于找出性能瓶颈
+// 参数与 RestoreExpertsGroupsFromSharedMemory 相同
+// 输出详细的性能分析信息到 stderr，包括：
+// - 各步骤耗时及占比
+// - shm_open、mmap、memcpy 调用次数和总数据量
+// - 跨 chunk tensor 的处理时间
+std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMemoryProfiled(
+    const std::vector<std::string>& shm_names,
+    const TensorIndexResizeMap& tensor_metadata,
+    size_t chunk_size,
+    const std::vector<std::vector<std::string>>& name_groups);
+
+// 静默版本：功能与 RestoreExpertsGroupsFromSharedMemoryProfiled 相同，但不输出任何日志
+// 用于生产环境，避免性能分析输出影响性能
+std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMemorySilent(
     const std::vector<std::string>& shm_names,
     const TensorIndexResizeMap& tensor_metadata,
     size_t chunk_size,
@@ -111,3 +142,30 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
 // 主动释放所有缓存的 group 内存映射
 // 注意：只有当所有引用计数为 0 时才会真正释放内存
 void ReleaseCachedGroupMemory();
+
+// TensorIndexResizeMap 缓存包装类，用于避免重复转换 Python dict
+// 在 Python 端只转换一次，然后重复使用
+class TensorIndexResizeMapCache {
+public:
+  TensorIndexResizeMapCache(const TensorIndexResizeMap& metadata) 
+    : metadata_(metadata) {}
+  
+  const TensorIndexResizeMap& get() const { return metadata_; }
+  
+private:
+  TensorIndexResizeMap metadata_;
+};
+
+// 使用缓存的版本，避免每次调用都转换 tensor_metadata
+std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMemoryProfiledCached(
+    const std::vector<std::string>& shm_names,
+    const TensorIndexResizeMapCache& tensor_metadata_cache,
+    size_t chunk_size,
+    const std::vector<std::vector<std::string>>& name_groups);
+
+// 静默版本的缓存版本，避免每次调用都转换 tensor_metadata
+std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMemorySilentCached(
+    const std::vector<std::string>& shm_names,
+    const TensorIndexResizeMapCache& tensor_metadata_cache,
+    size_t chunk_size,
+    const std::vector<std::vector<std::string>>& name_groups);

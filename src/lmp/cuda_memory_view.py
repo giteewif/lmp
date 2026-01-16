@@ -15,6 +15,10 @@ from sllm_store._C import (
     restore_tensors_from_shared_memory_names,
     restore_experts_tensor_from_shared_memory,
     restore_experts_groups_from_shared_memory,
+    restore_experts_groups_from_shared_memory_profiled,
+    restore_experts_groups_from_shared_memory_profiled_cached_ptr,  # 使用缓存的 tensor_metadata
+    create_tensor_index_cache,  # 创建 tensor_metadata 缓存
+    TensorIndexResizeMapCache,  # 缓存类
     restore_experts_groups_from_shared_memory_cached,  # 缓存版本，复用虚拟地址空间
     release_cached_group_memory,  # 释放缓存的虚拟地址空间
     restore_tensors2,
@@ -58,7 +62,7 @@ class CudaMemoryView:
 
         self.tensor_index_resize_json = tensor_index_resize_json
         self.mchunk_size = chunk_size
-        
+                
         self.device_list = device_list
         self.device1_str = device_list[0]
         self.device1 = int(self.device1_str.split(":")[1])
@@ -616,38 +620,53 @@ class HostMemoryView:
         self.tensor_index_resize_json = tensor_index_resize_json
         self.mchunk_size = chunk_size
 
+        # 创建 tensor_metadata 缓存，避免每次调用都转换 Python dict -> C++ map
+        # 这个转换对于大型字典（5466 个条目，1.3MB）可能很耗时（约 2-3ms）
+        # 通过缓存，只在初始化时转换一次，后续调用直接使用缓存的 C++ 对象
+        self.tensor_index_cache = create_tensor_index_cache(tensor_index_resize_json)
+
         # self.mlpm_hi = self.mlpm.create_empty_model()
         # self.mlpm.restore_hm_state_dict2model(self.hm_state_dict, self.mlpm_hi)
         self.mlpm_hi = None
 
     
     def group_experts_tensor(self, layer_idx: int, expert_idx_list: list[int]):
+        cuda_hook_time("get_experts_names_w")
         ewnc1 = self.mlpm.get_experts_names_w(layer_idx, expert_idx_list, type_idx=WeightType.W1)
         ewnc2 = self.mlpm.get_experts_names_w(layer_idx, expert_idx_list, type_idx=WeightType.W2)
         ewnc3 = self.mlpm.get_experts_names_w(layer_idx, expert_idx_list, type_idx=WeightType.W3)
-        
+        cuda_hook_time_end("get_experts_names_w")
         # 使用缓存版本，复用虚拟地址空间，避免频繁 mmap/munmap
         # tensor_state_dict = restore_experts_groups_from_shared_memory_cached(
         #     self.mshm_names, self.tensor_index_resize_json,
         #     self.mchunk_size, [ewnc1, ewnc2, ewnc3])
         
         # 一次性调用，不复用
-        tensor_state_dict = restore_experts_groups_from_shared_memory(
-            self.mshm_names, self.tensor_index_resize_json,
+        # tensor_state_dict = restore_experts_groups_from_shared_memory(
+        #     self.mshm_names, self.tensor_index_resize_json,
+        #     self.mchunk_size, [ewnc1, ewnc2, ewnc3])
+        cuda_hook_time("restore_tensors")
+        # 使用缓存的 tensor_metadata，避免每次调用都转换 Python dict -> C++ map
+        # 这可以显著减少 Python/C++ 绑定开销（特别是对于大型 tensor_index_resize_json）
+        tensor_state_dict = restore_experts_groups_from_shared_memory_profiled_cached_ptr(
+            self.mshm_names, self.tensor_index_cache,
             self.mchunk_size, [ewnc1, ewnc2, ewnc3])
+        cuda_hook_time_end("restore_tensors")
 
-        # 将 key 从 group_0_big_tensor, group_1_big_tensor, group_2_big_tensor 
-        # 重命名为 group_w1, group_w2, group_w3
-        renamed_dict = {}
-        key_mapping = {
-            'group_0_big_tensor': 'group_w1',
-            'group_1_big_tensor': 'group_w2',
-            'group_2_big_tensor': 'group_w3'
-        }
-        # print(f"{tensor_state_dict}")
-        for key, value in tensor_state_dict.items():
-            new_key = key_mapping.get(key, key)
-            renamed_dict[new_key] = value
+        # cuda_hook_time("rename_dict")
+        # # 将 key 从 group_0_big_tensor, group_1_big_tensor, group_2_big_tensor 
+        # # 重命名为 group_w1, group_w2, group_w3
+        # renamed_dict = {}
+        # key_mapping = {
+        #     'group_0_big_tensor': 'group_w1',
+        #     'group_1_big_tensor': 'group_w2',
+        #     'group_2_big_tensor': 'group_w3'
+        # }
+        # # print(f"{tensor_state_dict}")
+        # for key, value in tensor_state_dict.items():
+        #     new_key = key_mapping.get(key, key)
+        #     renamed_dict[new_key] = value
+        # cuda_hook_time("rename_dict_end")
 
         # 单次调用
         # group_w1 = restore_experts_tensor_from_shared_memory(
@@ -670,9 +689,9 @@ class HostMemoryView:
         # }
         
         
+        print(tensor_state_dict.keys())
 
-
-        return renamed_dict
+        return tensor_state_dict
     
     def test_restore_group_experts_tensor_from_shared_memory(self):
         expert_idx_list = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
