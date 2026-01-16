@@ -2101,7 +2101,13 @@ class MLPLLM:
                 acpu_expert_weights.append(expert_weights)
                 acpu_token_ids.append(token_ids)
             
-            concat_expert_out = output_cpu2gpu
+            for i, expert_idx in enumerate(list(cpu_expert_ids)):
+                token_ids = expert_token_indices_map[expert_idx]
+                num_tokens = token_ids.shape[0]
+                expert_out = output_cpu2gpu[i][:num_tokens]
+                acpu_expert_outs_slices.append(expert_out)
+            concat_expert_out = torch.cat(acpu_expert_outs_slices, dim=0)
+            # concat_expert_out = output_cpu2gpu
             concat_expert_weights = torch.cat(acpu_expert_weights, dim=0)  # [total_tokens, 1]
             concat_token_ids = torch.cat(acpu_token_ids, dim=0)  # [total_tokens]
             concat_expert_out = concat_expert_out.mul_(concat_expert_weights)
