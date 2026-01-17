@@ -37,7 +37,7 @@ class PinnedMemoryPool:
             try:
                 chunk = torch.empty(current_chunk_elements, dtype=dtype, pin_memory=True, device="cpu")
                 self.pool_memory.append(chunk)
-                logger.debug(f"Allocated chunk {len(self.pool_memory)}: {current_chunk_elements} elements ({current_chunk_elements * self.element_size / (1024*1024):.1f} MB)")
+                logger.info(f"Allocated chunk {len(self.pool_memory)}: {current_chunk_elements} elements ({current_chunk_elements * self.element_size / (1024*1024):.1f} MB)")
 
                 remaining_elements -= current_chunk_elements
                 current_offset += current_chunk_elements

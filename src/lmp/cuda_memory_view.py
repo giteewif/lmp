@@ -170,7 +170,7 @@ class CudaMemoryView:
         
         # Step 1: 先获取所有层的 expert 分布情况
         layer_cpu_experts_map = {}  # {layer_idx: [expert_id, ...]}
-        logger.info("Collecting expert device distribution for all layers (multi-device)...")
+        logger.debug("Collecting expert device distribution for all layers (multi-device)...")
         
         rend_layer_idx = self.mlpm.config.first_k_dense_replace - 1
         
@@ -193,7 +193,7 @@ class CudaMemoryView:
                     cpu_expert_list.append(expert_id)
             
             layer_cpu_experts_map[layer_idx] = cpu_expert_list
-            logger.info(f"Layer {layer_idx}: CPU experts = {cpu_expert_list} (total: {len(cpu_expert_list)}, device_map: {expert_device_map})")
+            logger.debug(f"Layer {layer_idx}: CPU experts = {cpu_expert_list} (total: {len(cpu_expert_list)}, device_map: {expert_device_map})")
         
         # Step 1.5: 检查多GPU显存并计算所需显存，如果不足则报错，放得下则均匀分配
         num_device = len(self.device_list)
@@ -215,7 +215,7 @@ class CudaMemoryView:
             layer_memory_map[layer_idx] = layer_total
             total_required_memory += layer_total
         
-        logger.info(f"Total required memory for all CPU experts: {total_required_memory / (1024**3):.2f} GB")
+        logger.debug(f"Total required memory for all CPU experts: {total_required_memory / (1024**3):.2f} GB")
         
         # 检查所有设备的可用显存总和
         import pynvml
@@ -234,15 +234,15 @@ class CudaMemoryView:
                 device_free_memory[device_idx] = free_memory
                 total_available_memory += free_memory
                 
-                logger.info(f"GPU {device} (device {device_idx_int}) memory status:")
-                logger.info(f"  Total: {memory_info.total / (1024**3):.2f} GB")
-                logger.info(f"  Used: {memory_info.used / (1024**3):.2f} GB")
-                logger.info(f"  Free: {free_memory / (1024**3):.2f} GB")
+                logger.debug(f"GPU {device} (device {device_idx_int}) memory status:")
+                logger.debug(f"  Total: {memory_info.total / (1024**3):.2f} GB")
+                logger.debug(f"  Used: {memory_info.used / (1024**3):.2f} GB")
+                logger.debug(f"  Free: {free_memory / (1024**3):.2f} GB")
             except Exception as e:
                 raise ValueError(f"Failed to get memory info for device {device}: {e}")
         
-        logger.info(f"Total available memory across all devices: {total_available_memory / (1024**3):.2f} GB")
-        logger.info(f"Total required memory: {total_required_memory / (1024**3):.2f} GB")
+        logger.debug(f"Total available memory across all devices: {total_available_memory / (1024**3):.2f} GB")
+        logger.debug(f"Total required memory: {total_required_memory / (1024**3):.2f} GB")
         
         # 检查是否能放下
         if total_required_memory > total_available_memory:
@@ -252,7 +252,7 @@ class CudaMemoryView:
                 f"Available: {total_available_memory / (1024**3):.2f} GB"
             )
         
-        logger.info("GPU memory is sufficient, will distribute experts evenly across devices.")
+        logger.debug("GPU memory is sufficient, will distribute experts evenly across devices.")
         
         # 为每个设备分配expert（每层平均分配）
         layer_cpu_experts_map_by_device = {device_idx: {} for device_idx in range(num_device)}  # {device_idx: {layer_idx: [expert_id, ...]}}
@@ -276,13 +276,13 @@ class CudaMemoryView:
                     device_experts = expert_list[expert_idx:expert_idx + count]
                     layer_cpu_experts_map_by_device[device_idx][layer_idx] = device_experts
                     expert_idx += count
-                    logger.info(f"  Device {device_idx} ({self.device_list[device_idx]}): {len(device_experts)} experts")
+                    logger.debug(f"  Device {device_idx} ({self.device_list[device_idx]}): {len(device_experts)} experts")
         
         # 保存分配结果，供等待时使用
         self._layer_cpu_experts_map_by_device = layer_cpu_experts_map_by_device
         
         # Step 2: 从最后一层往前逐层加载，串行提交到多个GPU设备（均匀分配）
-        logger.info("Starting to load CPU experts from last layer to first layer (multi-device serial mode, evenly distributed)...")
+        logger.debug("Starting to load CPU experts from last layer to first layer (multi-device serial mode, evenly distributed)...")
         
         for layer_idx in range(self.mlpm.config.num_hidden_layers - 1, rend_layer_idx, -1):
             # 检查是否有任何设备需要加载这一层
@@ -293,7 +293,7 @@ class CudaMemoryView:
                     break
             
             if has_experts:
-                logger.info(f"Loading Layer {layer_idx} across {num_device} devices...")
+                logger.debug(f"Loading Layer {layer_idx} across {num_device} devices...")
                 
                 # 串行提交到每个GPU设备（每个设备加载分配给它的expert）
                 for device_idx in range(num_device):
@@ -301,7 +301,7 @@ class CudaMemoryView:
                     device_expert_list = layer_cpu_experts_map_by_device[device_idx].get(layer_idx, [])
                     
                     if device_expert_list:
-                        logger.info(f"  Device {device_idx} ({device}): {len(device_expert_list)} experts: {device_expert_list}")
+                        logger.debug(f"  Device {device_idx} ({device}): {len(device_expert_list)} experts: {device_expert_list}")
                         self.start_load_experts_decode_cpu_weight(
                             layer_idx=layer_idx,
                             device=device,
@@ -312,7 +312,7 @@ class CudaMemoryView:
                 # 即使没有 CPU expert 需要加载，也标记为已加载
                 self._layer_loaded_to_gpu[layer_idx] = True
     
-    def wait_load_experts_decode_cpu_weight_multi_device(self):
+    def async_wait_layer_loaded_to_gpu_multi_device(self):
         """
         多设备版本：等待所有层的CPU专家加载完成
         串行等待每个设备的结果，只等待实际提交了任务的设备
@@ -326,12 +326,18 @@ class CudaMemoryView:
         # 串行等待每个层的加载完成（每个层可能有多个设备的任务）
         for layer_idx in range(self.mlpm.config.num_hidden_layers - 1, rend_layer_idx, -1):
             # 只等待实际提交了任务的设备
+            # 统计该层有多少个设备提交了任务
+            tasks_submitted = 0
             for device_idx in range(num_device):
                 # 检查该设备在该层是否有expert需要等待
                 if layer_idx in layer_cpu_experts_map_by_device.get(device_idx, {}):
                     device_expert_list = layer_cpu_experts_map_by_device[device_idx][layer_idx]
                     if device_expert_list:  # 确保列表不为空
-                        self.wait_load_experts_decode_cpu_weight(layer_idx=layer_idx)
+                        tasks_submitted += 1
+            
+            # 等待该层所有提交的任务完成（每个设备一个任务）
+            for _ in range(tasks_submitted):
+                self.wait_load_experts_decode_cpu_weight(layer_idx=layer_idx)
 
     def async_load_experts_decode_cpu_weight(self):
         """
@@ -347,7 +353,7 @@ class CudaMemoryView:
         
         # Step 1: 先获取所有层的 expert 分布情况
         layer_cpu_experts_map = {}  # {layer_idx: [expert_id, ...]}
-        logger.info("Collecting expert device distribution for all layers...")
+        logger.debug("Collecting expert device distribution for all layers...")
         
         # first_k_dense_replace 1, rend_layer_idx 0
         rend_layer_idx = self.mlpm.config.first_k_dense_replace - 1
@@ -371,7 +377,7 @@ class CudaMemoryView:
                     cpu_expert_list.append(expert_id)
             
             layer_cpu_experts_map[layer_idx] = cpu_expert_list
-            logger.info(f"Layer {layer_idx}: CPU experts = {cpu_expert_list} (total: {len(cpu_expert_list)}, device_map: {expert_device_map})")
+            logger.debug(f"Layer {layer_idx}: CPU experts = {cpu_expert_list} (total: {len(cpu_expert_list)}, device_map: {expert_device_map})")
         
         # Step 1.5: 检查 GPU 显存并计算所需显存，如果不足则按比例选择 expert
         layer_cpu_experts_map = filter_experts_by_memory(
@@ -383,14 +389,14 @@ class CudaMemoryView:
         )
         
         # Step 2: 从最后一层往前逐层加载
-        logger.info("Starting to load CPU experts from last layer to first layer...")
+        logger.debug("Starting to load CPU experts from last layer to first layer...")
         for layer_idx in range(self.mlpm.config.num_hidden_layers - 1, rend_layer_idx, -1):
             cpu_expert_list = layer_cpu_experts_map[layer_idx]
             
             
             # 只加载有 CPU expert 的层
             if cpu_expert_list:
-                logger.info(f"Loading Layer {layer_idx}: {len(cpu_expert_list)} CPU experts: {cpu_expert_list}")
+                logger.debug(f"Loading Layer {layer_idx}: {len(cpu_expert_list)} CPU experts: {cpu_expert_list}")
                 self.start_load_experts_decode_cpu_weight(
                     layer_idx=layer_idx, 
                     device=self.device1_str, 
@@ -400,7 +406,7 @@ class CudaMemoryView:
                 # 标记该层参数已全部加载到 GPU
                 # self._layer_loaded_to_gpu[layer_idx] = True
 
-                # logger.info(f"Layer {layer_idx}: All parameters loaded to GPU, marked as complete.")
+                # logger.debug(f"Layer {layer_idx}: All parameters loaded to GPU, marked as complete.")
                 
             else:
                 logger.debug(f"Layer {layer_idx}: No CPU experts to load, skipping.")
@@ -410,6 +416,7 @@ class CudaMemoryView:
     def async_wait_layer_loaded_to_gpu(self):
         rend_layer_idx = self.mlpm.config.first_k_dense_replace - 1
         for layer_idx in range(self.mlpm.config.num_hidden_layers - 1, rend_layer_idx, -1):
+            # 只等待实际提交了任务的层（如果层已经标记为已加载，则跳过）
             self.wait_load_experts_decode_cpu_weight(layer_idx=layer_idx)
 
     # part load here
@@ -687,9 +694,6 @@ class HostMemoryView:
         #     'group_w2': group_w2["big_tensor"],
         #     'group_w3': group_w3["big_tensor"]
         # }
-        
-        
-        print(tensor_state_dict.keys())
 
         return tensor_state_dict
     

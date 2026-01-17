@@ -91,6 +91,18 @@ def _cpu_experts_worker(
       
         input_data: CPUExpertsInput = input_queue.get()
 
+        # 清空group_list_list, 释放unmap
+        if input_data.layer_idx == -1:
+            group_list_list.clear()
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+            result = ExpertEinsumResult(
+                final_hidden_states=None,
+                time_einsum_end=0.0,
+            )
+            output_queue.put(result)
+            continue
+
         cuda_hook_time("experts_func_gpu_einsum_mp")
 
         expert_idx_list = input_data.expert_idx_list

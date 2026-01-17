@@ -235,13 +235,13 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids, unsqueeze_dim=1):
     Returns:
         `tuple(torch.Tensor)` comprising of the query and key tensors rotated using the Rotary Position Embedding.
     """
-    print(f"cos shape {cos.shape} sin shape {sin.shape} position_ids {position_ids}")
+    # print(f"cos shape {cos.shape} sin shape {sin.shape} position_ids {position_ids}")
     cos = cos[position_ids].unsqueeze(unsqueeze_dim)
     sin = sin[position_ids].unsqueeze(unsqueeze_dim)
-    print(f"cos shape {cos.shape} sin shape {sin.shape}")
+    # print(f"cos shape {cos.shape} sin shape {sin.shape}")
     q_embed = (q * cos) + (rotate_half(q) * sin)
     k_embed = (k * cos) + (rotate_half(k) * sin)
-    print(f"q_embed shape {q_embed.shape} k_embed shape {k_embed.shape}")
+    # print(f"q_embed shape {q_embed.shape} k_embed shape {k_embed.shape}")
     return q_embed, k_embed
 
 

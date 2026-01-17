@@ -498,7 +498,6 @@ class MLPModuleWrapper:
         device_flat_hidden_states: torch.Tensor,
         device_idxs: torch.Tensor,
     ):
-        cuda_hook_time("experts_func_mgpu_group_pad")
         device_token_idxs = device_idxs // self.config.num_experts_per_tok
 
         expert_token_indices_map = {}
@@ -517,7 +516,6 @@ class MLPModuleWrapper:
             token_ids = expert_token_indices_map[expert_idx]
             num_tokens = token_ids.shape[0]
             stacked_inputs[i, :num_tokens].copy_(device_flat_hidden_states[token_ids], non_blocking=True)
-        cuda_hook_time_end("experts_func_mgpu_group_pad")
         return stacked_inputs
     def experts_func_mgpu_group_list(
         self,
@@ -525,7 +523,6 @@ class MLPModuleWrapper:
         layer_idx: int,
         expert_idx_list: list[int],
     ):
-        cuda_hook_time("gpu_group_list")
         group_w1_list = []
         group_w2_list = []
         group_w3_list = []
@@ -548,7 +545,6 @@ class MLPModuleWrapper:
         # group_w1 = torch.stack(group_w1_list)  # [E, I, H]
         # group_w2 = torch.stack(group_w2_list)  # [E, H, I]
         # group_w3 = torch.stack(group_w3_list)  # [E, I, H]
-        cuda_hook_time_end("gpu_group_list")
         return group_w1_list, group_w2_list, group_w3_list
     @torch.no_grad()
     def experts_func_mgpu_group_experts(
@@ -583,7 +579,6 @@ class MLPModuleWrapper:
         all_token_ids_map: Optional[Dict[int, torch.Tensor]],
         expert_token_indices_map: Optional[Dict[int, torch.Tensor]],
     ):
-        cuda_hook_time("gpu_group_einsum_mp_multi_list")
         group_w1_map = {}
         group_w2_map = {}
         group_w3_map = {}

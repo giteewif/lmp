@@ -23,6 +23,55 @@ def check_nan_inf(tensor):
         return True
     return False
 
+
+def get_next_token_helper(mlpm_ci, hidden_states, device):
+    normed_hidden_states = mlpm_ci.model.norm(hidden_states)
+    last_hidden_states = normed_hidden_states[:, -1:, :]  # Shape: (batch_size, 1, hidden_size)
+    next_token_logits = mlpm_ci.lm_head(last_hidden_states).squeeze(1)
+    next_token_logits = next_token_logits.float()
+    
+    # // Debug: 检查 logits 是否包含 inf/nan
+    torch.cuda.synchronize()  # 确保之前的操作完成
+    if torch.isnan(next_token_logits).any():
+        logger.error(f"ERROR: next_token_logits contains NaN!")
+        logger.error(f"  NaN count: {torch.isnan(next_token_logits).sum().item()}")
+        logger.error(f"  Logits shape: {next_token_logits.shape}")
+        logger.error(f"  Logits stats: min={next_token_logits.min().item():.6f}, max={next_token_logits.max().item():.6f}, mean={next_token_logits.mean().item():.6f}")
+        raise ValueError("Logits contain NaN")
+    
+    if torch.isinf(next_token_logits).any():
+        logger.error(f"ERROR: next_token_logits contains Inf!")
+        logger.error(f"  Inf count: {torch.isinf(next_token_logits).sum().item()}")
+        logger.error(f"  Logits shape: {next_token_logits.shape}")
+        logger.error(f"  Logits stats: min={next_token_logits.min().item():.6f}, max={next_token_logits.max().item():.6f}, mean={next_token_logits.mean().item():.6f}")
+        # 修复 inf: 将 inf 替换为有限值
+        next_token_logits = torch.where(
+            torch.isinf(next_token_logits),
+            torch.tensor(0.0, device=next_token_logits.device, dtype=next_token_logits.dtype),
+            next_token_logits
+        )
+        logger.warning(f"  Fixed Inf values in logits")
+    
+    # 检查 logits 范围是否合理
+    logits_max = next_token_logits.max().item()
+    logits_min = next_token_logits.min().item()
+    if abs(logits_max) > 1000 or abs(logits_min) > 1000:
+        logger.warning(f"WARNING: Logits have extreme values: min={logits_min:.2f}, max={logits_max:.2f}")
+        # 裁剪极端值以避免 softmax 溢出
+        next_token_logits = torch.clamp(next_token_logits, min=-100, max=100)
+        logger.warning(f"  Clamped logits to [-100, 100]")
+    # //
+
+    next_token_ids = process_logits_efficiently(
+        logits=next_token_logits,
+        temperature=1.0,
+        top_p=0.9,
+        do_sample=True,
+        device=device
+    )
+    next_token_ids = next_token_ids.unsqueeze(1) # Shape: (batch_size, 1)
+    return next_token_ids
+
 def get_expert_device_distribution(layer) -> Dict[int, str]:
         """
         获取 layer 中每个 expert 的设备分布
@@ -151,7 +200,7 @@ def filter_experts_by_memory(
     
     # 计算每层可以使用的显存比例
     # 至少保留 1GB 显存
-    reserved_buffer = 2 * 1024**3  # 1GB 的字节数
+    reserved_buffer = 3 * 1024**3  # 1GB 的字节数
     available_memory = max(0, free_memory - reserved_buffer)  # 可用显存（至少保留1GB）
     
     if available_memory <= 0:

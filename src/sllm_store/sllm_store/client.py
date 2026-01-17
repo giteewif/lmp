@@ -112,11 +112,11 @@ class SllmStoreClient:
                 logger.error(f"Error: {e}")
             return False
         else:
-            logger.info(f"Model loaded: {model_path}, {replica_uuid}")
+            logger.debug(f"Model loaded: {model_path}, {replica_uuid}")
             return response
 
     def confirm_model_loaded(self, model_path, replica_uuid):
-        logger.info(f"confirm_model_loaded: {model_path}, {replica_uuid}")
+        logger.debug(f"confirm_model_loaded: {model_path}, {replica_uuid}")
         request = storage_pb2.ConfirmModelRequest(
             model_path=model_path,
             replica_uuid=replica_uuid,
@@ -124,7 +124,7 @@ class SllmStoreClient:
         )
         try:
             _ = self.stub.ConfirmModel(request)
-            logger.info("Model loaded")
+            logger.debug("Model loaded")
         except grpc.RpcError as e:
             if e.code() == grpc.StatusCode.CANCELLED:
                 logger.error("Model not loaded")
@@ -134,7 +134,7 @@ class SllmStoreClient:
                 return False
 
     def register_model(self, model_path) -> int:
-        logger.info(f"register_model: {model_path}")
+        logger.debug(f"register_model: {model_path}")
         request = storage_pb2.RegisterModelRequest(model_path=model_path)
         try:
             response = self.stub.RegisterModel(request)
@@ -142,7 +142,7 @@ class SllmStoreClient:
             logger.error(f"Error: {e}")
             return -1
         else:
-            logger.info("Model registered")
+            logger.debug("Model registered")
             return response.model_size
 
     def get_server_config(self):
@@ -179,7 +179,7 @@ class SllmStoreClient:
             logger.error(f"Error on register fixed gpu ptrs: {e}")
             return False
         else:
-            logger.info("Fixed gpu pointers registered")
+            logger.debug("Fixed gpu pointers registered")
             return response
     def release_registered_fixed_gpu_ptrs(self, cuda_memory_handles_need_released):
         logger.debug(f"release_registered_fixed_gpu_ptrs")
@@ -205,7 +205,7 @@ class SllmStoreClient:
             logger.error(f"Error on release registered fixed gpu ptrs: {e}")
             return False
         else:
-            logger.info("Registered fixed gpu pointers released")
+            logger.debug("Registered fixed gpu pointers released")
             return response
     def release_all_registered_fixed_gpu_ptrs(self):
         logger.debug(f"release_all_registered_fixed_gpu_ptrs")
@@ -216,7 +216,7 @@ class SllmStoreClient:
             logger.error(f"Error on release all registered fixed gpu ptrs: {e}")
             return -1
         else:
-            logger.info("All registered fixed gpu pointers released")
+            logger.debug("All registered fixed gpu pointers released")
             return response
     def get_model_shared_memory_names(self, model_path):
         request = storage_pb2.GetModelSharedMemoryNamesRequest(model_path=model_path)
