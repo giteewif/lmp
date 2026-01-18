@@ -59,9 +59,9 @@ class MLPLLM:
         device1 = "cuda:1"
         device2 = "cuda:2"
         device3 = "cuda:3"
-        device_list = [device0, device1, device2, device3]
+        # device_list = [device0, device1, device2, device3]
         # device_list = [device0, device1]
-        # device_list = [device0]
+        device_list = [device0]
         self.device1 = device_list[0]
         self.device_list = device_list
 
@@ -1534,7 +1534,7 @@ class MLPLLM:
             residual = ghidden_states
             ghidden_states = self.mlpm.paln_func(self.cmv.mlpm_ci, layer_idx=layer_idx, hidden_states=ghidden_states)
             cuda_hook_time_end("iln_self_attn_paln")
-            if layer_idx == 0:
+            if layer_idx < self.mlpm.get_first_k_dense_replace():
                 cuda_hook_time("dense_mlp")
                 # self.cmv.start_load_qkvogn_s_weight(layer_idx=layer_idx+1,  device=device1)
                 ghidden_states = self.mlpm.dense_mlp_func(self.cmv.mlpm_ci, layer_idx=layer_idx, hidden_states=ghidden_states)
@@ -1554,6 +1554,8 @@ class MLPLLM:
                 # ghidden_states = self.layer_moe_generate(layer_idx=layer_idx, hidden_states=ghidden_states)
             ghidden_states = ghidden_states + residual
 
+            # if check_nan_inf(ghidden_states):
+            #     logger.warning(f"ghidden_states is nan or inf at layer {layer_idx}")
             # if layer_idx < self.mlpm.config.num_hidden_layers-2:
             #     cuda_hook_time("wait_init_set_layer_func")
             #     layer = self.imm_mp.wait_layer(layer_idx=layer_idx+2)
@@ -1617,7 +1619,7 @@ class MLPLLM:
                 ghidden_states = self.mlpm.paln_func(self.cmv.mlpm_ci, layer_idx=layer_idx, hidden_states=ghidden_states)
                 cuda_hook_time_end("iln_self_attn_paln")
 
-                if layer_idx == 0:
+                if layer_idx < self.mlpm.get_first_k_dense_replace():
                     cuda_hook_time("dense_mlp")
                     ghidden_states = self.mlpm.dense_mlp_func(self.cmv.mlpm_ci, layer_idx=0, hidden_states=ghidden_states)
                     logger.debug(f"ghidden_states after dense_mlp_func shape: {ghidden_states.shape}")

@@ -22,6 +22,8 @@ python setup.py build_ext --inplace
 
 sllm-store start --storage-path /mnt/zhengcf3/models/sllm_models --num-thread 8 --mem-pool-size 32GB --use-shared-memory True --chunk-size 1056MB
 
+sllm-store start --storage-path /mnt/zhengcf3/models/sllm_models --num-thread 8 --mem-pool-size 32GB --use-shared-memory True --chunk-size 990MB
+
 python /mnt/zhengcf3/lmp/examples/test_sllm_store.py
 
 ## install lpllm
@@ -32,3 +34,6 @@ export PATH=/mnt/huwf5/conda-envs/sida39/bin:$PATH
 ## gpustat
 
 watch -n 1 gpustat
+
+# resize index file
+python /mnt/zhengcf3/lpllm/lpllm/resize_index.py /mnt/zhengcf3/models/sllm_models/Mixtral-8x7B/tensor_index.json > /mnt/zhengcf3/models/sllm_models/Mixtral-8x7B/chunk_size

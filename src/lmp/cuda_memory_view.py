@@ -95,7 +95,7 @@ class CudaMemoryView:
         self.restore2model(state_dict1, self.mlpm_ci)
         self.wait_load_into_gpu(replica_uuid1)
     def start_init_meta_model(self, hmv: "HostMemoryView"):
-        self.mlpm.init_chmv_meta_model(cmv=self, hmv=hmv)
+        self.mlpm.init_chmv_meta_model(cmv=self, hmv=hmv, device=self.device1)
         # self.imm.submit_all(
         #     init_func=self.mlpm.init_layer_func,
         #     config=self.mlpm.config,
@@ -172,11 +172,9 @@ class CudaMemoryView:
         layer_cpu_experts_map = {}  # {layer_idx: [expert_id, ...]}
         logger.debug("Collecting expert device distribution for all layers (multi-device)...")
         
-        rend_layer_idx = self.mlpm.config.first_k_dense_replace - 1
-        
-        for layer_idx in range(rend_layer_idx, self.mlpm.config.num_hidden_layers):
+        for layer_idx in range(0, self.mlpm.config.num_hidden_layers):
             # 跳过dense 层
-            if layer_idx < self.mlpm.config.first_k_dense_replace:
+            if layer_idx < self.mlpm.get_first_k_dense_replace():
                 continue
             # 获取该层的 expert 设备分布
             layer = self.mlpm_ci.model.layers[layer_idx]
@@ -284,6 +282,7 @@ class CudaMemoryView:
         # Step 2: 从最后一层往前逐层加载，串行提交到多个GPU设备（均匀分配）
         logger.debug("Starting to load CPU experts from last layer to first layer (multi-device serial mode, evenly distributed)...")
         
+        rend_layer_idx = self.mlpm.get_first_k_dense_replace() - 1
         for layer_idx in range(self.mlpm.config.num_hidden_layers - 1, rend_layer_idx, -1):
             # 检查是否有任何设备需要加载这一层
             has_experts = False
@@ -317,7 +316,7 @@ class CudaMemoryView:
         多设备版本：等待所有层的CPU专家加载完成
         串行等待每个设备的结果，只等待实际提交了任务的设备
         """
-        rend_layer_idx = self.mlpm.config.first_k_dense_replace - 1
+        rend_layer_idx = self.mlpm.get_first_k_dense_replace() - 1
         num_device = len(self.device_list)
         
         # 获取分配结果，确保只等待实际提交了任务的设备
@@ -355,12 +354,10 @@ class CudaMemoryView:
         layer_cpu_experts_map = {}  # {layer_idx: [expert_id, ...]}
         logger.debug("Collecting expert device distribution for all layers...")
         
-        # first_k_dense_replace 1, rend_layer_idx 0
-        rend_layer_idx = self.mlpm.config.first_k_dense_replace - 1
 
-        for layer_idx in range(rend_layer_idx, self.mlpm.config.num_hidden_layers):
+        for layer_idx in range(0, self.mlpm.config.num_hidden_layers):
             # 跳过dense 层
-            if layer_idx < self.mlpm.config.first_k_dense_replace:
+            if layer_idx < self.mlpm.get_first_k_dense_replace():
                 continue
             # 获取该层的 expert 设备分布
             layer = self.mlpm_ci.model.layers[layer_idx]
@@ -390,6 +387,7 @@ class CudaMemoryView:
         
         # Step 2: 从最后一层往前逐层加载
         logger.debug("Starting to load CPU experts from last layer to first layer...")
+        rend_layer_idx = self.mlpm.get_first_k_dense_replace() - 1
         for layer_idx in range(self.mlpm.config.num_hidden_layers - 1, rend_layer_idx, -1):
             cpu_expert_list = layer_cpu_experts_map[layer_idx]
             
@@ -414,7 +412,7 @@ class CudaMemoryView:
                 self._layer_loaded_to_gpu[layer_idx] = True
                 
     def async_wait_layer_loaded_to_gpu(self):
-        rend_layer_idx = self.mlpm.config.first_k_dense_replace - 1
+        rend_layer_idx = self.mlpm.get_first_k_dense_replace() - 1
         for layer_idx in range(self.mlpm.config.num_hidden_layers - 1, rend_layer_idx, -1):
             # 只等待实际提交了任务的层（如果层已经标记为已加载，则跳过）
             self.wait_load_experts_decode_cpu_weight(layer_idx=layer_idx)

@@ -15,11 +15,13 @@ sys.path.insert(0, sllm_store_dir)
 sys.path.insert(0, src_dir)
 
 from lmp.lmp import MLPLLM
-
+from models.mlpmodule import QWEN2_MODEL_NAME_TYPE
 
 def test():
-    model_path = "deepseek-moe-16b-base-bfloat16"
-    model_name_type = "Deepseek"
+    # model_path = "deepseek-moe-16b-base-bfloat16"
+    model_path = "Qwen1.5-MoE-A2.7B"
+    # model_name_type = "Deepseek"
+    model_name_type = QWEN2_MODEL_NAME_TYPE
     mlpllm = MLPLLM( model_name_type=model_name_type, model_path=model_path )
     # only for mp process
     mlpllm.init_mp_process()

@@ -2,59 +2,23 @@ import torch
 from torch import nn
 from transformers import AutoModelForCausalLM, AutoConfig
 from accelerate import init_empty_weights
+from transformers.models.qwen2_moe.modeling_qwen2_moe import Qwen2MoeForCausalLM, Qwen2MoeDecoderLayer
 
-from models.Deepseek.deepseek_moe_16b_base.modeling_deepseek import DeepseekForCausalLM, DeepseekRMSNorm
 
-class _PlaceholderLayer(nn.Module):
-    """占位符 layer，用于预分配 ModuleList"""
-    def __init__(self):
-        super().__init__()
-    
-    def forward(self, *args, **kwargs):
-        raise RuntimeError("Placeholder layer should not be called. Please set the actual layer first.")
-
-class DeepseekOModel(nn.Module):
-    def __init__(self, config):
-        super().__init__()
-        self.padding_idx = config.pad_token_id
-        self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
-        self.norm = DeepseekRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-        self._use_sdpa = config._attn_implementation == "sdpa"
-
-        # 先创建空的 ModuleList，使用占位符模块，后续再填充
-        self.layers = nn.ModuleList([_PlaceholderLayer() for _ in range(config.num_hidden_layers)])
-    
-    def set_layer(self, layer_idx: int, layer: nn.Module):
-        """
-        设置指定索引的 layer
-        
-        Args:
-            layer_idx: layer 索引
-            layer: DeepseekDecoderLayer 实例
-        """
-        if layer_idx < 0 or layer_idx >= len(self.layers):
-            raise IndexError(f"Layer index {layer_idx} out of range [0, {len(self.layers)})")
-        self.layers[layer_idx] = layer
-class DeepseekOCalModel(nn.Module):
-    def __init__(self, config):
-        super().__init__()
-        self.model = DeepseekOModel(config)
-        self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
-class DeepseekModule():
-    def create_empty_model(self, config: AutoConfig):
+class Qwen2MoEModule:
+    def create_empty_model(self, config):
         config._attn_implementation = "sdpa"
         with init_empty_weights():
-            model = DeepseekForCausalLM(config)
+            model = Qwen2MoeForCausalLM(config)
             return model
-
-    def get_config(self, path: str):
+    
+    def get_config(self, path):
         config = AutoConfig.from_pretrained(path , trust_remote_code=True)
         return config
 
-
     @torch.no_grad()
     def experts_func(
-        mi: DeepseekForCausalLM, 
+        mi: Qwen2MoeForCausalLM, 
         layer_idx: int, 
         expert_idx: int,
         tokens: torch.Tensor, 
@@ -88,7 +52,6 @@ class DeepseekModule():
             reduce='sum'
         )
         return final_hidden_states
-        
     def scatter(
         expert_cache, 
         expert_out_map, 

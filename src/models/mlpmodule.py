@@ -2,6 +2,7 @@ import enum
 import time
 import os
 import torch
+import torch.nn.functional as F
 import queue
 import copy
 from typing import Optional, Tuple, Dict, List
@@ -23,6 +24,9 @@ if TYPE_CHECKING:
 from models.Deepseek.deepseek_moe_16b_base.modeling_deepseek import DeepseekForCausalLM, DeepseekDecoderLayer
 from models.Deepseek.mlpmodule import DeepseekModule, DeepseekOCalModel
 from models.Mixtral.mlpmodule import MixtralModule
+from models.Qwen.mlpmodule import Qwen2MoEModule
+# from models.Qwen.Qwen2_moe.modeling_qwen2_moe import Qwen2MoeForCausalLM, Qwen2MoeDecoderLayer
+from transformers.models.qwen2_moe.modeling_qwen2_moe import Qwen2MoeForCausalLM, Qwen2MoeDecoderLayer, Qwen2MoeRotaryEmbedding
 from utils.logger import init_logger
 from utils.cuda_h import *
 from lmp.pinpool import gpinpool
@@ -51,7 +55,7 @@ class ExpertEinsumResult:
 
 DEEPSEEK_MODEL_NAME_TYPE = "Deepseek"
 MIXTRAL_MODEL_NAME_TYPE = "Mixtral"
-
+QWEN2_MODEL_NAME_TYPE = "Qwen2"
 # original_dtype = torch.get_default_dtype()
 # torch.set_default_dtype(torch.bfloat16)
 
@@ -69,15 +73,18 @@ class MLPModuleWrapper:
             self.model_class = DeepseekModule()
         elif self.model_name_type == MIXTRAL_MODEL_NAME_TYPE:
             self.model_class = MixtralModule()
+        elif self.model_name_type == QWEN2_MODEL_NAME_TYPE:
+            self.model_class = Qwen2MoEModule()
         else:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")
 
         self.config = self.model_class.get_config(self.model_abs_path)
 
         
-    def init_chmv_meta_model(self, cmv: "CudaMemoryView", hmv: "HostMemoryView"):
+    def init_chmv_meta_model(self, cmv: "CudaMemoryView", hmv: "HostMemoryView", device=None):
         if self.model_name_type == DEEPSEEK_MODEL_NAME_TYPE:
             with init_empty_weights():
+                self.config._attn_implementation = "sdpa"
                 # cm = DeepseekOCalModel(self.config)
                 cm = DeepseekForCausalLM(self.config)
                 cm.to(self.config.torch_dtype)
@@ -89,6 +96,18 @@ class MLPModuleWrapper:
                 # hmv.mlpm_hi = None 
                 # self.layerc = DeepseekDecoderLayer(self.config, 1)
             return
+        elif self.model_name_type == QWEN2_MODEL_NAME_TYPE:
+            with init_empty_weights():
+                self.config._attn_implementation = "sdpa"
+                cm = Qwen2MoeForCausalLM(self.config)
+                cm.model.rotary_emb = Qwen2MoeRotaryEmbedding(config=self.config, device=device)
+                for i in range(self.config.num_hidden_layers):
+                    cm.model.layers[i].self_attn.rotary_emb = \
+                        Qwen2MoeRotaryEmbedding(config=self.config, device=device)
+                cm.to(self.config.torch_dtype)
+                cm.eval()
+                cmv.mlpm_ci = cm
+                return
         else:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")
     def init_set_layer_func(
@@ -115,6 +134,12 @@ class MLPModuleWrapper:
             # self.cmv.mlpm_ci.model.layers[layer_idx]
             model.model.layers[layer_idx] = layer
             return layer
+        elif self.model_name_type == QWEN2_MODEL_NAME_TYPE:
+            with init_empty_weights():
+                layer = Qwen2MoeDecoderLayer(config, layer_idx)
+                layer.to(config.torch_dtype)
+                layer.eval()
+                return layer
         else:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")
 
@@ -133,6 +158,12 @@ class MLPModuleWrapper:
                 #     with init_empty_weights():
                 #         layer = DeepseekDecoderLayer(config, layer_idx)
                 # print(layer)
+                layer.to(config.torch_dtype)
+                layer.eval()
+                return layer
+        elif self.model_name_type == QWEN2_MODEL_NAME_TYPE:
+            with init_empty_weights():
+                layer = Qwen2MoeDecoderLayer(config, layer_idx)
                 layer.to(config.torch_dtype)
                 layer.eval()
                 return layer
@@ -157,6 +188,8 @@ class MLPModuleWrapper:
         with init_empty_weights():
             if self.model_name_type == DEEPSEEK_MODEL_NAME_TYPE:
                 model = DeepseekForCausalLM(self.config)
+            elif self.model_name_type == QWEN2_MODEL_NAME_TYPE:
+                model = Qwen2MoeForCausalLM(self.config)
             elif self.model_name_type == MIXTRAL_MODEL_NAME_TYPE:
                 model = AutoModelForCausalLM.from_config(
                     self.config, trust_remote_code=True
@@ -273,6 +306,43 @@ class MLPModuleWrapper:
                 "restore_hm_state_dict2model loaded %d expert tensors for Mixtral model",
                 updated_params,
             )
+        elif self.model_name_type == QWEN2_MODEL_NAME_TYPE:
+            expert_indicators = [".mlp.experts.", ".mlp.shared_experts."]
+            target_linears = {"gate_proj", "up_proj", "down_proj"}
+            updated_params = 0
+            with torch.no_grad():
+                for name, tensor in hm_state_dict.items():
+                    if expert_indicator not in name:
+                        continue
+                    
+                    line_segments = name.split(".")
+                    # 获取 w1, w2, w3 的位置
+                    linear_pos = next(
+                        (idx for idx, token in enumerate(line_segments) if token in target_linears),
+                        -1,
+                    )
+                    if linear_pos == -1:
+                        continue
+                    
+                    try:
+                        # 使用 accelerate 的工具函数设置 tensor
+                        set_module_tensor_to_device(
+                            model,
+                            name,
+                            tensor.device,
+                            tensor,
+                            clear_cache=False,
+                        )
+                        updated_params += 1
+                    except Exception as exc:
+                        logger.warning(
+                            "Failed to assign tensor %s to module: %s", name, exc, exc_info=True
+                        )
+            
+            logger.debug(
+                "restore_hm_state_dict2model loaded %d expert tensors for Mixtral model",
+                updated_params,
+            )
         else:
             logger.warning(f"restore_hm_state_dict2model not implemented for {self.model_name_type}")
             pass
@@ -281,6 +351,8 @@ class MLPModuleWrapper:
             return self.config.n_routed_experts
         elif self.model_name_type == MIXTRAL_MODEL_NAME_TYPE:
             return self.config.num_local_experts
+        elif self.model_name_type == QWEN2_MODEL_NAME_TYPE:
+            return self.config.num_experts
         else:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")
     def get_experts_names_w(self, layer_idx: int, experts_idx_list, type_idx: WeightType):
@@ -294,11 +366,19 @@ class MLPModuleWrapper:
             type_str = type_str_list[type_idx.value]
             experts_names = [f"model.layers.{layer_idx}.block_sparse_moe.experts.{expert_idx}.{type_str}.weight" for expert_idx in experts_idx_list]
             return experts_names
+        elif self.model_name_type == QWEN2_MODEL_NAME_TYPE:
+            # 顺序很重要，对齐 w1 w2 w3
+            type_str_list = ["none", "gate_proj", "down_proj", "up_proj"]
+            type_str = type_str_list[type_idx.value]
+            experts_names = [f"model.layers.{layer_idx}.mlp.experts.{expert_idx}.{type_str}.weight" for expert_idx in experts_idx_list]
+            return experts_names
         else:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")
 
     def get_tensor_index_general_names(self):
         if self.model_name_type == DEEPSEEK_MODEL_NAME_TYPE:
+            return ["lm_head.weight", "model.embed_tokens.weight", "model.norm.weight"]
+        elif self.model_name_type == QWEN2_MODEL_NAME_TYPE:
             return ["lm_head.weight", "model.embed_tokens.weight", "model.norm.weight"]
         else:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")
@@ -311,15 +391,22 @@ class MLPModuleWrapper:
                 f"model.layers.{layer_idx}.mlp.shared_experts.down_proj.weight",
                 f"model.layers.{layer_idx}.mlp.shared_experts.up_proj.weight",
             ]
+        elif self.model_name_type == QWEN2_MODEL_NAME_TYPE:
+            return [
+                f"model.layers.{layer_idx}.mlp.shared_expert.gate_proj.weight",
+                f"model.layers.{layer_idx}.mlp.shared_expert.down_proj.weight",
+                f"model.layers.{layer_idx}.mlp.shared_expert.up_proj.weight",
+                f"model.layers.{layer_idx}.mlp.shared_expert_gate.weight",
+            ]
         else:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")
     def get_experts_names(self, layer_idx: int, expert_idx_list: list[int]):
         if self.model_name_type == DEEPSEEK_MODEL_NAME_TYPE:
-            if layer_idx == 0:
+            if layer_idx < self.config.first_k_dense_replace:
                 return [
-                    "model.layers.0.mlp.gate_proj.weight",
-                    "model.layers.0.mlp.down_proj.weight",
-                    "model.layers.0.mlp.up_proj.weight",
+                    f"model.layers.{layer_idx}.mlp.gate_proj.weight",
+                    f"model.layers.{layer_idx}.mlp.down_proj.weight",
+                    f"model.layers.{layer_idx}.mlp.up_proj.weight",
                 ]
             else:
                 names_list = []
@@ -328,6 +415,13 @@ class MLPModuleWrapper:
                     names_list.append(f"model.layers.{layer_idx}.mlp.experts.{expert_idx}.down_proj.weight")
                     names_list.append(f"model.layers.{layer_idx}.mlp.experts.{expert_idx}.up_proj.weight")
                 return names_list
+        elif self.model_name_type == QWEN2_MODEL_NAME_TYPE:
+            names_list = []
+            for expert_idx in expert_idx_list:
+                names_list.append(f"model.layers.{layer_idx}.mlp.experts.{expert_idx}.gate_proj.weight")
+                names_list.append(f"model.layers.{layer_idx}.mlp.experts.{expert_idx}.down_proj.weight")
+                names_list.append(f"model.layers.{layer_idx}.mlp.experts.{expert_idx}.up_proj.weight")
+            return names_list
         else:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")
     def get_gate_names(self, layer_idx: int):
@@ -337,8 +431,16 @@ class MLPModuleWrapper:
             if layer_idx < self.config.first_k_dense_replace:
                 return []
             return [f"model.layers.{layer_idx}.mlp.gate.weight"]
+        elif self.model_name_type == QWEN2_MODEL_NAME_TYPE:
+            return [f"model.layers.{layer_idx}.mlp.gate.weight"]
+        else:
+            raise ValueError(f"Invalid model name type: {self.model_name_type}")
     def get_layernorm_names(self, layer_idx: int):
         if self.model_name_type == DEEPSEEK_MODEL_NAME_TYPE:
+            return [
+                f"model.layers.{layer_idx}.post_attention_layernorm.weight", 
+                f"model.layers.{layer_idx}.input_layernorm.weight", ]
+        elif self.model_name_type == QWEN2_MODEL_NAME_TYPE:
             return [
                 f"model.layers.{layer_idx}.post_attention_layernorm.weight", 
                 f"model.layers.{layer_idx}.input_layernorm.weight", ]
@@ -351,6 +453,16 @@ class MLPModuleWrapper:
                 f"model.layers.{layer_idx}.self_attn.k_proj.weight", 
                 f"model.layers.{layer_idx}.self_attn.v_proj.weight", 
                 f"model.layers.{layer_idx}.self_attn.o_proj.weight"]
+        elif self.model_name_type == QWEN2_MODEL_NAME_TYPE:
+            return [
+                f"model.layers.{layer_idx}.self_attn.q_proj.weight", 
+                f"model.layers.{layer_idx}.self_attn.k_proj.weight", 
+                f"model.layers.{layer_idx}.self_attn.v_proj.weight", 
+                f"model.layers.{layer_idx}.self_attn.o_proj.weight",
+                f"model.layers.{layer_idx}.self_attn.q_proj.bias",
+                f"model.layers.{layer_idx}.self_attn.k_proj.bias",
+                f"model.layers.{layer_idx}.self_attn.v_proj.bias",
+            ]
         else:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")
 
@@ -358,10 +470,36 @@ class MLPModuleWrapper:
         if self.model_name_type == DEEPSEEK_MODEL_NAME_TYPE:
             topk_idx, topk_weight, aux_loss = mi.model.layers[layer_idx].mlp.gate(hidden_states)
             return topk_idx, topk_weight, aux_loss
-    
+        elif self.model_name_type == QWEN2_MODEL_NAME_TYPE:
+            router_logits = mi.model.layers[layer_idx].mlp.gate(hidden_states)
+            
+            # Compute softmax scores
+            scores = F.softmax(router_logits, dim=-1)
+            
+            # Get top-k experts
+            top_k = mi.model.layers[layer_idx].mlp.top_k
+            topk_weight, topk_idx = torch.topk(scores, k=top_k, dim=-1, sorted=False)
+            
+            # Normalize weights if needed
+            if mi.model.layers[layer_idx].mlp.norm_topk_prob and top_k > 1:
+                denominator = topk_weight.sum(dim=-1, keepdim=True) + 1e-20
+                topk_weight = topk_weight / denominator
+            
+            # Return in (batch*seq, top_k) format to match Deepseek gate output
+            # Deepseek gate returns (bsz*seq_len, top_k), not (bsz, seq_len, top_k)
+            # Aux loss is typically None in inference mode
+            aux_loss = None
+            
+            return topk_idx, topk_weight, aux_loss
+        else:
+            raise ValueError(f"Invalid model name type: {self.model_name_type}")
     def shared_experts_func(self, mi, layer_idx: int, hidden_states: torch.Tensor):
         if self.model_name_type == DEEPSEEK_MODEL_NAME_TYPE:
             y = mi.model.layers[layer_idx].mlp.shared_experts(hidden_states)
+            return y
+        elif self.model_name_type == QWEN2_MODEL_NAME_TYPE:
+            y = mi.model.layers[layer_idx].mlp.shared_expert(hidden_states)
+            y = F.sigmoid(mi.model.layers[layer_idx].mlp.shared_expert_gate(hidden_states)) * y
             return y
         else:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")
@@ -372,8 +510,16 @@ class MLPModuleWrapper:
         past_key_value: Cache,
     ):
         if self.model_name_type == DEEPSEEK_MODEL_NAME_TYPE:
-            # 类型注解：mi 是 DeepseekModule 实例
-            mi: "DeepseekModule"
+            hidden_states, _, _ = mi.model.layers[layer_idx].self_attn(
+                hidden_states=hidden_states,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                past_key_value=past_key_value,
+                output_attentions=False,
+                use_cache=True,
+            )
+            return hidden_states
+        elif self.model_name_type == QWEN2_MODEL_NAME_TYPE:
             hidden_states, _, _ = mi.model.layers[layer_idx].self_attn(
                 hidden_states=hidden_states,
                 attention_mask=attention_mask,
@@ -393,6 +539,9 @@ class MLPModuleWrapper:
             logger.debug(f"{mi.model.layers[layer_idx].input_layernorm.weight.data.device} {hidden_states.device}")
             hidden_states = mi.model.layers[layer_idx].input_layernorm(hidden_states)
             return hidden_states
+        elif self.model_name_type == QWEN2_MODEL_NAME_TYPE:
+            hidden_states = mi.model.layers[layer_idx].input_layernorm(hidden_states)
+            return hidden_states
         else:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")
 
@@ -400,9 +549,15 @@ class MLPModuleWrapper:
         if self.model_name_type == DEEPSEEK_MODEL_NAME_TYPE:
             hidden_states = mi.model.layers[layer_idx].post_attention_layernorm(hidden_states)
             return hidden_states
+        elif self.model_name_type == QWEN2_MODEL_NAME_TYPE:
+            hidden_states = mi.model.layers[layer_idx].post_attention_layernorm(hidden_states)
+            return hidden_states
 
     def dense_mlp_func(self, mi, layer_idx: int, hidden_states: torch.Tensor):
         if self.model_name_type == DEEPSEEK_MODEL_NAME_TYPE:
+            hidden_states = mi.model.layers[layer_idx].mlp(hidden_states)
+            return hidden_states
+        elif self.model_name_type == QWEN2_MODEL_NAME_TYPE:
             hidden_states = mi.model.layers[layer_idx].mlp(hidden_states)
             return hidden_states
         else:
@@ -458,10 +613,25 @@ class MLPModuleWrapper:
                         mi, layer_idx, expert_id, tokens, weights,
                         token_indices,
                         final_hidden_states=final_hidden_states
-                )
+                    )
             elif self.model_name_type == MIXTRAL_MODEL_NAME_TYPE:
                 # TODO: 添加 Mixtral 支持
                 raise NotImplementedError("Mixtral experts_func not implemented yet")
+            elif self.model_name_type == QWEN2_MODEL_NAME_TYPE:
+                if device == "cpu":
+                    tokens_on_device = tokens.to("cpu")
+                    weights_on_device = weights.to("cpu")
+                    Qwen2MoEModule.experts_func(
+                        mi, layer_idx, expert_id, tokens_on_device, weights_on_device,
+                        token_indices,
+                        final_hidden_states=final_hidden_states
+                    )
+                else:
+                    Qwen2MoEModule.experts_func(
+                        mi, layer_idx, expert_id, tokens, weights,
+                        token_indices,
+                        final_hidden_states=final_hidden_states
+                    )
             else:
                 raise ValueError(f"Invalid model name type: {self.model_name_type}")
         
@@ -484,6 +654,10 @@ class MLPModuleWrapper:
             expert_cache = DeepseekModule.scatter(
                 expert_cache, expert_out_map, expert_token_indices_map
             )
+        elif self.model_name_type == QWEN2_MODEL_NAME_TYPE:
+            expert_cache = Qwen2MoEModule.scatter(
+                expert_cache, expert_out_map, expert_token_indices_map
+            )
         elif self.model_name_type == MIXTRAL_MODEL_NAME_TYPE:
             # TODO: 添加 Mixtral 支持
             raise NotImplementedError("Mixtral scatter not implemented yet")
@@ -491,6 +665,22 @@ class MLPModuleWrapper:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")
         
         return expert_cache
+    def get_experts_per_tok(self):
+        if self.model_name_type == DEEPSEEK_MODEL_NAME_TYPE:
+            return self.config.num_experts_per_tok
+        elif self.model_name_type == QWEN2_MODEL_NAME_TYPE:
+            return self.config.num_experts_per_tok
+        else:
+            raise ValueError(f"Invalid model name type: {self.model_name_type}")
+    def get_first_k_dense_replace(self):
+        if self.model_name_type == DEEPSEEK_MODEL_NAME_TYPE:
+            return self.config.first_k_dense_replace
+        elif self.model_name_type == QWEN2_MODEL_NAME_TYPE:
+            return 0
+        elif self.model_name_type == MIXTRAL_MODEL_NAME_TYPE:
+            return 0
+        else:
+            raise ValueError(f"Invalid model name type: {self.model_name_type}")
     def experts_func_mgpu_group_pad(
         self,
         expert_idx_list: list[int],
@@ -498,7 +688,7 @@ class MLPModuleWrapper:
         device_flat_hidden_states: torch.Tensor,
         device_idxs: torch.Tensor,
     ):
-        device_token_idxs = device_idxs // self.config.num_experts_per_tok
+        device_token_idxs = device_idxs // self.get_experts_per_tok()
 
         expert_token_indices_map = {}
         for i, expert_idx in enumerate(expert_idx_list):
@@ -539,6 +729,12 @@ class MLPModuleWrapper:
                 group_w1_list.append(expert_module.w1.weight)  # [I, H]
                 group_w2_list.append(expert_module.w2.weight)  # [H, I]
                 group_w3_list.append(expert_module.w3.weight)  # [I, H]
+        elif self.model_name_type == QWEN2_MODEL_NAME_TYPE:
+            for expert_idx in expert_idx_list:
+                expert_module = mi.model.layers[layer_idx].mlp.experts[expert_idx]
+                group_w1_list.append(expert_module.gate_proj.weight)  # [I, H]
+                group_w2_list.append(expert_module.down_proj.weight)   # [H, I]
+                group_w3_list.append(expert_module.up_proj.weight)     # [I, H]
         else:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")
         # 堆叠 weights: [E, I, H], [E, H, I], [E, I, H]
@@ -613,7 +809,7 @@ class MLPModuleWrapper:
             device_flat_hidden_states = flat_hidden_states_map[device_id]
             device_flat_experts_weight = flat_experts_weight_map[device_id]
             device_idxs = idxs_map[device_id]
-            device_token_idxs = device_idxs // self.config.num_experts_per_tok
+            device_token_idxs = device_idxs // self.get_experts_per_tok()
 
             # cuda_hook_time("gpu_group_tensor")
             # # 堆叠 weights: [E, I, H], [E, H, I], [E, I, H]
@@ -640,7 +836,7 @@ class MLPModuleWrapper:
             device_flat_hidden_states = flat_hidden_states_map[device_id]
             device_flat_experts_weight = flat_experts_weight_map[device_id]
             device_idxs = idxs_map[device_id]
-            device_token_idxs = device_idxs // self.config.num_experts_per_tok
+            device_token_idxs = device_idxs // self.get_experts_per_tok()
 
             cuda_hook_time("gpu_final_hidden_states_scatter")
             final_device = final_hidden_states.device
@@ -772,12 +968,12 @@ class MLPModuleWrapper:
         # if group_w1.device != flat_hidden_states.device:
         #     device_flat_hidden_states = flat_hidden_states.to(group_w1.device, non_blocking=True)
         #     device_idxs = idxs.to(group_w1.device, non_blocking=True)
-        #     device_token_idxs = device_idxs // self.config.num_experts_per_tok
+        #     device_token_idxs = device_idxs // self.get_experts_per_tok()
         #     device_flat_experts_weight = flat_experts_weight.to(group_w1.device, non_blocking=True)
         # else:
         #     device_flat_hidden_states = flat_hidden_states
         #     device_idxs = idxs
-        #     device_token_idxs = device_idxs // self.config.num_experts_per_tok
+        #     device_token_idxs = device_idxs // self.get_experts_per_tok()
         #     device_flat_experts_weight = flat_experts_weight
         # expert_token_indices_map = {}
         
@@ -799,7 +995,7 @@ class MLPModuleWrapper:
         
         device_flat_hidden_states = flat_hidden_states
         device_idxs = idxs
-        device_token_idxs = device_idxs // self.config.num_experts_per_tok
+        device_token_idxs = device_idxs // self.get_experts_per_tok()
         device_flat_experts_weight = flat_experts_weight
 
         cuda_hook_time("gpu_group_einsum")
@@ -1004,7 +1200,7 @@ class MLPModuleWrapper:
                     # 将 flat_hidden_states 复制到对应设备
                     device_flat_hidden_states = flat_hidden_states.to(f'cuda:{device_id}', non_blocking=True)
                     device_idxs = idxs.to(f'cuda:{device_id}', non_blocking=True)
-                    device_token_idxs = device_idxs // self.config.num_experts_per_tok
+                    device_token_idxs = device_idxs // self.get_experts_per_tok()
                     # 填充 stacked_inputs
                     for i, expert_idx in enumerate(expert_indices):
                         token_ids = device_token_idxs[expert_indices_map[expert_idx][0]:expert_indices_map[expert_idx][1]]
@@ -1069,12 +1265,12 @@ class MLPModuleWrapper:
                 expert_cache = torch.zeros_like(final_hidden_states, device=outputs.device)
                 device_flat_experts_weight = flat_experts_weight.to(outputs.device, non_blocking=True)
                 device_idxs = idxs.to(group_w1.device, non_blocking=True)
-                device_token_idxs = device_idxs // self.config.num_experts_per_tok
+                device_token_idxs = device_idxs // self.get_experts_per_tok()
             else:
                 expert_cache = final_hidden_states
                 device_flat_experts_weight = flat_experts_weight
                 device_idxs = idxs
-                device_token_idxs = device_idxs // self.config.num_experts_per_tok
+                device_token_idxs = device_idxs // self.get_experts_per_tok()
             # Scatter 每个 expert 的输出
             for expert_idx, i in expert_mappings:
                 
@@ -1194,11 +1390,11 @@ class MLPModuleWrapper:
         if group_w1.device != flat_hidden_states.device:
             device_flat_hidden_states = flat_hidden_states.to(group_w1.device, non_blocking=True)
             device_idxs = idxs.to(group_w1.device, non_blocking=True)
-            device_token_idxs = device_idxs // self.config.num_experts_per_tok
+            device_token_idxs = device_idxs // self.get_experts_per_tok()
         else:
             device_flat_hidden_states = flat_hidden_states
             device_idxs = idxs
-            device_token_idxs = device_idxs // self.config.num_experts_per_tok
+            device_token_idxs = device_idxs // self.get_experts_per_tok()
 
         # 直接从 flat_hidden_states 复制需要的 token 到 stacked_inputs 的对应位置
         for i, expert_idx in enumerate(expert_indices):
@@ -1440,7 +1636,7 @@ class MLPModuleWrapper:
         cuda_hook_time("move_flatidxs")
         flat_hidden_states_cpu_pin = gpinpool.alloc_same_pin_tensor(flat_hidden_states)
         flat_hidden_states_cpu_pin.copy_(flat_hidden_states, non_blocking=False)
-        token_idxs = idxs // self.config.num_experts_per_tok
+        token_idxs = idxs // self.get_experts_per_tok()
         token_idxs_cpu_pin = token_idxs.cpu()
         cuda_hook_time_end("move_flatidxs")
 
@@ -1592,7 +1788,7 @@ class MLPModuleWrapper:
         flat_hidden_states_cpu_pin = gpinpool.alloc_same_pin_tensor(flat_hidden_states)
         flat_hidden_states_cpu_pin.copy_(flat_hidden_states, non_blocking=False)
 
-        token_idxs = idxs // self.config.num_experts_per_tok
+        token_idxs = idxs // self.get_experts_per_tok()
         token_idxs_cpu_pin = token_idxs.cpu()
         # token_idxs_cpu_pin = gpinpool.alloc_same_pin_tensor(token_idxs)
         # token_idxs_cpu_pin.copy_(token_idxs, non_blocking=False)
@@ -1793,7 +1989,7 @@ class MLPModuleWrapper:
         cuda_hook_time("move_flatidxs")
         flat_hidden_states_cpu_pin = gpinpool.alloc_same_pin_tensor(flat_hidden_states)
         flat_hidden_states_cpu_pin.copy_(flat_hidden_states, non_blocking=False)
-        token_idxs = idxs // self.config.num_experts_per_tok
+        token_idxs = idxs // self.get_experts_per_tok()
         token_idxs_cpu_pin = token_idxs.cpu()
         cuda_hook_time_end("move_flatidxs")
 
