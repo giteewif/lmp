@@ -27,6 +27,7 @@ from models.Mixtral.mlpmodule import MixtralModule
 from models.Qwen.mlpmodule import Qwen2MoEModule
 # from models.Qwen.Qwen2_moe.modeling_qwen2_moe import Qwen2MoeForCausalLM, Qwen2MoeDecoderLayer
 from transformers.models.qwen2_moe.modeling_qwen2_moe import Qwen2MoeForCausalLM, Qwen2MoeDecoderLayer, Qwen2MoeRotaryEmbedding
+from transformers.models.mixtral.modeling_mixtral import MixtralForCausalLM, MixtralDecoderLayer
 from utils.logger import init_logger
 from utils.cuda_h import *
 from lmp.pinpool import gpinpool
@@ -108,6 +109,14 @@ class MLPModuleWrapper:
                 cm.eval()
                 cmv.mlpm_ci = cm
                 return
+        elif self.model_name_type == MIXTRAL_MODEL_NAME_TYPE:
+            with init_empty_weights():
+                self.config._attn_implementation = "sdpa"
+                cm = MixtralForCausalLM(self.config)
+                cm.to(self.config.torch_dtype)
+                cm.eval()
+                cmv.mlpm_ci = cm
+                return
         else:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")
     def init_set_layer_func(
@@ -140,6 +149,12 @@ class MLPModuleWrapper:
                 layer.to(config.torch_dtype)
                 layer.eval()
                 return layer
+        elif self.model_name_type == MIXTRAL_MODEL_NAME_TYPE:
+            with init_empty_weights():
+                layer = MixtralDecoderLayer(config, layer_idx)
+                layer.to(config.torch_dtype)
+                layer.eval()
+                return layer
         else:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")
 
@@ -164,6 +179,12 @@ class MLPModuleWrapper:
         elif self.model_name_type == QWEN2_MODEL_NAME_TYPE:
             with init_empty_weights():
                 layer = Qwen2MoeDecoderLayer(config, layer_idx)
+                layer.to(config.torch_dtype)
+                layer.eval()
+                return layer
+        elif self.model_name_type == MIXTRAL_MODEL_NAME_TYPE:
+            with init_empty_weights():
+                layer = MixtralDecoderLayer(config, layer_idx)
                 layer.to(config.torch_dtype)
                 layer.eval()
                 return layer
@@ -398,6 +419,9 @@ class MLPModuleWrapper:
                 f"model.layers.{layer_idx}.mlp.shared_expert.up_proj.weight",
                 f"model.layers.{layer_idx}.mlp.shared_expert_gate.weight",
             ]
+        elif self.model_name_type == MIXTRAL_MODEL_NAME_TYPE:
+            # empty shared_experts
+            return []
         else:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")
     def get_experts_names(self, layer_idx: int, expert_idx_list: list[int]):
@@ -422,6 +446,13 @@ class MLPModuleWrapper:
                 names_list.append(f"model.layers.{layer_idx}.mlp.experts.{expert_idx}.down_proj.weight")
                 names_list.append(f"model.layers.{layer_idx}.mlp.experts.{expert_idx}.up_proj.weight")
             return names_list
+        elif self.model_name_type == MIXTRAL_MODEL_NAME_TYPE:
+            names_list = []
+            for expert_idx in expert_idx_list:
+                names_list.append(f"model.layers.{layer_idx}.block_sparse_moe.experts.{expert_idx}.w1.weight")
+                names_list.append(f"model.layers.{layer_idx}.block_sparse_moe.experts.{expert_idx}.w2.weight")
+                names_list.append(f"model.layers.{layer_idx}.block_sparse_moe.experts.{expert_idx}.w3.weight")
+            return names_list
         else:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")
     def get_gate_names(self, layer_idx: int):
@@ -433,6 +464,8 @@ class MLPModuleWrapper:
             return [f"model.layers.{layer_idx}.mlp.gate.weight"]
         elif self.model_name_type == QWEN2_MODEL_NAME_TYPE:
             return [f"model.layers.{layer_idx}.mlp.gate.weight"]
+        elif self.model_name_type == MIXTRAL_MODEL_NAME_TYPE:
+            return [f"model.layers.{layer_idx}.block_sparse_moe.gate.weight"]
         else:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")
     def get_layernorm_names(self, layer_idx: int):
@@ -441,6 +474,10 @@ class MLPModuleWrapper:
                 f"model.layers.{layer_idx}.post_attention_layernorm.weight", 
                 f"model.layers.{layer_idx}.input_layernorm.weight", ]
         elif self.model_name_type == QWEN2_MODEL_NAME_TYPE:
+            return [
+                f"model.layers.{layer_idx}.post_attention_layernorm.weight", 
+                f"model.layers.{layer_idx}.input_layernorm.weight", ]
+        elif self.model_name_type == MIXTRAL_MODEL_NAME_TYPE:
             return [
                 f"model.layers.{layer_idx}.post_attention_layernorm.weight", 
                 f"model.layers.{layer_idx}.input_layernorm.weight", ]
@@ -462,6 +499,13 @@ class MLPModuleWrapper:
                 f"model.layers.{layer_idx}.self_attn.q_proj.bias",
                 f"model.layers.{layer_idx}.self_attn.k_proj.bias",
                 f"model.layers.{layer_idx}.self_attn.v_proj.bias",
+            ]
+        elif self.model_name_type == MIXTRAL_MODEL_NAME_TYPE:
+            return [
+                f"model.layers.{layer_idx}.self_attn.q_proj.weight", 
+                f"model.layers.{layer_idx}.self_attn.k_proj.weight", 
+                f"model.layers.{layer_idx}.self_attn.v_proj.weight", 
+                f"model.layers.{layer_idx}.self_attn.o_proj.weight",
             ]
         else:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")
@@ -491,6 +535,22 @@ class MLPModuleWrapper:
             aux_loss = None
             
             return topk_idx, topk_weight, aux_loss
+        elif self.model_name_type == MIXTRAL_MODEL_NAME_TYPE:
+            router_logits = mi.model.layers[layer_idx].block_sparse_moe.gate(hidden_states)
+             # Compute softmax scores
+            scores = F.softmax(router_logits, dim=-1)
+            
+            # Get top-k experts
+            top_k = mi.model.layers[layer_idx].block_sparse_moe.top_k
+            topk_weight, topk_idx = torch.topk(scores, k=top_k, dim=-1, sorted=False)
+            
+            
+            # Return in (batch*seq, top_k) format to match Deepseek gate output
+            # Deepseek gate returns (bsz*seq_len, top_k), not (bsz, seq_len, top_k)
+            # Aux loss is typically None in inference mode
+            aux_loss = None
+            
+            return topk_idx, topk_weight, aux_loss
         else:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")
     def shared_experts_func(self, mi, layer_idx: int, hidden_states: torch.Tensor):
@@ -501,6 +561,9 @@ class MLPModuleWrapper:
             y = mi.model.layers[layer_idx].mlp.shared_expert(hidden_states)
             y = F.sigmoid(mi.model.layers[layer_idx].mlp.shared_expert_gate(hidden_states)) * y
             return y
+        elif self.model_name_type == MIXTRAL_MODEL_NAME_TYPE:
+            # no shared experts in Mixtral
+            return hidden_states
         else:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")
     def self_attn_func(self, mi, layer_idx: int,
@@ -529,6 +592,16 @@ class MLPModuleWrapper:
                 use_cache=True,
             )
             return hidden_states
+        elif self.model_name_type == MIXTRAL_MODEL_NAME_TYPE:
+            hidden_states, _, _ = mi.model.layers[layer_idx].self_attn(
+                hidden_states=hidden_states,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                past_key_value=past_key_value,
+                output_attentions=False,
+                use_cache=True,
+            )
+            return hidden_states
         else:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")
 
@@ -542,6 +615,9 @@ class MLPModuleWrapper:
         elif self.model_name_type == QWEN2_MODEL_NAME_TYPE:
             hidden_states = mi.model.layers[layer_idx].input_layernorm(hidden_states)
             return hidden_states
+        elif self.model_name_type == MIXTRAL_MODEL_NAME_TYPE:
+            hidden_states = mi.model.layers[layer_idx].input_layernorm(hidden_states)
+            return hidden_states
         else:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")
 
@@ -552,12 +628,17 @@ class MLPModuleWrapper:
         elif self.model_name_type == QWEN2_MODEL_NAME_TYPE:
             hidden_states = mi.model.layers[layer_idx].post_attention_layernorm(hidden_states)
             return hidden_states
-
+        elif self.model_name_type == MIXTRAL_MODEL_NAME_TYPE:
+            hidden_states = mi.model.layers[layer_idx].post_attention_layernorm(hidden_states)
+            return hidden_states
     def dense_mlp_func(self, mi, layer_idx: int, hidden_states: torch.Tensor):
         if self.model_name_type == DEEPSEEK_MODEL_NAME_TYPE:
             hidden_states = mi.model.layers[layer_idx].mlp(hidden_states)
             return hidden_states
         elif self.model_name_type == QWEN2_MODEL_NAME_TYPE:
+            hidden_states = mi.model.layers[layer_idx].mlp(hidden_states)
+            return hidden_states
+        elif self.model_name_type == MIXTRAL_MODEL_NAME_TYPE:
             hidden_states = mi.model.layers[layer_idx].mlp(hidden_states)
             return hidden_states
         else:
@@ -615,8 +696,20 @@ class MLPModuleWrapper:
                         final_hidden_states=final_hidden_states
                     )
             elif self.model_name_type == MIXTRAL_MODEL_NAME_TYPE:
-                # TODO: 添加 Mixtral 支持
-                raise NotImplementedError("Mixtral experts_func not implemented yet")
+                if device == "cpu":
+                    tokens_on_device = tokens.to("cpu")
+                    weights_on_device = weights.to("cpu")
+                    MixtralModule.experts_func(
+                        mi, layer_idx, expert_id, tokens_on_device, weights_on_device,
+                        token_indices,
+                        final_hidden_states=final_hidden_states
+                    )
+                else:
+                    MixtralModule.experts_func(
+                        mi, layer_idx, expert_id, tokens, weights,
+                        token_indices,
+                        final_hidden_states=final_hidden_states
+                    )
             elif self.model_name_type == QWEN2_MODEL_NAME_TYPE:
                 if device == "cpu":
                     tokens_on_device = tokens.to("cpu")
@@ -660,7 +753,9 @@ class MLPModuleWrapper:
             )
         elif self.model_name_type == MIXTRAL_MODEL_NAME_TYPE:
             # TODO: 添加 Mixtral 支持
-            raise NotImplementedError("Mixtral scatter not implemented yet")
+            expert_cache = MixtralModule.scatter(
+                expert_cache, expert_out_map, expert_token_indices_map
+            )
         else:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")
         
@@ -669,6 +764,8 @@ class MLPModuleWrapper:
         if self.model_name_type == DEEPSEEK_MODEL_NAME_TYPE:
             return self.config.num_experts_per_tok
         elif self.model_name_type == QWEN2_MODEL_NAME_TYPE:
+            return self.config.num_experts_per_tok
+        elif self.model_name_type == MIXTRAL_MODEL_NAME_TYPE:
             return self.config.num_experts_per_tok
         else:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")
