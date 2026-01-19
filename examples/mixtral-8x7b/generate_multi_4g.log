@@ -1,0 +1,1087 @@
+here pin
+INFO 01-18 20:14:30.886868.886868 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+INFO 01-18 20:14:31.672142.672142 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+INFO 01-18 20:14:32.309250.309250 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 01-18 20:14:32.309363.309363 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 1.424s
+here pin
+INFO 01-18 20:14:36.445252.445252 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+INFO 01-18 20:14:37.215863.215863 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+INFO 01-18 20:14:37.680862.680862 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 01-18 20:14:37.681975.681975 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 1.235s
+generate input ids cost 0.08477616310119629 s
+DEBUG 01-18 20:14:42.777428.777428 client.py:72] load_into_gpu: Mixtral-8x7B, 8c764702-2882-4cd1-ab61-00aded633826
+DEBUG 01-18 20:14:42.777874.777874 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:42.779720.779720 client.py:115] Model loaded: Mixtral-8x7B, 8c764702-2882-4cd1-ab61-00aded633826
+DEBUG 01-18 20:14:42.779385.779385 client.py:119] confirm_model_loaded: Mixtral-8x7B, 8c764702-2882-4cd1-ab61-00aded633826
+DEBUG 01-18 20:14:42.832820.832820 client.py:127] Model loaded
+DEBUG 01-18 20:14:42.833352.833352 client.py:72] load_into_gpu: Mixtral-8x7B, c026ae52-7028-4126-8283-33b55435a8db
+DEBUG 01-18 20:14:42.833625.833625 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:42.834127.834127 client.py:115] Model loaded: Mixtral-8x7B, c026ae52-7028-4126-8283-33b55435a8db
+DEBUG 01-18 20:14:42.835282.835282 client.py:119] confirm_model_loaded: Mixtral-8x7B, c026ae52-7028-4126-8283-33b55435a8db
+DEBUG 01-18 20:14:42.844835.844835 client.py:127] Model loaded
+DEBUG 01-18 20:14:42.968948.968948 client.py:72] load_into_gpu: Mixtral-8x7B, fd024a37-3937-46b4-b044-99ba65d56ecc
+DEBUG 01-18 20:14:42.968279.968279 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:42.971665.971665 client.py:115] Model loaded: Mixtral-8x7B, fd024a37-3937-46b4-b044-99ba65d56ecc
+DEBUG 01-18 20:14:42.971001.971001 client.py:119] confirm_model_loaded: Mixtral-8x7B, fd024a37-3937-46b4-b044-99ba65d56ecc
+DEBUG 01-18 20:14:42.980643.980643 client.py:127] Model loaded
+DEBUG 01-18 20:14:43.114824.114824 client.py:72] load_into_gpu: Mixtral-8x7B, fc6a4016-bf27-4c44-93f4-ceeee056b965
+DEBUG 01-18 20:14:43.115077.115077 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:43.117905.117905 client.py:115] Model loaded: Mixtral-8x7B, fc6a4016-bf27-4c44-93f4-ceeee056b965
+DEBUG 01-18 20:14:43.117014.117014 client.py:119] confirm_model_loaded: Mixtral-8x7B, fc6a4016-bf27-4c44-93f4-ceeee056b965
+DEBUG 01-18 20:14:43.153904.153904 client.py:127] Model loaded
+DEBUG 01-18 20:14:43.549011.549011 client.py:72] load_into_gpu: Mixtral-8x7B, c9dd70c5-a657-402c-a2a1-795aa0b26325
+DEBUG 01-18 20:14:43.550394.550394 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:43.551458.551458 client.py:115] Model loaded: Mixtral-8x7B, c9dd70c5-a657-402c-a2a1-795aa0b26325
+DEBUG 01-18 20:14:43.551543.551543 client.py:119] confirm_model_loaded: Mixtral-8x7B, c9dd70c5-a657-402c-a2a1-795aa0b26325
+DEBUG 01-18 20:14:43.553597.553597 client.py:72] load_into_gpu: Mixtral-8x7B, b5dba44e-bb44-4016-ae1c-f42610dfdbef
+DEBUG 01-18 20:14:43.553370.553370 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:43.560068.560068 client.py:127] Model loaded
+DEBUG 01-18 20:14:43.560642.560642 client.py:115] Model loaded: Mixtral-8x7B, b5dba44e-bb44-4016-ae1c-f42610dfdbef
+DEBUG 01-18 20:14:43.561807.561807 client.py:119] confirm_model_loaded: Mixtral-8x7B, b5dba44e-bb44-4016-ae1c-f42610dfdbef
+DEBUG 01-18 20:14:43.592296.592296 client.py:127] Model loaded
+DEBUG 01-18 20:14:43.921915.921915 client.py:72] load_into_gpu: Mixtral-8x7B, 2ade36b9-714d-4106-8d09-8b1bb468a490
+DEBUG 01-18 20:14:43.921960.921960 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:43.924099.924099 client.py:115] Model loaded: Mixtral-8x7B, 2ade36b9-714d-4106-8d09-8b1bb468a490
+DEBUG 01-18 20:14:43.924171.924171 client.py:119] confirm_model_loaded: Mixtral-8x7B, 2ade36b9-714d-4106-8d09-8b1bb468a490
+DEBUG 01-18 20:14:43.926155.926155 client.py:72] load_into_gpu: Mixtral-8x7B, 0dddd592-85a9-48a6-8592-1ee72c24ec15
+DEBUG 01-18 20:14:43.927001.927001 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:43.933710.933710 client.py:127] Model loaded
+DEBUG 01-18 20:14:43.935671.935671 client.py:115] Model loaded: Mixtral-8x7B, 0dddd592-85a9-48a6-8592-1ee72c24ec15
+DEBUG 01-18 20:14:43.935672.935672 client.py:119] confirm_model_loaded: Mixtral-8x7B, 0dddd592-85a9-48a6-8592-1ee72c24ec15
+DEBUG 01-18 20:14:43.967047.967047 client.py:127] Model loaded
+DEBUG 01-18 20:14:44.337326.337326 client.py:72] load_into_gpu: Mixtral-8x7B, 8c51c719-cedf-4c7b-b72b-ecb3ea51041a
+DEBUG 01-18 20:14:44.337815.337815 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:44.340063.340063 client.py:115] Model loaded: Mixtral-8x7B, 8c51c719-cedf-4c7b-b72b-ecb3ea51041a
+DEBUG 01-18 20:14:44.340989.340989 client.py:119] confirm_model_loaded: Mixtral-8x7B, 8c51c719-cedf-4c7b-b72b-ecb3ea51041a
+DEBUG 01-18 20:14:44.341799.341799 client.py:72] load_into_gpu: Mixtral-8x7B, 3203013d-7dd5-4f3a-95f3-af9578889f2e
+DEBUG 01-18 20:14:44.342107.342107 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:44.349176.349176 client.py:127] Model loaded
+DEBUG 01-18 20:14:44.350574.350574 client.py:115] Model loaded: Mixtral-8x7B, 3203013d-7dd5-4f3a-95f3-af9578889f2e
+DEBUG 01-18 20:14:44.351901.351901 client.py:119] confirm_model_loaded: Mixtral-8x7B, 3203013d-7dd5-4f3a-95f3-af9578889f2e
+DEBUG 01-18 20:14:44.381142.381142 client.py:127] Model loaded
+DEBUG 01-18 20:14:44.739206.739206 client.py:72] load_into_gpu: Mixtral-8x7B, dc0b4bec-d19d-4885-852b-925b1a504312
+DEBUG 01-18 20:14:44.740363.740363 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:44.742005.742005 client.py:115] Model loaded: Mixtral-8x7B, dc0b4bec-d19d-4885-852b-925b1a504312
+DEBUG 01-18 20:14:44.742740.742740 client.py:119] confirm_model_loaded: Mixtral-8x7B, dc0b4bec-d19d-4885-852b-925b1a504312
+DEBUG 01-18 20:14:44.746821.746821 client.py:72] load_into_gpu: Mixtral-8x7B, a00754b9-9fd4-4120-a46a-c0419483caad
+DEBUG 01-18 20:14:44.746923.746923 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:44.752683.752683 client.py:127] Model loaded
+DEBUG 01-18 20:14:44.753907.753907 client.py:115] Model loaded: Mixtral-8x7B, a00754b9-9fd4-4120-a46a-c0419483caad
+DEBUG 01-18 20:14:44.755459.755459 client.py:119] confirm_model_loaded: Mixtral-8x7B, a00754b9-9fd4-4120-a46a-c0419483caad
+DEBUG 01-18 20:14:44.784028.784028 client.py:127] Model loaded
+DEBUG 01-18 20:14:45.249937.249937 client.py:72] load_into_gpu: Mixtral-8x7B, 69c0d8e3-d6bc-4311-ac79-71eca681ecd6
+DEBUG 01-18 20:14:45.249618.249618 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:45.251567.251567 client.py:115] Model loaded: Mixtral-8x7B, 69c0d8e3-d6bc-4311-ac79-71eca681ecd6
+DEBUG 01-18 20:14:45.252896.252896 client.py:119] confirm_model_loaded: Mixtral-8x7B, 69c0d8e3-d6bc-4311-ac79-71eca681ecd6
+DEBUG 01-18 20:14:45.255765.255765 client.py:72] load_into_gpu: Mixtral-8x7B, f88feef6-df12-4004-90ab-9f2a0d84ae87
+DEBUG 01-18 20:14:45.255037.255037 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:45.261639.261639 client.py:127] Model loaded
+DEBUG 01-18 20:14:45.262963.262963 client.py:115] Model loaded: Mixtral-8x7B, f88feef6-df12-4004-90ab-9f2a0d84ae87
+DEBUG 01-18 20:14:45.263728.263728 client.py:119] confirm_model_loaded: Mixtral-8x7B, f88feef6-df12-4004-90ab-9f2a0d84ae87
+DEBUG 01-18 20:14:45.293697.293697 client.py:127] Model loaded
+DEBUG 01-18 20:14:45.614265.614265 client.py:72] load_into_gpu: Mixtral-8x7B, 094ee69c-4613-44e6-ac33-70d7a77397a2
+DEBUG 01-18 20:14:45.614317.614317 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:45.617342.617342 client.py:115] Model loaded: Mixtral-8x7B, 094ee69c-4613-44e6-ac33-70d7a77397a2
+DEBUG 01-18 20:14:45.617218.617218 client.py:119] confirm_model_loaded: Mixtral-8x7B, 094ee69c-4613-44e6-ac33-70d7a77397a2
+DEBUG 01-18 20:14:45.627844.627844 client.py:72] load_into_gpu: Mixtral-8x7B, d8e915dd-42d0-4e85-ac2c-64f3e4b92114
+DEBUG 01-18 20:14:45.628705.628705 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:45.628635.628635 client.py:127] Model loaded
+DEBUG 01-18 20:14:45.629328.629328 client.py:115] Model loaded: Mixtral-8x7B, d8e915dd-42d0-4e85-ac2c-64f3e4b92114
+DEBUG 01-18 20:14:45.631182.631182 client.py:119] confirm_model_loaded: Mixtral-8x7B, d8e915dd-42d0-4e85-ac2c-64f3e4b92114
+DEBUG 01-18 20:14:45.661417.661417 client.py:127] Model loaded
+DEBUG 01-18 20:14:46.234991.234991 client.py:72] load_into_gpu: Mixtral-8x7B, 7d1c76ff-3230-4170-a6c3-3fc4c4a33699
+DEBUG 01-18 20:14:46.234820.234820 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:46.236065.236065 client.py:115] Model loaded: Mixtral-8x7B, 7d1c76ff-3230-4170-a6c3-3fc4c4a33699
+DEBUG 01-18 20:14:46.236595.236595 client.py:119] confirm_model_loaded: Mixtral-8x7B, 7d1c76ff-3230-4170-a6c3-3fc4c4a33699
+DEBUG 01-18 20:14:46.238795.238795 client.py:72] load_into_gpu: Mixtral-8x7B, 0df748e3-66d9-4d17-96a9-b519fe52706e
+DEBUG 01-18 20:14:46.238059.238059 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:46.246794.246794 client.py:127] Model loaded
+DEBUG 01-18 20:14:46.247569.247569 client.py:115] Model loaded: Mixtral-8x7B, 0df748e3-66d9-4d17-96a9-b519fe52706e
+DEBUG 01-18 20:14:46.247374.247374 client.py:119] confirm_model_loaded: Mixtral-8x7B, 0df748e3-66d9-4d17-96a9-b519fe52706e
+DEBUG 01-18 20:14:46.279483.279483 client.py:127] Model loaded
+DEBUG 01-18 20:14:47.126407.126407 client.py:72] load_into_gpu: Mixtral-8x7B, 732414aa-1b7d-4002-98c1-aa970e0c3925
+DEBUG 01-18 20:14:47.126688.126688 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:47.128589.128589 client.py:115] Model loaded: Mixtral-8x7B, 732414aa-1b7d-4002-98c1-aa970e0c3925
+DEBUG 01-18 20:14:47.128158.128158 client.py:119] confirm_model_loaded: Mixtral-8x7B, 732414aa-1b7d-4002-98c1-aa970e0c3925
+DEBUG 01-18 20:14:47.130107.130107 client.py:72] load_into_gpu: Mixtral-8x7B, 0b66aac8-7b19-4c32-9717-0ea02f04bde3
+DEBUG 01-18 20:14:47.131706.131706 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:47.138802.138802 client.py:127] Model loaded
+DEBUG 01-18 20:14:47.139381.139381 client.py:115] Model loaded: Mixtral-8x7B, 0b66aac8-7b19-4c32-9717-0ea02f04bde3
+DEBUG 01-18 20:14:47.140974.140974 client.py:119] confirm_model_loaded: Mixtral-8x7B, 0b66aac8-7b19-4c32-9717-0ea02f04bde3
+DEBUG 01-18 20:14:47.170664.170664 client.py:127] Model loaded
+DEBUG 01-18 20:14:47.463464.463464 client.py:72] load_into_gpu: Mixtral-8x7B, 75a577e8-a1da-4cf5-8446-a5103f1aa441
+DEBUG 01-18 20:14:47.463799.463799 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:47.465703.465703 client.py:115] Model loaded: Mixtral-8x7B, 75a577e8-a1da-4cf5-8446-a5103f1aa441
+DEBUG 01-18 20:14:47.465378.465378 client.py:119] confirm_model_loaded: Mixtral-8x7B, 75a577e8-a1da-4cf5-8446-a5103f1aa441
+DEBUG 01-18 20:14:47.466737.466737 client.py:72] load_into_gpu: Mixtral-8x7B, 06ba415d-d6ac-4dd6-b0a4-7c182a82f43d
+DEBUG 01-18 20:14:47.467505.467505 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:47.475883.475883 client.py:127] Model loaded
+DEBUG 01-18 20:14:47.476090.476090 client.py:115] Model loaded: Mixtral-8x7B, 06ba415d-d6ac-4dd6-b0a4-7c182a82f43d
+DEBUG 01-18 20:14:47.476083.476083 client.py:119] confirm_model_loaded: Mixtral-8x7B, 06ba415d-d6ac-4dd6-b0a4-7c182a82f43d
+DEBUG 01-18 20:14:47.507479.507479 client.py:127] Model loaded
+DEBUG 01-18 20:14:47.845916.845916 client.py:72] load_into_gpu: Mixtral-8x7B, 61fbc203-206c-47a5-a214-309ad1683eea
+DEBUG 01-18 20:14:47.845593.845593 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:47.847569.847569 client.py:115] Model loaded: Mixtral-8x7B, 61fbc203-206c-47a5-a214-309ad1683eea
+DEBUG 01-18 20:14:47.847694.847694 client.py:119] confirm_model_loaded: Mixtral-8x7B, 61fbc203-206c-47a5-a214-309ad1683eea
+DEBUG 01-18 20:14:47.850604.850604 client.py:72] load_into_gpu: Mixtral-8x7B, 8fede09a-217a-4886-b25a-db01a05eceba
+DEBUG 01-18 20:14:47.851859.851859 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:47.857083.857083 client.py:127] Model loaded
+DEBUG 01-18 20:14:47.857563.857563 client.py:115] Model loaded: Mixtral-8x7B, 8fede09a-217a-4886-b25a-db01a05eceba
+DEBUG 01-18 20:14:47.859542.859542 client.py:119] confirm_model_loaded: Mixtral-8x7B, 8fede09a-217a-4886-b25a-db01a05eceba
+DEBUG 01-18 20:14:47.889190.889190 client.py:127] Model loaded
+DEBUG 01-18 20:14:48.200948.200948 client.py:72] load_into_gpu: Mixtral-8x7B, 1f58d613-0a1b-4099-8820-af7f582ac58c
+DEBUG 01-18 20:14:48.201884.201884 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:48.202705.202705 client.py:115] Model loaded: Mixtral-8x7B, 1f58d613-0a1b-4099-8820-af7f582ac58c
+DEBUG 01-18 20:14:48.202785.202785 client.py:119] confirm_model_loaded: Mixtral-8x7B, 1f58d613-0a1b-4099-8820-af7f582ac58c
+DEBUG 01-18 20:14:48.207734.207734 client.py:72] load_into_gpu: Mixtral-8x7B, 454daa54-1ffd-47c4-8fbd-4eb942dd8288
+DEBUG 01-18 20:14:48.208935.208935 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:48.212822.212822 client.py:127] Model loaded
+DEBUG 01-18 20:14:48.213397.213397 client.py:115] Model loaded: Mixtral-8x7B, 454daa54-1ffd-47c4-8fbd-4eb942dd8288
+DEBUG 01-18 20:14:48.214813.214813 client.py:119] confirm_model_loaded: Mixtral-8x7B, 454daa54-1ffd-47c4-8fbd-4eb942dd8288
+DEBUG 01-18 20:14:48.243755.243755 client.py:127] Model loaded
+DEBUG 01-18 20:14:48.730284.730284 client.py:72] load_into_gpu: Mixtral-8x7B, aca71de5-f597-4f48-b8f2-16d899b948af
+DEBUG 01-18 20:14:48.730964.730964 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:48.732226.732226 client.py:115] Model loaded: Mixtral-8x7B, aca71de5-f597-4f48-b8f2-16d899b948af
+DEBUG 01-18 20:14:48.732879.732879 client.py:119] confirm_model_loaded: Mixtral-8x7B, aca71de5-f597-4f48-b8f2-16d899b948af
+DEBUG 01-18 20:14:48.734746.734746 client.py:72] load_into_gpu: Mixtral-8x7B, f0c72000-ae77-481e-9f7f-5b1549a0e619
+DEBUG 01-18 20:14:48.734217.734217 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:48.742757.742757 client.py:127] Model loaded
+DEBUG 01-18 20:14:48.742897.742897 client.py:115] Model loaded: Mixtral-8x7B, f0c72000-ae77-481e-9f7f-5b1549a0e619
+DEBUG 01-18 20:14:48.743496.743496 client.py:119] confirm_model_loaded: Mixtral-8x7B, f0c72000-ae77-481e-9f7f-5b1549a0e619
+DEBUG 01-18 20:14:48.773791.773791 client.py:127] Model loaded
+DEBUG 01-18 20:14:49.082415.082415 client.py:72] load_into_gpu: Mixtral-8x7B, 4ec55704-9001-4155-b509-b205f8d78e21
+DEBUG 01-18 20:14:49.082823.082823 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:49.085798.085798 client.py:115] Model loaded: Mixtral-8x7B, 4ec55704-9001-4155-b509-b205f8d78e21
+DEBUG 01-18 20:14:49.085554.085554 client.py:119] confirm_model_loaded: Mixtral-8x7B, 4ec55704-9001-4155-b509-b205f8d78e21
+DEBUG 01-18 20:14:49.089423.089423 client.py:72] load_into_gpu: Mixtral-8x7B, 2266f399-03af-4f82-9687-8d03324ad80b
+DEBUG 01-18 20:14:49.089213.089213 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:49.094291.094291 client.py:127] Model loaded
+DEBUG 01-18 20:14:49.095402.095402 client.py:115] Model loaded: Mixtral-8x7B, 2266f399-03af-4f82-9687-8d03324ad80b
+DEBUG 01-18 20:14:49.097993.097993 client.py:119] confirm_model_loaded: Mixtral-8x7B, 2266f399-03af-4f82-9687-8d03324ad80b
+DEBUG 01-18 20:14:49.126192.126192 client.py:127] Model loaded
+DEBUG 01-18 20:14:49.416020.416020 client.py:72] load_into_gpu: Mixtral-8x7B, 782afe2e-8125-4547-9163-df82350b35f8
+DEBUG 01-18 20:14:49.416844.416844 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:49.418118.418118 client.py:115] Model loaded: Mixtral-8x7B, 782afe2e-8125-4547-9163-df82350b35f8
+DEBUG 01-18 20:14:49.418861.418861 client.py:119] confirm_model_loaded: Mixtral-8x7B, 782afe2e-8125-4547-9163-df82350b35f8
+DEBUG 01-18 20:14:49.420873.420873 client.py:72] load_into_gpu: Mixtral-8x7B, 5c2fb996-a5e5-4bd6-b0d7-0af727fa90e6
+DEBUG 01-18 20:14:49.420657.420657 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:49.428588.428588 client.py:127] Model loaded
+DEBUG 01-18 20:14:49.429792.429792 client.py:115] Model loaded: Mixtral-8x7B, 5c2fb996-a5e5-4bd6-b0d7-0af727fa90e6
+DEBUG 01-18 20:14:49.429456.429456 client.py:119] confirm_model_loaded: Mixtral-8x7B, 5c2fb996-a5e5-4bd6-b0d7-0af727fa90e6
+DEBUG 01-18 20:14:49.459386.459386 client.py:127] Model loaded
+DEBUG 01-18 20:14:49.756019.756019 client.py:72] load_into_gpu: Mixtral-8x7B, d9fa13b7-c7bf-4d9f-86ab-44ac1a90f8a4
+DEBUG 01-18 20:14:49.756399.756399 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:49.758724.758724 client.py:115] Model loaded: Mixtral-8x7B, d9fa13b7-c7bf-4d9f-86ab-44ac1a90f8a4
+DEBUG 01-18 20:14:49.759968.759968 client.py:119] confirm_model_loaded: Mixtral-8x7B, d9fa13b7-c7bf-4d9f-86ab-44ac1a90f8a4
+DEBUG 01-18 20:14:49.763795.763795 client.py:72] load_into_gpu: Mixtral-8x7B, a176cf0e-5144-4585-8e2b-6d359527d191
+DEBUG 01-18 20:14:49.763280.763280 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:49.768633.768633 client.py:127] Model loaded
+DEBUG 01-18 20:14:49.769342.769342 client.py:115] Model loaded: Mixtral-8x7B, a176cf0e-5144-4585-8e2b-6d359527d191
+DEBUG 01-18 20:14:49.769426.769426 client.py:119] confirm_model_loaded: Mixtral-8x7B, a176cf0e-5144-4585-8e2b-6d359527d191
+DEBUG 01-18 20:14:49.799262.799262 client.py:127] Model loaded
+DEBUG 01-18 20:14:50.097294.097294 client.py:72] load_into_gpu: Mixtral-8x7B, a8d8ccab-0679-4f42-bca9-580a2d2ec859
+DEBUG 01-18 20:14:50.097068.097068 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:50.099452.099452 client.py:115] Model loaded: Mixtral-8x7B, a8d8ccab-0679-4f42-bca9-580a2d2ec859
+DEBUG 01-18 20:14:50.099219.099219 client.py:119] confirm_model_loaded: Mixtral-8x7B, a8d8ccab-0679-4f42-bca9-580a2d2ec859
+DEBUG 01-18 20:14:50.103523.103523 client.py:72] load_into_gpu: Mixtral-8x7B, fec406d1-077e-4857-a85f-f6d241b9fb25
+DEBUG 01-18 20:14:50.103504.103504 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:50.109896.109896 client.py:127] Model loaded
+DEBUG 01-18 20:14:50.110506.110506 client.py:115] Model loaded: Mixtral-8x7B, fec406d1-077e-4857-a85f-f6d241b9fb25
+DEBUG 01-18 20:14:50.111773.111773 client.py:119] confirm_model_loaded: Mixtral-8x7B, fec406d1-077e-4857-a85f-f6d241b9fb25
+DEBUG 01-18 20:14:50.141373.141373 client.py:127] Model loaded
+DEBUG 01-18 20:14:50.483185.483185 client.py:72] load_into_gpu: Mixtral-8x7B, fae3a594-3030-4903-89e1-17031e553cd4
+DEBUG 01-18 20:14:50.484008.484008 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:50.486966.486966 client.py:115] Model loaded: Mixtral-8x7B, fae3a594-3030-4903-89e1-17031e553cd4
+DEBUG 01-18 20:14:50.486349.486349 client.py:119] confirm_model_loaded: Mixtral-8x7B, fae3a594-3030-4903-89e1-17031e553cd4
+DEBUG 01-18 20:14:50.490760.490760 client.py:72] load_into_gpu: Mixtral-8x7B, add25a07-37ee-4e76-a431-4bdc28234953
+DEBUG 01-18 20:14:50.490847.490847 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:50.495361.495361 client.py:127] Model loaded
+DEBUG 01-18 20:14:50.496979.496979 client.py:115] Model loaded: Mixtral-8x7B, add25a07-37ee-4e76-a431-4bdc28234953
+DEBUG 01-18 20:14:50.497816.497816 client.py:119] confirm_model_loaded: Mixtral-8x7B, add25a07-37ee-4e76-a431-4bdc28234953
+DEBUG 01-18 20:14:50.527316.527316 client.py:127] Model loaded
+DEBUG 01-18 20:14:51.006936.006936 client.py:72] load_into_gpu: Mixtral-8x7B, 328ee871-1f15-44ee-a61e-2385c6777915
+DEBUG 01-18 20:14:51.007288.007288 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:51.009569.009569 client.py:115] Model loaded: Mixtral-8x7B, 328ee871-1f15-44ee-a61e-2385c6777915
+DEBUG 01-18 20:14:51.009713.009713 client.py:119] confirm_model_loaded: Mixtral-8x7B, 328ee871-1f15-44ee-a61e-2385c6777915
+DEBUG 01-18 20:14:51.013197.013197 client.py:72] load_into_gpu: Mixtral-8x7B, 0fccbdaf-9aca-478a-9adc-b482dabf1b87
+DEBUG 01-18 20:14:51.013337.013337 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:51.019039.019039 client.py:127] Model loaded
+DEBUG 01-18 20:14:51.019554.019554 client.py:115] Model loaded: Mixtral-8x7B, 0fccbdaf-9aca-478a-9adc-b482dabf1b87
+DEBUG 01-18 20:14:51.020233.020233 client.py:119] confirm_model_loaded: Mixtral-8x7B, 0fccbdaf-9aca-478a-9adc-b482dabf1b87
+DEBUG 01-18 20:14:51.050444.050444 client.py:127] Model loaded
+DEBUG 01-18 20:14:51.346699.346699 client.py:72] load_into_gpu: Mixtral-8x7B, 4d3a8c03-5b33-454e-bccb-ed0f3ee527d6
+DEBUG 01-18 20:14:51.346612.346612 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:51.348228.348228 client.py:115] Model loaded: Mixtral-8x7B, 4d3a8c03-5b33-454e-bccb-ed0f3ee527d6
+DEBUG 01-18 20:14:51.348736.348736 client.py:119] confirm_model_loaded: Mixtral-8x7B, 4d3a8c03-5b33-454e-bccb-ed0f3ee527d6
+DEBUG 01-18 20:14:51.353516.353516 client.py:72] load_into_gpu: Mixtral-8x7B, 335a032f-9445-4e6b-81e4-15d7b23b5c67
+DEBUG 01-18 20:14:51.353082.353082 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:51.358127.358127 client.py:127] Model loaded
+DEBUG 01-18 20:14:51.358241.358241 client.py:115] Model loaded: Mixtral-8x7B, 335a032f-9445-4e6b-81e4-15d7b23b5c67
+DEBUG 01-18 20:14:51.359126.359126 client.py:119] confirm_model_loaded: Mixtral-8x7B, 335a032f-9445-4e6b-81e4-15d7b23b5c67
+DEBUG 01-18 20:14:51.391512.391512 client.py:127] Model loaded
+DEBUG 01-18 20:14:51.946869.946869 client.py:72] load_into_gpu: Mixtral-8x7B, 3cf105c3-d95f-4cd1-bdf2-fe52a8545a8a
+DEBUG 01-18 20:14:51.946507.946507 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:51.949595.949595 client.py:115] Model loaded: Mixtral-8x7B, 3cf105c3-d95f-4cd1-bdf2-fe52a8545a8a
+DEBUG 01-18 20:14:51.949752.949752 client.py:119] confirm_model_loaded: Mixtral-8x7B, 3cf105c3-d95f-4cd1-bdf2-fe52a8545a8a
+DEBUG 01-18 20:14:51.951876.951876 client.py:72] load_into_gpu: Mixtral-8x7B, 2826a7a0-3962-4e3a-8a20-03b859bcf4ff
+DEBUG 01-18 20:14:51.952108.952108 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:51.958690.958690 client.py:127] Model loaded
+DEBUG 01-18 20:14:51.959844.959844 client.py:115] Model loaded: Mixtral-8x7B, 2826a7a0-3962-4e3a-8a20-03b859bcf4ff
+DEBUG 01-18 20:14:51.960329.960329 client.py:119] confirm_model_loaded: Mixtral-8x7B, 2826a7a0-3962-4e3a-8a20-03b859bcf4ff
+DEBUG 01-18 20:14:51.989788.989788 client.py:127] Model loaded
+DEBUG 01-18 20:14:52.422074.422074 client.py:72] load_into_gpu: Mixtral-8x7B, 61694656-cd74-4843-b2b3-483ab532edfe
+DEBUG 01-18 20:14:52.423864.423864 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:52.425874.425874 client.py:115] Model loaded: Mixtral-8x7B, 61694656-cd74-4843-b2b3-483ab532edfe
+DEBUG 01-18 20:14:52.425734.425734 client.py:119] confirm_model_loaded: Mixtral-8x7B, 61694656-cd74-4843-b2b3-483ab532edfe
+DEBUG 01-18 20:14:52.428331.428331 client.py:72] load_into_gpu: Mixtral-8x7B, 84111140-f5cd-43b8-84ff-9a36a535398a
+DEBUG 01-18 20:14:52.428379.428379 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:52.435949.435949 client.py:127] Model loaded
+DEBUG 01-18 20:14:52.435869.435869 client.py:115] Model loaded: Mixtral-8x7B, 84111140-f5cd-43b8-84ff-9a36a535398a
+DEBUG 01-18 20:14:52.436483.436483 client.py:119] confirm_model_loaded: Mixtral-8x7B, 84111140-f5cd-43b8-84ff-9a36a535398a
+DEBUG 01-18 20:14:52.466271.466271 client.py:127] Model loaded
+DEBUG 01-18 20:14:53.007829.007829 client.py:72] load_into_gpu: Mixtral-8x7B, d8e7f3aa-1a3b-4ea1-bc8d-611c924543a1
+DEBUG 01-18 20:14:53.008076.008076 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:53.010121.010121 client.py:115] Model loaded: Mixtral-8x7B, d8e7f3aa-1a3b-4ea1-bc8d-611c924543a1
+DEBUG 01-18 20:14:53.010530.010530 client.py:119] confirm_model_loaded: Mixtral-8x7B, d8e7f3aa-1a3b-4ea1-bc8d-611c924543a1
+DEBUG 01-18 20:14:53.014173.014173 client.py:72] load_into_gpu: Mixtral-8x7B, 83706b6c-541f-4f02-b207-91c0171512d6
+DEBUG 01-18 20:14:53.014098.014098 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:53.019098.019098 client.py:127] Model loaded
+DEBUG 01-18 20:14:53.020507.020507 client.py:115] Model loaded: Mixtral-8x7B, 83706b6c-541f-4f02-b207-91c0171512d6
+DEBUG 01-18 20:14:53.021447.021447 client.py:119] confirm_model_loaded: Mixtral-8x7B, 83706b6c-541f-4f02-b207-91c0171512d6
+DEBUG 01-18 20:14:53.051109.051109 client.py:127] Model loaded
+DEBUG 01-18 20:14:53.428114.428114 client.py:72] load_into_gpu: Mixtral-8x7B, 3d88f586-9b2b-4fcb-9950-03096240719e
+DEBUG 01-18 20:14:53.429181.429181 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:53.431781.431781 client.py:115] Model loaded: Mixtral-8x7B, 3d88f586-9b2b-4fcb-9950-03096240719e
+DEBUG 01-18 20:14:53.431805.431805 client.py:119] confirm_model_loaded: Mixtral-8x7B, 3d88f586-9b2b-4fcb-9950-03096240719e
+DEBUG 01-18 20:14:53.435278.435278 client.py:72] load_into_gpu: Mixtral-8x7B, 887b476c-92b8-47ec-baf4-b1f46cf1d319
+DEBUG 01-18 20:14:53.436994.436994 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:53.440243.440243 client.py:127] Model loaded
+DEBUG 01-18 20:14:53.441084.441084 client.py:115] Model loaded: Mixtral-8x7B, 887b476c-92b8-47ec-baf4-b1f46cf1d319
+DEBUG 01-18 20:14:53.442084.442084 client.py:119] confirm_model_loaded: Mixtral-8x7B, 887b476c-92b8-47ec-baf4-b1f46cf1d319
+DEBUG 01-18 20:14:53.471054.471054 client.py:127] Model loaded
+DEBUG 01-18 20:14:53.806483.806483 client.py:72] load_into_gpu: Mixtral-8x7B, fbef1f30-6379-413c-8b81-2eba484a649b
+DEBUG 01-18 20:14:53.806015.806015 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:53.808013.808013 client.py:115] Model loaded: Mixtral-8x7B, fbef1f30-6379-413c-8b81-2eba484a649b
+DEBUG 01-18 20:14:53.808226.808226 client.py:119] confirm_model_loaded: Mixtral-8x7B, fbef1f30-6379-413c-8b81-2eba484a649b
+DEBUG 01-18 20:14:53.810203.810203 client.py:72] load_into_gpu: Mixtral-8x7B, 3bcd48a1-37ce-455e-97c4-956dd2449e2d
+DEBUG 01-18 20:14:53.810620.810620 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:53.818102.818102 client.py:127] Model loaded
+DEBUG 01-18 20:14:53.818745.818745 client.py:115] Model loaded: Mixtral-8x7B, 3bcd48a1-37ce-455e-97c4-956dd2449e2d
+DEBUG 01-18 20:14:53.819490.819490 client.py:119] confirm_model_loaded: Mixtral-8x7B, 3bcd48a1-37ce-455e-97c4-956dd2449e2d
+DEBUG 01-18 20:14:53.850169.850169 client.py:127] Model loaded
+DEBUG 01-18 20:14:54.100865.100865 client.py:72] load_into_gpu: Mixtral-8x7B, 684aff26-56f5-489c-a405-7047899a6195
+DEBUG 01-18 20:14:54.101006.101006 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:54.102225.102225 client.py:115] Model loaded: Mixtral-8x7B, 684aff26-56f5-489c-a405-7047899a6195
+DEBUG 01-18 20:14:54.103160.103160 client.py:119] confirm_model_loaded: Mixtral-8x7B, 684aff26-56f5-489c-a405-7047899a6195
+DEBUG 01-18 20:14:54.104955.104955 client.py:72] load_into_gpu: Mixtral-8x7B, da4c9cca-39dc-43e4-b7c2-cc834d587f9a
+DEBUG 01-18 20:14:54.104960.104960 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:54.112163.112163 client.py:127] Model loaded
+DEBUG 01-18 20:14:54.112126.112126 client.py:115] Model loaded: Mixtral-8x7B, da4c9cca-39dc-43e4-b7c2-cc834d587f9a
+DEBUG 01-18 20:14:54.113675.113675 client.py:119] confirm_model_loaded: Mixtral-8x7B, da4c9cca-39dc-43e4-b7c2-cc834d587f9a
+DEBUG 01-18 20:14:54.143818.143818 client.py:127] Model loaded
+DEBUG 01-18 20:14:54.595291.595291 client.py:72] load_into_gpu: Mixtral-8x7B, f4da0b7f-8321-477c-8f9b-61ec66108e20
+DEBUG 01-18 20:14:54.596686.596686 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:54.597530.597530 client.py:115] Model loaded: Mixtral-8x7B, f4da0b7f-8321-477c-8f9b-61ec66108e20
+DEBUG 01-18 20:14:54.598083.598083 client.py:119] confirm_model_loaded: Mixtral-8x7B, f4da0b7f-8321-477c-8f9b-61ec66108e20
+DEBUG 01-18 20:14:54.599259.599259 client.py:72] load_into_gpu: Mixtral-8x7B, 5224c5fe-cc58-468c-88e0-b756ea248509
+DEBUG 01-18 20:14:54.599696.599696 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:54.607477.607477 client.py:127] Model loaded
+DEBUG 01-18 20:14:54.607914.607914 client.py:115] Model loaded: Mixtral-8x7B, 5224c5fe-cc58-468c-88e0-b756ea248509
+DEBUG 01-18 20:14:54.609268.609268 client.py:119] confirm_model_loaded: Mixtral-8x7B, 5224c5fe-cc58-468c-88e0-b756ea248509
+DEBUG 01-18 20:14:54.638481.638481 client.py:127] Model loaded
+DEBUG 01-18 20:14:54.907078.907078 client.py:72] load_into_gpu: Mixtral-8x7B, faad3981-a3dd-4246-8c73-c97c71b9e5f9
+DEBUG 01-18 20:14:54.907235.907235 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:54.909276.909276 client.py:115] Model loaded: Mixtral-8x7B, faad3981-a3dd-4246-8c73-c97c71b9e5f9
+DEBUG 01-18 20:14:54.910611.910611 client.py:119] confirm_model_loaded: Mixtral-8x7B, faad3981-a3dd-4246-8c73-c97c71b9e5f9
+DEBUG 01-18 20:14:54.911109.911109 client.py:72] load_into_gpu: Mixtral-8x7B, 2f7834b8-970b-4ede-82fe-73360f2fbcbc
+DEBUG 01-18 20:14:54.911598.911598 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:54.919685.919685 client.py:127] Model loaded
+DEBUG 01-18 20:14:54.919632.919632 client.py:115] Model loaded: Mixtral-8x7B, 2f7834b8-970b-4ede-82fe-73360f2fbcbc
+DEBUG 01-18 20:14:54.920669.920669 client.py:119] confirm_model_loaded: Mixtral-8x7B, 2f7834b8-970b-4ede-82fe-73360f2fbcbc
+DEBUG 01-18 20:14:54.951058.951058 client.py:127] Model loaded
+DEBUG 01-18 20:14:55.214507.214507 client.py:72] load_into_gpu: Mixtral-8x7B, 35df383b-bad9-4025-be08-dd8d10651ef5
+DEBUG 01-18 20:14:55.214186.214186 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:55.216229.216229 client.py:115] Model loaded: Mixtral-8x7B, 35df383b-bad9-4025-be08-dd8d10651ef5
+DEBUG 01-18 20:14:55.216010.216010 client.py:119] confirm_model_loaded: Mixtral-8x7B, 35df383b-bad9-4025-be08-dd8d10651ef5
+DEBUG 01-18 20:14:55.217151.217151 client.py:72] load_into_gpu: Mixtral-8x7B, d764e588-93be-4304-abb1-5beabc3ad3a5
+DEBUG 01-18 20:14:55.218156.218156 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:55.225986.225986 client.py:127] Model loaded
+DEBUG 01-18 20:14:55.226075.226075 client.py:115] Model loaded: Mixtral-8x7B, d764e588-93be-4304-abb1-5beabc3ad3a5
+DEBUG 01-18 20:14:55.227182.227182 client.py:119] confirm_model_loaded: Mixtral-8x7B, d764e588-93be-4304-abb1-5beabc3ad3a5
+DEBUG 01-18 20:14:55.258989.258989 client.py:127] Model loaded
+DEBUG 01-18 20:14:55.784327.784327 client.py:72] load_into_gpu: Mixtral-8x7B, d92b9447-b7f0-42d5-9717-c65a897ca3b9
+DEBUG 01-18 20:14:55.784703.784703 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:55.786669.786669 client.py:115] Model loaded: Mixtral-8x7B, d92b9447-b7f0-42d5-9717-c65a897ca3b9
+DEBUG 01-18 20:14:55.786146.786146 client.py:119] confirm_model_loaded: Mixtral-8x7B, d92b9447-b7f0-42d5-9717-c65a897ca3b9
+DEBUG 01-18 20:14:55.789049.789049 client.py:72] load_into_gpu: Mixtral-8x7B, cdf0413e-b8ef-4733-a026-0a39134b375f
+DEBUG 01-18 20:14:55.789524.789524 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:55.795750.795750 client.py:127] Model loaded
+DEBUG 01-18 20:14:55.796664.796664 client.py:115] Model loaded: Mixtral-8x7B, cdf0413e-b8ef-4733-a026-0a39134b375f
+DEBUG 01-18 20:14:55.797951.797951 client.py:119] confirm_model_loaded: Mixtral-8x7B, cdf0413e-b8ef-4733-a026-0a39134b375f
+DEBUG 01-18 20:14:55.827046.827046 client.py:127] Model loaded
+DEBUG 01-18 20:14:56.192526.192526 client.py:72] load_into_gpu: Mixtral-8x7B, 8c74a2ff-d3a8-4d2f-8c27-e02484930bfb
+DEBUG 01-18 20:14:56.193305.193305 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:56.194096.194096 client.py:115] Model loaded: Mixtral-8x7B, 8c74a2ff-d3a8-4d2f-8c27-e02484930bfb
+DEBUG 01-18 20:14:56.195081.195081 client.py:119] confirm_model_loaded: Mixtral-8x7B, 8c74a2ff-d3a8-4d2f-8c27-e02484930bfb
+DEBUG 01-18 20:14:56.197189.197189 client.py:72] load_into_gpu: Mixtral-8x7B, cefd2fe3-fd5e-4558-ba69-ea3ac4159559
+DEBUG 01-18 20:14:56.198629.198629 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:56.205057.205057 client.py:127] Model loaded
+DEBUG 01-18 20:14:56.206818.206818 client.py:115] Model loaded: Mixtral-8x7B, cefd2fe3-fd5e-4558-ba69-ea3ac4159559
+DEBUG 01-18 20:14:56.207005.207005 client.py:119] confirm_model_loaded: Mixtral-8x7B, cefd2fe3-fd5e-4558-ba69-ea3ac4159559
+DEBUG 01-18 20:14:56.237854.237854 client.py:127] Model loaded
+DEBUG 01-18 20:14:56.569614.569614 client.py:72] load_into_gpu: Mixtral-8x7B, 9f444407-1d1e-4c6c-a772-0a54db06cb8d
+DEBUG 01-18 20:14:56.570728.570728 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:14:56.571795.571795 client.py:115] Model loaded: Mixtral-8x7B, 9f444407-1d1e-4c6c-a772-0a54db06cb8d
+DEBUG 01-18 20:14:56.572552.572552 client.py:119] confirm_model_loaded: Mixtral-8x7B, 9f444407-1d1e-4c6c-a772-0a54db06cb8d
+DEBUG 01-18 20:14:56.602632.602632 client.py:127] Model loaded
+INFO 01-18 20:14:56.954912.954912 lmp.py:1576] prefill time: 13.987061738967896 seconds
+INFO 01-18 20:14:58.755062.755062 lmp.py:1643] decode step 0 time: 1.7895698547363281 seconds
+INFO 01-18 20:15:00.458412.458412 lmp.py:1643] decode step 1 time: 1.7029612064361572 seconds
+INFO 01-18 20:15:02.051259.051259 lmp.py:1643] decode step 2 time: 1.5930428504943848 seconds
+INFO 01-18 20:15:03.697801.697801 lmp.py:1643] decode step 3 time: 1.6453979015350342 seconds
+INFO 01-18 20:15:05.356542.356542 lmp.py:1643] decode step 4 time: 1.658660888671875 seconds
+INFO 01-18 20:15:06.865177.865177 lmp.py:1643] decode step 5 time: 1.508509874343872 seconds
+INFO 01-18 20:15:08.291641.291641 lmp.py:1643] decode step 6 time: 1.425497055053711 seconds
+INFO 01-18 20:15:09.757479.757479 lmp.py:1643] decode step 7 time: 1.4658770561218262 seconds
+INFO 01-18 20:15:11.226423.226423 lmp.py:1643] decode step 8 time: 1.4678161144256592 seconds
+INFO 01-18 20:15:12.686675.686675 lmp.py:1643] decode step 9 time: 1.4605140686035156 seconds
+INFO 01-18 20:15:14.127062.127062 lmp.py:1643] decode step 10 time: 1.440598726272583 seconds
+INFO 01-18 20:15:15.593679.593679 lmp.py:1643] decode step 11 time: 1.4656665325164795 seconds
+INFO 01-18 20:15:17.025893.025893 lmp.py:1643] decode step 12 time: 1.4317147731781006 seconds
+INFO 01-18 20:15:18.478625.478625 lmp.py:1643] decode step 13 time: 1.4522185325622559 seconds
+INFO 01-18 20:15:19.920186.920186 lmp.py:1643] decode step 14 time: 1.4412858486175537 seconds
+INFO 01-18 20:15:21.328797.328797 lmp.py:1643] decode step 15 time: 1.40743088722229 seconds
+INFO 01-18 20:15:22.723833.723833 lmp.py:1643] decode step 16 time: 1.3947322368621826 seconds
+INFO 01-18 20:15:24.066643.066643 lmp.py:1643] decode step 17 time: 1.342115879058838 seconds
+INFO 01-18 20:15:25.471106.471106 lmp.py:1643] decode step 18 time: 1.4049601554870605 seconds
+INFO 01-18 20:15:26.975216.975216 lmp.py:1643] decode step 19 time: 1.5033683776855469 seconds
+INFO 01-18 20:15:28.539224.539224 lmp.py:1643] decode step 20 time: 1.5637664794921875 seconds
+INFO 01-18 20:15:30.041541.041541 lmp.py:1643] decode step 21 time: 1.5014073848724365 seconds
+INFO 01-18 20:15:31.520456.520456 lmp.py:1643] decode step 22 time: 1.4792888164520264 seconds
+INFO 01-18 20:15:33.036333.036333 lmp.py:1643] decode step 23 time: 1.5155668258666992 seconds
+INFO 01-18 20:15:34.454964.454964 lmp.py:1643] decode step 24 time: 1.4167304039001465 seconds
+INFO 01-18 20:15:35.826128.826128 lmp.py:1643] decode step 25 time: 1.371683120727539 seconds
+INFO 01-18 20:15:37.174978.174978 lmp.py:1643] decode step 26 time: 1.3482680320739746 seconds
+INFO 01-18 20:15:38.507246.507246 lmp.py:1643] decode step 27 time: 1.3323132991790771 seconds
+INFO 01-18 20:15:39.873903.873903 lmp.py:1643] decode step 28 time: 1.3650619983673096 seconds
+INFO 01-18 20:15:41.252054.252054 lmp.py:1643] decode step 29 time: 1.3784141540527344 seconds
+INFO 01-18 20:15:42.615069.615069 lmp.py:1643] decode step 30 time: 1.3625023365020752 seconds
+INFO 01-18 20:15:42.615939.615939 lmp.py:1645] average decode time: 1.472159408753918 seconds
+generate input ids cost 0.06493401527404785 s
+DEBUG 01-18 20:16:37.953121.953121 client.py:72] load_into_gpu: Mixtral-8x7B, a3655b6d-27ca-4ba1-9f0d-397f508ba5b5
+DEBUG 01-18 20:16:37.954960.954960 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:37.956769.956769 client.py:115] Model loaded: Mixtral-8x7B, a3655b6d-27ca-4ba1-9f0d-397f508ba5b5
+DEBUG 01-18 20:16:37.957207.957207 client.py:119] confirm_model_loaded: Mixtral-8x7B, a3655b6d-27ca-4ba1-9f0d-397f508ba5b5
+DEBUG 01-18 20:16:38.008810.008810 client.py:127] Model loaded
+DEBUG 01-18 20:16:38.008653.008653 client.py:72] load_into_gpu: Mixtral-8x7B, d2329319-d0ce-4ef9-8885-312458fcdf89
+DEBUG 01-18 20:16:38.009296.009296 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:38.011985.011985 client.py:115] Model loaded: Mixtral-8x7B, d2329319-d0ce-4ef9-8885-312458fcdf89
+DEBUG 01-18 20:16:38.011750.011750 client.py:119] confirm_model_loaded: Mixtral-8x7B, d2329319-d0ce-4ef9-8885-312458fcdf89
+DEBUG 01-18 20:16:38.020195.020195 client.py:127] Model loaded
+DEBUG 01-18 20:16:38.113167.113167 client.py:72] load_into_gpu: Mixtral-8x7B, 2e86be74-8fd9-410a-9cc0-627d18485bd0
+DEBUG 01-18 20:16:38.114151.114151 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:38.116008.116008 client.py:115] Model loaded: Mixtral-8x7B, 2e86be74-8fd9-410a-9cc0-627d18485bd0
+DEBUG 01-18 20:16:38.116306.116306 client.py:119] confirm_model_loaded: Mixtral-8x7B, 2e86be74-8fd9-410a-9cc0-627d18485bd0
+DEBUG 01-18 20:16:38.117346.117346 client.py:72] load_into_gpu: Mixtral-8x7B, dea0b19b-6ae3-43f0-8634-122291b9a6d7
+DEBUG 01-18 20:16:38.118921.118921 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:38.125718.125718 client.py:127] Model loaded
+DEBUG 01-18 20:16:38.126978.126978 client.py:115] Model loaded: Mixtral-8x7B, dea0b19b-6ae3-43f0-8634-122291b9a6d7
+DEBUG 01-18 20:16:38.127112.127112 client.py:119] confirm_model_loaded: Mixtral-8x7B, dea0b19b-6ae3-43f0-8634-122291b9a6d7
+DEBUG 01-18 20:16:38.157471.157471 client.py:127] Model loaded
+DEBUG 01-18 20:16:38.403661.403661 client.py:72] load_into_gpu: Mixtral-8x7B, ef73fa50-bbac-48dc-b982-de741c094aba
+DEBUG 01-18 20:16:38.403807.403807 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:38.404656.404656 client.py:115] Model loaded: Mixtral-8x7B, ef73fa50-bbac-48dc-b982-de741c094aba
+DEBUG 01-18 20:16:38.404219.404219 client.py:119] confirm_model_loaded: Mixtral-8x7B, ef73fa50-bbac-48dc-b982-de741c094aba
+DEBUG 01-18 20:16:38.406461.406461 client.py:72] load_into_gpu: Mixtral-8x7B, ce7d5b80-c297-4067-ac67-fa6f717fea78
+DEBUG 01-18 20:16:38.406487.406487 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:38.413983.413983 client.py:127] Model loaded
+DEBUG 01-18 20:16:38.413618.413618 client.py:115] Model loaded: Mixtral-8x7B, ce7d5b80-c297-4067-ac67-fa6f717fea78
+DEBUG 01-18 20:16:38.414803.414803 client.py:119] confirm_model_loaded: Mixtral-8x7B, ce7d5b80-c297-4067-ac67-fa6f717fea78
+DEBUG 01-18 20:16:38.443089.443089 client.py:127] Model loaded
+DEBUG 01-18 20:16:38.736076.736076 client.py:72] load_into_gpu: Mixtral-8x7B, 6409e1aa-8448-4eae-bf78-aa844d68b360
+DEBUG 01-18 20:16:38.736236.736236 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:38.737331.737331 client.py:115] Model loaded: Mixtral-8x7B, 6409e1aa-8448-4eae-bf78-aa844d68b360
+DEBUG 01-18 20:16:38.738781.738781 client.py:119] confirm_model_loaded: Mixtral-8x7B, 6409e1aa-8448-4eae-bf78-aa844d68b360
+DEBUG 01-18 20:16:38.740114.740114 client.py:72] load_into_gpu: Mixtral-8x7B, 771a19a7-a072-42de-a028-6f91bef59b48
+DEBUG 01-18 20:16:38.741311.741311 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:38.747851.747851 client.py:127] Model loaded
+DEBUG 01-18 20:16:38.747061.747061 client.py:115] Model loaded: Mixtral-8x7B, 771a19a7-a072-42de-a028-6f91bef59b48
+DEBUG 01-18 20:16:38.748626.748626 client.py:119] confirm_model_loaded: Mixtral-8x7B, 771a19a7-a072-42de-a028-6f91bef59b48
+DEBUG 01-18 20:16:38.779360.779360 client.py:127] Model loaded
+DEBUG 01-18 20:16:39.099186.099186 client.py:72] load_into_gpu: Mixtral-8x7B, f2676477-d66c-4761-bcf5-adb4e24a1873
+DEBUG 01-18 20:16:39.100331.100331 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:39.101461.101461 client.py:115] Model loaded: Mixtral-8x7B, f2676477-d66c-4761-bcf5-adb4e24a1873
+DEBUG 01-18 20:16:39.102925.102925 client.py:119] confirm_model_loaded: Mixtral-8x7B, f2676477-d66c-4761-bcf5-adb4e24a1873
+DEBUG 01-18 20:16:39.103006.103006 client.py:72] load_into_gpu: Mixtral-8x7B, 214bca09-1eb6-4648-8849-9d0becd119ba
+DEBUG 01-18 20:16:39.103495.103495 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:39.111927.111927 client.py:127] Model loaded
+DEBUG 01-18 20:16:39.111026.111026 client.py:115] Model loaded: Mixtral-8x7B, 214bca09-1eb6-4648-8849-9d0becd119ba
+DEBUG 01-18 20:16:39.113688.113688 client.py:119] confirm_model_loaded: Mixtral-8x7B, 214bca09-1eb6-4648-8849-9d0becd119ba
+DEBUG 01-18 20:16:39.142174.142174 client.py:127] Model loaded
+DEBUG 01-18 20:16:39.440300.440300 client.py:72] load_into_gpu: Mixtral-8x7B, 09ed4f99-068f-4ad5-a297-33951c8eb844
+DEBUG 01-18 20:16:39.440352.440352 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:39.442016.442016 client.py:115] Model loaded: Mixtral-8x7B, 09ed4f99-068f-4ad5-a297-33951c8eb844
+DEBUG 01-18 20:16:39.442523.442523 client.py:119] confirm_model_loaded: Mixtral-8x7B, 09ed4f99-068f-4ad5-a297-33951c8eb844
+DEBUG 01-18 20:16:39.443422.443422 client.py:72] load_into_gpu: Mixtral-8x7B, 475bd00f-d676-4d0f-ad5e-215041403a78
+DEBUG 01-18 20:16:39.444089.444089 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:39.451101.451101 client.py:127] Model loaded
+DEBUG 01-18 20:16:39.452769.452769 client.py:115] Model loaded: Mixtral-8x7B, 475bd00f-d676-4d0f-ad5e-215041403a78
+DEBUG 01-18 20:16:39.453119.453119 client.py:119] confirm_model_loaded: Mixtral-8x7B, 475bd00f-d676-4d0f-ad5e-215041403a78
+DEBUG 01-18 20:16:39.484928.484928 client.py:127] Model loaded
+DEBUG 01-18 20:16:39.834095.834095 client.py:72] load_into_gpu: Mixtral-8x7B, 238247aa-d7ea-4310-86d8-f2a74615fc42
+DEBUG 01-18 20:16:39.834597.834597 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:39.836389.836389 client.py:115] Model loaded: Mixtral-8x7B, 238247aa-d7ea-4310-86d8-f2a74615fc42
+DEBUG 01-18 20:16:39.837519.837519 client.py:119] confirm_model_loaded: Mixtral-8x7B, 238247aa-d7ea-4310-86d8-f2a74615fc42
+DEBUG 01-18 20:16:39.838087.838087 client.py:72] load_into_gpu: Mixtral-8x7B, e8ceff75-12f1-493d-9e80-c855e326eb73
+DEBUG 01-18 20:16:39.838815.838815 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:39.846777.846777 client.py:127] Model loaded
+DEBUG 01-18 20:16:39.846224.846224 client.py:115] Model loaded: Mixtral-8x7B, e8ceff75-12f1-493d-9e80-c855e326eb73
+DEBUG 01-18 20:16:39.847125.847125 client.py:119] confirm_model_loaded: Mixtral-8x7B, e8ceff75-12f1-493d-9e80-c855e326eb73
+DEBUG 01-18 20:16:39.878829.878829 client.py:127] Model loaded
+DEBUG 01-18 20:16:40.147255.147255 client.py:72] load_into_gpu: Mixtral-8x7B, 664d59f0-d1f8-4e09-935e-ab23f81826ca
+DEBUG 01-18 20:16:40.147684.147684 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:40.149285.149285 client.py:115] Model loaded: Mixtral-8x7B, 664d59f0-d1f8-4e09-935e-ab23f81826ca
+DEBUG 01-18 20:16:40.149077.149077 client.py:119] confirm_model_loaded: Mixtral-8x7B, 664d59f0-d1f8-4e09-935e-ab23f81826ca
+DEBUG 01-18 20:16:40.150932.150932 client.py:72] load_into_gpu: Mixtral-8x7B, bcefe96f-1cfb-409f-acc5-a5ec4e6cc37c
+DEBUG 01-18 20:16:40.151129.151129 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:40.158516.158516 client.py:127] Model loaded
+DEBUG 01-18 20:16:40.159810.159810 client.py:115] Model loaded: Mixtral-8x7B, bcefe96f-1cfb-409f-acc5-a5ec4e6cc37c
+DEBUG 01-18 20:16:40.160009.160009 client.py:119] confirm_model_loaded: Mixtral-8x7B, bcefe96f-1cfb-409f-acc5-a5ec4e6cc37c
+DEBUG 01-18 20:16:40.191875.191875 client.py:127] Model loaded
+DEBUG 01-18 20:16:40.598982.598982 client.py:72] load_into_gpu: Mixtral-8x7B, cfe3aa0e-9837-4e0f-86b6-4a7dc80ea199
+DEBUG 01-18 20:16:40.599092.599092 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:40.601037.601037 client.py:115] Model loaded: Mixtral-8x7B, cfe3aa0e-9837-4e0f-86b6-4a7dc80ea199
+DEBUG 01-18 20:16:40.601843.601843 client.py:119] confirm_model_loaded: Mixtral-8x7B, cfe3aa0e-9837-4e0f-86b6-4a7dc80ea199
+DEBUG 01-18 20:16:40.602959.602959 client.py:72] load_into_gpu: Mixtral-8x7B, 9d483aa9-56aa-4d27-b0d2-d8bd2e4b9512
+DEBUG 01-18 20:16:40.602401.602401 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:40.610446.610446 client.py:127] Model loaded
+DEBUG 01-18 20:16:40.611029.611029 client.py:115] Model loaded: Mixtral-8x7B, 9d483aa9-56aa-4d27-b0d2-d8bd2e4b9512
+DEBUG 01-18 20:16:40.612895.612895 client.py:119] confirm_model_loaded: Mixtral-8x7B, 9d483aa9-56aa-4d27-b0d2-d8bd2e4b9512
+DEBUG 01-18 20:16:40.648503.648503 client.py:127] Model loaded
+DEBUG 01-18 20:16:41.148926.148926 client.py:72] load_into_gpu: Mixtral-8x7B, 6330303a-f87c-4847-bfc3-06503c3d2b1d
+DEBUG 01-18 20:16:41.148844.148844 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:41.150884.150884 client.py:115] Model loaded: Mixtral-8x7B, 6330303a-f87c-4847-bfc3-06503c3d2b1d
+DEBUG 01-18 20:16:41.150437.150437 client.py:119] confirm_model_loaded: Mixtral-8x7B, 6330303a-f87c-4847-bfc3-06503c3d2b1d
+DEBUG 01-18 20:16:41.152325.152325 client.py:72] load_into_gpu: Mixtral-8x7B, f4126fad-a6e9-4e8f-af58-a2a1e4df4f30
+DEBUG 01-18 20:16:41.152363.152363 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:41.160357.160357 client.py:127] Model loaded
+DEBUG 01-18 20:16:41.161714.161714 client.py:115] Model loaded: Mixtral-8x7B, f4126fad-a6e9-4e8f-af58-a2a1e4df4f30
+DEBUG 01-18 20:16:41.161288.161288 client.py:119] confirm_model_loaded: Mixtral-8x7B, f4126fad-a6e9-4e8f-af58-a2a1e4df4f30
+DEBUG 01-18 20:16:41.192997.192997 client.py:127] Model loaded
+DEBUG 01-18 20:16:41.411818.411818 client.py:72] load_into_gpu: Mixtral-8x7B, 2229e632-5e05-4f4d-bbd1-7bf8b506393f
+DEBUG 01-18 20:16:41.412551.412551 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:41.413890.413890 client.py:115] Model loaded: Mixtral-8x7B, 2229e632-5e05-4f4d-bbd1-7bf8b506393f
+DEBUG 01-18 20:16:41.414834.414834 client.py:119] confirm_model_loaded: Mixtral-8x7B, 2229e632-5e05-4f4d-bbd1-7bf8b506393f
+DEBUG 01-18 20:16:41.415332.415332 client.py:72] load_into_gpu: Mixtral-8x7B, 464e83e1-37f9-4a43-8522-e0f0253bf5ed
+DEBUG 01-18 20:16:41.415072.415072 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:41.423819.423819 client.py:127] Model loaded
+DEBUG 01-18 20:16:41.423590.423590 client.py:115] Model loaded: Mixtral-8x7B, 464e83e1-37f9-4a43-8522-e0f0253bf5ed
+DEBUG 01-18 20:16:41.424263.424263 client.py:119] confirm_model_loaded: Mixtral-8x7B, 464e83e1-37f9-4a43-8522-e0f0253bf5ed
+DEBUG 01-18 20:16:41.456838.456838 client.py:127] Model loaded
+DEBUG 01-18 20:16:41.758684.758684 client.py:72] load_into_gpu: Mixtral-8x7B, 74373454-0cf6-4ef0-8f76-720c0f53f9a5
+DEBUG 01-18 20:16:41.758930.758930 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:41.759030.759030 client.py:115] Model loaded: Mixtral-8x7B, 74373454-0cf6-4ef0-8f76-720c0f53f9a5
+DEBUG 01-18 20:16:41.760374.760374 client.py:119] confirm_model_loaded: Mixtral-8x7B, 74373454-0cf6-4ef0-8f76-720c0f53f9a5
+DEBUG 01-18 20:16:41.762373.762373 client.py:72] load_into_gpu: Mixtral-8x7B, 0254928f-7b05-4469-9145-ba2adb9b975c
+DEBUG 01-18 20:16:41.763901.763901 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:41.769156.769156 client.py:127] Model loaded
+DEBUG 01-18 20:16:41.770318.770318 client.py:115] Model loaded: Mixtral-8x7B, 0254928f-7b05-4469-9145-ba2adb9b975c
+DEBUG 01-18 20:16:41.770938.770938 client.py:119] confirm_model_loaded: Mixtral-8x7B, 0254928f-7b05-4469-9145-ba2adb9b975c
+DEBUG 01-18 20:16:41.800797.800797 client.py:127] Model loaded
+DEBUG 01-18 20:16:42.042067.042067 client.py:72] load_into_gpu: Mixtral-8x7B, 28933615-c167-4720-8228-36f0e5a07180
+DEBUG 01-18 20:16:42.042081.042081 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:42.044961.044961 client.py:115] Model loaded: Mixtral-8x7B, 28933615-c167-4720-8228-36f0e5a07180
+DEBUG 01-18 20:16:42.044629.044629 client.py:119] confirm_model_loaded: Mixtral-8x7B, 28933615-c167-4720-8228-36f0e5a07180
+DEBUG 01-18 20:16:42.048168.048168 client.py:72] load_into_gpu: Mixtral-8x7B, 30535689-fcb8-49cf-93fe-0cd5a8df05f2
+DEBUG 01-18 20:16:42.048847.048847 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:42.054888.054888 client.py:127] Model loaded
+DEBUG 01-18 20:16:42.055421.055421 client.py:115] Model loaded: Mixtral-8x7B, 30535689-fcb8-49cf-93fe-0cd5a8df05f2
+DEBUG 01-18 20:16:42.055637.055637 client.py:119] confirm_model_loaded: Mixtral-8x7B, 30535689-fcb8-49cf-93fe-0cd5a8df05f2
+DEBUG 01-18 20:16:42.085474.085474 client.py:127] Model loaded
+DEBUG 01-18 20:16:42.455926.455926 client.py:72] load_into_gpu: Mixtral-8x7B, d9fb03bf-f43d-4f4a-92b0-a832110d14ac
+DEBUG 01-18 20:16:42.455180.455180 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:42.457184.457184 client.py:115] Model loaded: Mixtral-8x7B, d9fb03bf-f43d-4f4a-92b0-a832110d14ac
+DEBUG 01-18 20:16:42.457854.457854 client.py:119] confirm_model_loaded: Mixtral-8x7B, d9fb03bf-f43d-4f4a-92b0-a832110d14ac
+DEBUG 01-18 20:16:42.459253.459253 client.py:72] load_into_gpu: Mixtral-8x7B, ae639f2a-13af-40d0-ad2a-6c678a84d9d9
+DEBUG 01-18 20:16:42.459973.459973 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:42.467902.467902 client.py:127] Model loaded
+DEBUG 01-18 20:16:42.468451.468451 client.py:115] Model loaded: Mixtral-8x7B, ae639f2a-13af-40d0-ad2a-6c678a84d9d9
+DEBUG 01-18 20:16:42.468549.468549 client.py:119] confirm_model_loaded: Mixtral-8x7B, ae639f2a-13af-40d0-ad2a-6c678a84d9d9
+DEBUG 01-18 20:16:42.498197.498197 client.py:127] Model loaded
+DEBUG 01-18 20:16:42.732004.732004 client.py:72] load_into_gpu: Mixtral-8x7B, f71267a5-2e46-493d-96a8-c9967f0cb350
+DEBUG 01-18 20:16:42.732164.732164 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:42.734644.734644 client.py:115] Model loaded: Mixtral-8x7B, f71267a5-2e46-493d-96a8-c9967f0cb350
+DEBUG 01-18 20:16:42.734212.734212 client.py:119] confirm_model_loaded: Mixtral-8x7B, f71267a5-2e46-493d-96a8-c9967f0cb350
+DEBUG 01-18 20:16:42.736399.736399 client.py:72] load_into_gpu: Mixtral-8x7B, 30bfb64c-14b8-4ce4-a9bc-3cf856034fc5
+DEBUG 01-18 20:16:42.737283.737283 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:42.743768.743768 client.py:127] Model loaded
+DEBUG 01-18 20:16:42.744450.744450 client.py:115] Model loaded: Mixtral-8x7B, 30bfb64c-14b8-4ce4-a9bc-3cf856034fc5
+DEBUG 01-18 20:16:42.744077.744077 client.py:119] confirm_model_loaded: Mixtral-8x7B, 30bfb64c-14b8-4ce4-a9bc-3cf856034fc5
+DEBUG 01-18 20:16:42.774224.774224 client.py:127] Model loaded
+DEBUG 01-18 20:16:43.003476.003476 client.py:72] load_into_gpu: Mixtral-8x7B, 66bb85fa-93c5-45bb-be92-c3b4d27cac5f
+DEBUG 01-18 20:16:43.004158.004158 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:43.005289.005289 client.py:115] Model loaded: Mixtral-8x7B, 66bb85fa-93c5-45bb-be92-c3b4d27cac5f
+DEBUG 01-18 20:16:43.006639.006639 client.py:119] confirm_model_loaded: Mixtral-8x7B, 66bb85fa-93c5-45bb-be92-c3b4d27cac5f
+DEBUG 01-18 20:16:43.009022.009022 client.py:72] load_into_gpu: Mixtral-8x7B, 40b68ff2-3635-40f9-a14b-c723fd23e53a
+DEBUG 01-18 20:16:43.009470.009470 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:43.015313.015313 client.py:127] Model loaded
+DEBUG 01-18 20:16:43.016780.016780 client.py:115] Model loaded: Mixtral-8x7B, 40b68ff2-3635-40f9-a14b-c723fd23e53a
+DEBUG 01-18 20:16:43.016201.016201 client.py:119] confirm_model_loaded: Mixtral-8x7B, 40b68ff2-3635-40f9-a14b-c723fd23e53a
+DEBUG 01-18 20:16:43.046512.046512 client.py:127] Model loaded
+DEBUG 01-18 20:16:43.278380.278380 client.py:72] load_into_gpu: Mixtral-8x7B, a26bba3c-e4d0-47e9-b8ee-d16feb43a419
+DEBUG 01-18 20:16:43.278162.278162 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:43.280399.280399 client.py:115] Model loaded: Mixtral-8x7B, a26bba3c-e4d0-47e9-b8ee-d16feb43a419
+DEBUG 01-18 20:16:43.280631.280631 client.py:119] confirm_model_loaded: Mixtral-8x7B, a26bba3c-e4d0-47e9-b8ee-d16feb43a419
+DEBUG 01-18 20:16:43.284749.284749 client.py:72] load_into_gpu: Mixtral-8x7B, 78ab006e-e93b-42aa-83b2-0d4b30ceabd8
+DEBUG 01-18 20:16:43.284527.284527 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:43.290163.290163 client.py:127] Model loaded
+DEBUG 01-18 20:16:43.290396.290396 client.py:115] Model loaded: Mixtral-8x7B, 78ab006e-e93b-42aa-83b2-0d4b30ceabd8
+DEBUG 01-18 20:16:43.291526.291526 client.py:119] confirm_model_loaded: Mixtral-8x7B, 78ab006e-e93b-42aa-83b2-0d4b30ceabd8
+DEBUG 01-18 20:16:43.321690.321690 client.py:127] Model loaded
+DEBUG 01-18 20:16:43.552783.552783 client.py:72] load_into_gpu: Mixtral-8x7B, a4374931-e7f9-4a5f-a24e-a6da55c4d894
+DEBUG 01-18 20:16:43.552089.552089 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:43.554941.554941 client.py:115] Model loaded: Mixtral-8x7B, a4374931-e7f9-4a5f-a24e-a6da55c4d894
+DEBUG 01-18 20:16:43.554576.554576 client.py:119] confirm_model_loaded: Mixtral-8x7B, a4374931-e7f9-4a5f-a24e-a6da55c4d894
+DEBUG 01-18 20:16:43.558259.558259 client.py:72] load_into_gpu: Mixtral-8x7B, d86b4ef1-41af-4252-b66a-b22b9ec1b510
+DEBUG 01-18 20:16:43.558786.558786 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:43.564849.564849 client.py:127] Model loaded
+DEBUG 01-18 20:16:43.565792.565792 client.py:115] Model loaded: Mixtral-8x7B, d86b4ef1-41af-4252-b66a-b22b9ec1b510
+DEBUG 01-18 20:16:43.565644.565644 client.py:119] confirm_model_loaded: Mixtral-8x7B, d86b4ef1-41af-4252-b66a-b22b9ec1b510
+DEBUG 01-18 20:16:43.595201.595201 client.py:127] Model loaded
+DEBUG 01-18 20:16:43.840717.840717 client.py:72] load_into_gpu: Mixtral-8x7B, 658ec2e6-7594-4470-870c-9592c0ab3feb
+DEBUG 01-18 20:16:43.840446.840446 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:43.842448.842448 client.py:115] Model loaded: Mixtral-8x7B, 658ec2e6-7594-4470-870c-9592c0ab3feb
+DEBUG 01-18 20:16:43.842560.842560 client.py:119] confirm_model_loaded: Mixtral-8x7B, 658ec2e6-7594-4470-870c-9592c0ab3feb
+DEBUG 01-18 20:16:43.846553.846553 client.py:72] load_into_gpu: Mixtral-8x7B, e1be8166-d2b1-4bc9-832b-3a68f555f3a2
+DEBUG 01-18 20:16:43.846147.846147 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:43.851963.851963 client.py:127] Model loaded
+DEBUG 01-18 20:16:43.852011.852011 client.py:115] Model loaded: Mixtral-8x7B, e1be8166-d2b1-4bc9-832b-3a68f555f3a2
+DEBUG 01-18 20:16:43.853446.853446 client.py:119] confirm_model_loaded: Mixtral-8x7B, e1be8166-d2b1-4bc9-832b-3a68f555f3a2
+DEBUG 01-18 20:16:43.883579.883579 client.py:127] Model loaded
+DEBUG 01-18 20:16:44.227814.227814 client.py:72] load_into_gpu: Mixtral-8x7B, 87a540ec-c1b8-47ca-b778-a11bc2feaacf
+DEBUG 01-18 20:16:44.227457.227457 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:44.229530.229530 client.py:115] Model loaded: Mixtral-8x7B, 87a540ec-c1b8-47ca-b778-a11bc2feaacf
+DEBUG 01-18 20:16:44.229072.229072 client.py:119] confirm_model_loaded: Mixtral-8x7B, 87a540ec-c1b8-47ca-b778-a11bc2feaacf
+DEBUG 01-18 20:16:44.233183.233183 client.py:72] load_into_gpu: Mixtral-8x7B, 3e8d7c13-8471-4892-995d-d49d0471337b
+DEBUG 01-18 20:16:44.233108.233108 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:44.239897.239897 client.py:127] Model loaded
+DEBUG 01-18 20:16:44.240937.240937 client.py:115] Model loaded: Mixtral-8x7B, 3e8d7c13-8471-4892-995d-d49d0471337b
+DEBUG 01-18 20:16:44.240412.240412 client.py:119] confirm_model_loaded: Mixtral-8x7B, 3e8d7c13-8471-4892-995d-d49d0471337b
+DEBUG 01-18 20:16:44.270685.270685 client.py:127] Model loaded
+DEBUG 01-18 20:16:44.498308.498308 client.py:72] load_into_gpu: Mixtral-8x7B, 617252a4-3593-4301-9f53-eadc9a10755e
+DEBUG 01-18 20:16:44.498090.498090 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:44.500490.500490 client.py:115] Model loaded: Mixtral-8x7B, 617252a4-3593-4301-9f53-eadc9a10755e
+DEBUG 01-18 20:16:44.500509.500509 client.py:119] confirm_model_loaded: Mixtral-8x7B, 617252a4-3593-4301-9f53-eadc9a10755e
+DEBUG 01-18 20:16:44.502656.502656 client.py:72] load_into_gpu: Mixtral-8x7B, e11d1515-2286-43b4-8627-83dfc0419da1
+DEBUG 01-18 20:16:44.502787.502787 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:44.510794.510794 client.py:127] Model loaded
+DEBUG 01-18 20:16:44.511608.511608 client.py:115] Model loaded: Mixtral-8x7B, e11d1515-2286-43b4-8627-83dfc0419da1
+DEBUG 01-18 20:16:44.511936.511936 client.py:119] confirm_model_loaded: Mixtral-8x7B, e11d1515-2286-43b4-8627-83dfc0419da1
+DEBUG 01-18 20:16:44.542466.542466 client.py:127] Model loaded
+DEBUG 01-18 20:16:44.946289.946289 client.py:72] load_into_gpu: Mixtral-8x7B, 25a21215-9df2-4060-b786-8ad033a0e205
+DEBUG 01-18 20:16:44.946456.946456 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:44.949520.949520 client.py:115] Model loaded: Mixtral-8x7B, 25a21215-9df2-4060-b786-8ad033a0e205
+DEBUG 01-18 20:16:44.949486.949486 client.py:119] confirm_model_loaded: Mixtral-8x7B, 25a21215-9df2-4060-b786-8ad033a0e205
+DEBUG 01-18 20:16:44.950390.950390 client.py:72] load_into_gpu: Mixtral-8x7B, 44a328f2-9a1f-4fec-b1c5-9aa6e6c8308f
+DEBUG 01-18 20:16:44.950580.950580 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:44.958405.958405 client.py:127] Model loaded
+DEBUG 01-18 20:16:44.959909.959909 client.py:115] Model loaded: Mixtral-8x7B, 44a328f2-9a1f-4fec-b1c5-9aa6e6c8308f
+DEBUG 01-18 20:16:44.960814.960814 client.py:119] confirm_model_loaded: Mixtral-8x7B, 44a328f2-9a1f-4fec-b1c5-9aa6e6c8308f
+DEBUG 01-18 20:16:44.991337.991337 client.py:127] Model loaded
+DEBUG 01-18 20:16:45.294797.294797 client.py:72] load_into_gpu: Mixtral-8x7B, ce1ed04e-4ad4-40a3-8e95-6aa67d33b290
+DEBUG 01-18 20:16:45.294859.294859 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:45.296778.296778 client.py:115] Model loaded: Mixtral-8x7B, ce1ed04e-4ad4-40a3-8e95-6aa67d33b290
+DEBUG 01-18 20:16:45.297700.297700 client.py:119] confirm_model_loaded: Mixtral-8x7B, ce1ed04e-4ad4-40a3-8e95-6aa67d33b290
+DEBUG 01-18 20:16:45.298275.298275 client.py:72] load_into_gpu: Mixtral-8x7B, 8ce385a6-a9cb-493c-841f-42b24208e572
+DEBUG 01-18 20:16:45.298405.298405 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:45.306060.306060 client.py:127] Model loaded
+DEBUG 01-18 20:16:45.307181.307181 client.py:115] Model loaded: Mixtral-8x7B, 8ce385a6-a9cb-493c-841f-42b24208e572
+DEBUG 01-18 20:16:45.308828.308828 client.py:119] confirm_model_loaded: Mixtral-8x7B, 8ce385a6-a9cb-493c-841f-42b24208e572
+DEBUG 01-18 20:16:45.340795.340795 client.py:127] Model loaded
+DEBUG 01-18 20:16:45.690756.690756 client.py:72] load_into_gpu: Mixtral-8x7B, b35b9742-7078-4b79-8aba-b53a69539036
+DEBUG 01-18 20:16:45.691783.691783 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:45.692518.692518 client.py:115] Model loaded: Mixtral-8x7B, b35b9742-7078-4b79-8aba-b53a69539036
+DEBUG 01-18 20:16:45.693061.693061 client.py:119] confirm_model_loaded: Mixtral-8x7B, b35b9742-7078-4b79-8aba-b53a69539036
+DEBUG 01-18 20:16:45.696778.696778 client.py:72] load_into_gpu: Mixtral-8x7B, b54b1f37-7e05-4e40-97c1-a73ac45938b6
+DEBUG 01-18 20:16:45.696411.696411 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:45.702635.702635 client.py:127] Model loaded
+DEBUG 01-18 20:16:45.703937.703937 client.py:115] Model loaded: Mixtral-8x7B, b54b1f37-7e05-4e40-97c1-a73ac45938b6
+DEBUG 01-18 20:16:45.703518.703518 client.py:119] confirm_model_loaded: Mixtral-8x7B, b54b1f37-7e05-4e40-97c1-a73ac45938b6
+DEBUG 01-18 20:16:45.733333.733333 client.py:127] Model loaded
+DEBUG 01-18 20:16:46.026587.026587 client.py:72] load_into_gpu: Mixtral-8x7B, d248b6b7-b014-42e8-be9a-1f26cf3ee5fc
+DEBUG 01-18 20:16:46.026741.026741 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:46.028824.028824 client.py:115] Model loaded: Mixtral-8x7B, d248b6b7-b014-42e8-be9a-1f26cf3ee5fc
+DEBUG 01-18 20:16:46.028230.028230 client.py:119] confirm_model_loaded: Mixtral-8x7B, d248b6b7-b014-42e8-be9a-1f26cf3ee5fc
+DEBUG 01-18 20:16:46.032696.032696 client.py:72] load_into_gpu: Mixtral-8x7B, ef0b5728-158e-407c-84a2-603e5f874bb9
+DEBUG 01-18 20:16:46.032283.032283 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:46.037013.037013 client.py:127] Model loaded
+DEBUG 01-18 20:16:46.038292.038292 client.py:115] Model loaded: Mixtral-8x7B, ef0b5728-158e-407c-84a2-603e5f874bb9
+DEBUG 01-18 20:16:46.039693.039693 client.py:119] confirm_model_loaded: Mixtral-8x7B, ef0b5728-158e-407c-84a2-603e5f874bb9
+DEBUG 01-18 20:16:46.068169.068169 client.py:127] Model loaded
+DEBUG 01-18 20:16:46.302688.302688 client.py:72] load_into_gpu: Mixtral-8x7B, d351fbef-c8ef-4342-9a8d-972738efe9e3
+DEBUG 01-18 20:16:46.302987.302987 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:46.304915.304915 client.py:115] Model loaded: Mixtral-8x7B, d351fbef-c8ef-4342-9a8d-972738efe9e3
+DEBUG 01-18 20:16:46.304166.304166 client.py:119] confirm_model_loaded: Mixtral-8x7B, d351fbef-c8ef-4342-9a8d-972738efe9e3
+DEBUG 01-18 20:16:46.308934.308934 client.py:72] load_into_gpu: Mixtral-8x7B, a163bcd4-5fe6-4d23-8514-a2586afa49db
+DEBUG 01-18 20:16:46.308355.308355 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:46.313910.313910 client.py:127] Model loaded
+DEBUG 01-18 20:16:46.314071.314071 client.py:115] Model loaded: Mixtral-8x7B, a163bcd4-5fe6-4d23-8514-a2586afa49db
+DEBUG 01-18 20:16:46.315083.315083 client.py:119] confirm_model_loaded: Mixtral-8x7B, a163bcd4-5fe6-4d23-8514-a2586afa49db
+DEBUG 01-18 20:16:46.347398.347398 client.py:127] Model loaded
+DEBUG 01-18 20:16:46.544672.544672 client.py:72] load_into_gpu: Mixtral-8x7B, 22d32374-51c1-4cf4-9c95-fc6a834d495c
+DEBUG 01-18 20:16:46.544355.544355 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:46.546117.546117 client.py:115] Model loaded: Mixtral-8x7B, 22d32374-51c1-4cf4-9c95-fc6a834d495c
+DEBUG 01-18 20:16:46.546269.546269 client.py:119] confirm_model_loaded: Mixtral-8x7B, 22d32374-51c1-4cf4-9c95-fc6a834d495c
+DEBUG 01-18 20:16:46.550491.550491 client.py:72] load_into_gpu: Mixtral-8x7B, 32b6b8de-2def-45dd-a48c-26b15efab117
+DEBUG 01-18 20:16:46.551545.551545 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:46.556305.556305 client.py:127] Model loaded
+DEBUG 01-18 20:16:46.557546.557546 client.py:115] Model loaded: Mixtral-8x7B, 32b6b8de-2def-45dd-a48c-26b15efab117
+DEBUG 01-18 20:16:46.558448.558448 client.py:119] confirm_model_loaded: Mixtral-8x7B, 32b6b8de-2def-45dd-a48c-26b15efab117
+DEBUG 01-18 20:16:46.592401.592401 client.py:127] Model loaded
+DEBUG 01-18 20:16:46.935001.935001 client.py:72] load_into_gpu: Mixtral-8x7B, e5388a4e-dac7-42ef-96ff-0036403b4c1d
+DEBUG 01-18 20:16:46.935545.935545 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:46.937122.937122 client.py:115] Model loaded: Mixtral-8x7B, e5388a4e-dac7-42ef-96ff-0036403b4c1d
+DEBUG 01-18 20:16:46.937618.937618 client.py:119] confirm_model_loaded: Mixtral-8x7B, e5388a4e-dac7-42ef-96ff-0036403b4c1d
+DEBUG 01-18 20:16:46.941395.941395 client.py:72] load_into_gpu: Mixtral-8x7B, cb685279-5043-4492-9e0f-591eb07affb7
+DEBUG 01-18 20:16:46.941357.941357 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:46.947899.947899 client.py:127] Model loaded
+DEBUG 01-18 20:16:46.948490.948490 client.py:115] Model loaded: Mixtral-8x7B, cb685279-5043-4492-9e0f-591eb07affb7
+DEBUG 01-18 20:16:46.948329.948329 client.py:119] confirm_model_loaded: Mixtral-8x7B, cb685279-5043-4492-9e0f-591eb07affb7
+DEBUG 01-18 20:16:46.979401.979401 client.py:127] Model loaded
+DEBUG 01-18 20:16:47.185033.185033 client.py:72] load_into_gpu: Mixtral-8x7B, 8bdde154-d669-40dd-9d59-e6cf5473ca61
+DEBUG 01-18 20:16:47.185431.185431 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:47.187502.187502 client.py:115] Model loaded: Mixtral-8x7B, 8bdde154-d669-40dd-9d59-e6cf5473ca61
+DEBUG 01-18 20:16:47.187183.187183 client.py:119] confirm_model_loaded: Mixtral-8x7B, 8bdde154-d669-40dd-9d59-e6cf5473ca61
+DEBUG 01-18 20:16:47.191563.191563 client.py:72] load_into_gpu: Mixtral-8x7B, c9ceb4c2-713f-4dd4-a09c-848fd780d741
+DEBUG 01-18 20:16:47.191825.191825 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:47.196334.196334 client.py:127] Model loaded
+DEBUG 01-18 20:16:47.197030.197030 client.py:115] Model loaded: Mixtral-8x7B, c9ceb4c2-713f-4dd4-a09c-848fd780d741
+DEBUG 01-18 20:16:47.198063.198063 client.py:119] confirm_model_loaded: Mixtral-8x7B, c9ceb4c2-713f-4dd4-a09c-848fd780d741
+DEBUG 01-18 20:16:47.229524.229524 client.py:127] Model loaded
+DEBUG 01-18 20:16:47.428831.428831 client.py:72] load_into_gpu: Mixtral-8x7B, ec7c8813-d9b6-420e-a472-958fc584e52b
+DEBUG 01-18 20:16:47.428421.428421 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:47.430610.430610 client.py:115] Model loaded: Mixtral-8x7B, ec7c8813-d9b6-420e-a472-958fc584e52b
+DEBUG 01-18 20:16:47.430000.430000 client.py:119] confirm_model_loaded: Mixtral-8x7B, ec7c8813-d9b6-420e-a472-958fc584e52b
+DEBUG 01-18 20:16:47.433763.433763 client.py:72] load_into_gpu: Mixtral-8x7B, a2422c17-ecbf-4f77-8b0a-3781a522a616
+DEBUG 01-18 20:16:47.433620.433620 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:47.439214.439214 client.py:127] Model loaded
+DEBUG 01-18 20:16:47.442334.442334 client.py:115] Model loaded: Mixtral-8x7B, a2422c17-ecbf-4f77-8b0a-3781a522a616
+DEBUG 01-18 20:16:47.443452.443452 client.py:119] confirm_model_loaded: Mixtral-8x7B, a2422c17-ecbf-4f77-8b0a-3781a522a616
+DEBUG 01-18 20:16:47.482240.482240 client.py:127] Model loaded
+DEBUG 01-18 20:16:47.845845.845845 client.py:72] load_into_gpu: Mixtral-8x7B, 70b173c2-8de1-49ab-a3e1-8cf9179ea8f8
+DEBUG 01-18 20:16:47.845389.845389 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:47.847932.847932 client.py:115] Model loaded: Mixtral-8x7B, 70b173c2-8de1-49ab-a3e1-8cf9179ea8f8
+DEBUG 01-18 20:16:47.848329.848329 client.py:119] confirm_model_loaded: Mixtral-8x7B, 70b173c2-8de1-49ab-a3e1-8cf9179ea8f8
+DEBUG 01-18 20:16:47.850088.850088 client.py:72] load_into_gpu: Mixtral-8x7B, 43bb0120-bc1b-41fd-a51f-1e9157916b17
+DEBUG 01-18 20:16:47.851979.851979 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:47.857113.857113 client.py:127] Model loaded
+DEBUG 01-18 20:16:47.858084.858084 client.py:115] Model loaded: Mixtral-8x7B, 43bb0120-bc1b-41fd-a51f-1e9157916b17
+DEBUG 01-18 20:16:47.859102.859102 client.py:119] confirm_model_loaded: Mixtral-8x7B, 43bb0120-bc1b-41fd-a51f-1e9157916b17
+DEBUG 01-18 20:16:47.891990.891990 client.py:127] Model loaded
+DEBUG 01-18 20:16:48.168909.168909 client.py:72] load_into_gpu: Mixtral-8x7B, 6f1ad48c-44c2-4c31-a577-337bcab6e0c1
+DEBUG 01-18 20:16:48.168512.168512 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:48.170748.170748 client.py:115] Model loaded: Mixtral-8x7B, 6f1ad48c-44c2-4c31-a577-337bcab6e0c1
+DEBUG 01-18 20:16:48.170198.170198 client.py:119] confirm_model_loaded: Mixtral-8x7B, 6f1ad48c-44c2-4c31-a577-337bcab6e0c1
+DEBUG 01-18 20:16:48.174526.174526 client.py:72] load_into_gpu: Mixtral-8x7B, 0848146c-2ca3-45a7-b1b9-f48605caa5b2
+DEBUG 01-18 20:16:48.175164.175164 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:48.180439.180439 client.py:127] Model loaded
+DEBUG 01-18 20:16:48.180595.180595 client.py:115] Model loaded: Mixtral-8x7B, 0848146c-2ca3-45a7-b1b9-f48605caa5b2
+DEBUG 01-18 20:16:48.181135.181135 client.py:119] confirm_model_loaded: Mixtral-8x7B, 0848146c-2ca3-45a7-b1b9-f48605caa5b2
+DEBUG 01-18 20:16:48.211822.211822 client.py:127] Model loaded
+DEBUG 01-18 20:16:48.464529.464529 client.py:72] load_into_gpu: Mixtral-8x7B, 25f4abb2-8de3-4aca-b59a-43da10a2ec47
+DEBUG 01-18 20:16:48.465985.465985 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:16:48.467939.467939 client.py:115] Model loaded: Mixtral-8x7B, 25f4abb2-8de3-4aca-b59a-43da10a2ec47
+DEBUG 01-18 20:16:48.468057.468057 client.py:119] confirm_model_loaded: Mixtral-8x7B, 25f4abb2-8de3-4aca-b59a-43da10a2ec47
+DEBUG 01-18 20:16:48.500126.500126 client.py:127] Model loaded
+INFO 01-18 20:16:48.750361.750361 lmp.py:1576] prefill time: 10.637804746627808 seconds
+INFO 01-18 20:16:50.214803.214803 lmp.py:1643] decode step 0 time: 1.446096420288086 seconds
+INFO 01-18 20:16:51.671823.671823 lmp.py:1643] decode step 1 time: 1.457505702972412 seconds
+INFO 01-18 20:16:53.103409.103409 lmp.py:1643] decode step 2 time: 1.431307077407837 seconds
+INFO 01-18 20:16:54.565031.565031 lmp.py:1643] decode step 3 time: 1.4612927436828613 seconds
+INFO 01-18 20:16:55.996865.996865 lmp.py:1643] decode step 4 time: 1.4307231903076172 seconds
+INFO 01-18 20:16:57.428466.428466 lmp.py:1643] decode step 5 time: 1.4306631088256836 seconds
+INFO 01-18 20:16:58.848016.848016 lmp.py:1643] decode step 6 time: 1.4201724529266357 seconds
+INFO 01-18 20:17:00.273481.273481 lmp.py:1643] decode step 7 time: 1.4240741729736328 seconds
+INFO 01-18 20:17:01.686879.686879 lmp.py:1643] decode step 8 time: 1.4123306274414062 seconds
+INFO 01-18 20:17:03.124105.124105 lmp.py:1643] decode step 9 time: 1.438481092453003 seconds
+INFO 01-18 20:17:04.516556.516556 lmp.py:1643] decode step 10 time: 1.390660047531128 seconds
+INFO 01-18 20:17:06.035724.035724 lmp.py:1643] decode step 11 time: 1.519347906112671 seconds
+INFO 01-18 20:17:07.499622.499622 lmp.py:1643] decode step 12 time: 1.4630918502807617 seconds
+INFO 01-18 20:17:08.809381.809381 lmp.py:1643] decode step 13 time: 1.309762716293335 seconds
+INFO 01-18 20:17:10.110876.110876 lmp.py:1643] decode step 14 time: 1.300455093383789 seconds
+INFO 01-18 20:17:11.506851.506851 lmp.py:1643] decode step 15 time: 1.3955543041229248 seconds
+INFO 01-18 20:17:12.870558.870558 lmp.py:1643] decode step 16 time: 1.363391399383545 seconds
+INFO 01-18 20:17:14.219974.219974 lmp.py:1643] decode step 17 time: 1.3481976985931396 seconds
+INFO 01-18 20:17:15.691571.691571 lmp.py:1643] decode step 18 time: 1.4722328186035156 seconds
+INFO 01-18 20:17:17.183954.183954 lmp.py:1643] decode step 19 time: 1.491598129272461 seconds
+INFO 01-18 20:17:18.635660.635660 lmp.py:1643] decode step 20 time: 1.4505624771118164 seconds
+INFO 01-18 20:17:20.025039.025039 lmp.py:1643] decode step 21 time: 1.3897957801818848 seconds
+INFO 01-18 20:17:21.387101.387101 lmp.py:1643] decode step 22 time: 1.3613245487213135 seconds
+INFO 01-18 20:17:22.746242.746242 lmp.py:1643] decode step 23 time: 1.3591649532318115 seconds
+INFO 01-18 20:17:24.213037.213037 lmp.py:1643] decode step 24 time: 1.4662511348724365 seconds
+INFO 01-18 20:17:25.692839.692839 lmp.py:1643] decode step 25 time: 1.4779982566833496 seconds
+INFO 01-18 20:17:27.147688.147688 lmp.py:1643] decode step 26 time: 1.4548089504241943 seconds
+INFO 01-18 20:17:28.617218.617218 lmp.py:1643] decode step 27 time: 1.4697051048278809 seconds
+INFO 01-18 20:17:30.077219.077219 lmp.py:1643] decode step 28 time: 1.4592230319976807 seconds
+INFO 01-18 20:17:31.634008.634008 lmp.py:1643] decode step 29 time: 1.5561556816101074 seconds
+INFO 01-18 20:17:33.163562.163562 lmp.py:1643] decode step 30 time: 1.5289149284362793 seconds
+INFO 01-18 20:17:33.164842.164842 lmp.py:1645] average decode time: 1.4316401097082323 seconds
+generate input ids cost 0.06036877632141113 s
+DEBUG 01-18 20:18:28.019775.019775 client.py:72] load_into_gpu: Mixtral-8x7B, dbce980b-0a0c-41a2-a1c9-19166a172b9d
+DEBUG 01-18 20:18:28.020379.020379 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:28.022459.022459 client.py:115] Model loaded: Mixtral-8x7B, dbce980b-0a0c-41a2-a1c9-19166a172b9d
+DEBUG 01-18 20:18:28.023852.023852 client.py:119] confirm_model_loaded: Mixtral-8x7B, dbce980b-0a0c-41a2-a1c9-19166a172b9d
+DEBUG 01-18 20:18:28.076217.076217 client.py:127] Model loaded
+DEBUG 01-18 20:18:28.076850.076850 client.py:72] load_into_gpu: Mixtral-8x7B, 11198175-6570-4243-9e0d-d94e52bda127
+DEBUG 01-18 20:18:28.077852.077852 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:28.078916.078916 client.py:115] Model loaded: Mixtral-8x7B, 11198175-6570-4243-9e0d-d94e52bda127
+DEBUG 01-18 20:18:28.079854.079854 client.py:119] confirm_model_loaded: Mixtral-8x7B, 11198175-6570-4243-9e0d-d94e52bda127
+DEBUG 01-18 20:18:28.088765.088765 client.py:127] Model loaded
+DEBUG 01-18 20:18:28.424621.424621 client.py:72] load_into_gpu: Mixtral-8x7B, 9b7c40c5-fd83-4748-9682-a4e14c0d4d20
+DEBUG 01-18 20:18:28.424385.424385 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:28.426753.426753 client.py:115] Model loaded: Mixtral-8x7B, 9b7c40c5-fd83-4748-9682-a4e14c0d4d20
+DEBUG 01-18 20:18:28.426295.426295 client.py:119] confirm_model_loaded: Mixtral-8x7B, 9b7c40c5-fd83-4748-9682-a4e14c0d4d20
+DEBUG 01-18 20:18:28.427039.427039 client.py:72] load_into_gpu: Mixtral-8x7B, 279c94a9-2196-4178-87a1-8cf05401f245
+DEBUG 01-18 20:18:28.428705.428705 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:28.436174.436174 client.py:127] Model loaded
+DEBUG 01-18 20:18:28.437673.437673 client.py:115] Model loaded: Mixtral-8x7B, 279c94a9-2196-4178-87a1-8cf05401f245
+DEBUG 01-18 20:18:28.438814.438814 client.py:119] confirm_model_loaded: Mixtral-8x7B, 279c94a9-2196-4178-87a1-8cf05401f245
+DEBUG 01-18 20:18:28.469259.469259 client.py:127] Model loaded
+DEBUG 01-18 20:18:28.815154.815154 client.py:72] load_into_gpu: Mixtral-8x7B, c83bed48-ff38-4972-879d-91c76b3ec836
+DEBUG 01-18 20:18:28.815367.815367 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:28.817253.817253 client.py:115] Model loaded: Mixtral-8x7B, c83bed48-ff38-4972-879d-91c76b3ec836
+DEBUG 01-18 20:18:28.817306.817306 client.py:119] confirm_model_loaded: Mixtral-8x7B, c83bed48-ff38-4972-879d-91c76b3ec836
+DEBUG 01-18 20:18:28.820869.820869 client.py:72] load_into_gpu: Mixtral-8x7B, a9148eb0-2fb8-4f0b-a99f-855c92f7059e
+DEBUG 01-18 20:18:28.821511.821511 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:28.827048.827048 client.py:127] Model loaded
+DEBUG 01-18 20:18:28.828372.828372 client.py:115] Model loaded: Mixtral-8x7B, a9148eb0-2fb8-4f0b-a99f-855c92f7059e
+DEBUG 01-18 20:18:28.829690.829690 client.py:119] confirm_model_loaded: Mixtral-8x7B, a9148eb0-2fb8-4f0b-a99f-855c92f7059e
+DEBUG 01-18 20:18:28.858717.858717 client.py:127] Model loaded
+DEBUG 01-18 20:18:29.227276.227276 client.py:72] load_into_gpu: Mixtral-8x7B, 30706707-913f-4f01-b85c-58bb1b13d4f4
+DEBUG 01-18 20:18:29.227422.227422 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:29.229317.229317 client.py:115] Model loaded: Mixtral-8x7B, 30706707-913f-4f01-b85c-58bb1b13d4f4
+DEBUG 01-18 20:18:29.229481.229481 client.py:119] confirm_model_loaded: Mixtral-8x7B, 30706707-913f-4f01-b85c-58bb1b13d4f4
+DEBUG 01-18 20:18:29.232343.232343 client.py:72] load_into_gpu: Mixtral-8x7B, 02c7806d-7d25-4c10-a225-05730f614a06
+DEBUG 01-18 20:18:29.232666.232666 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:29.239926.239926 client.py:127] Model loaded
+DEBUG 01-18 20:18:29.240460.240460 client.py:115] Model loaded: Mixtral-8x7B, 02c7806d-7d25-4c10-a225-05730f614a06
+DEBUG 01-18 20:18:29.242955.242955 client.py:119] confirm_model_loaded: Mixtral-8x7B, 02c7806d-7d25-4c10-a225-05730f614a06
+DEBUG 01-18 20:18:29.273670.273670 client.py:127] Model loaded
+DEBUG 01-18 20:18:29.679538.679538 client.py:72] load_into_gpu: Mixtral-8x7B, e6e54529-4a32-4f37-bec3-acec49242b5b
+DEBUG 01-18 20:18:29.679512.679512 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:29.681640.681640 client.py:115] Model loaded: Mixtral-8x7B, e6e54529-4a32-4f37-bec3-acec49242b5b
+DEBUG 01-18 20:18:29.682401.682401 client.py:119] confirm_model_loaded: Mixtral-8x7B, e6e54529-4a32-4f37-bec3-acec49242b5b
+DEBUG 01-18 20:18:29.686877.686877 client.py:72] load_into_gpu: Mixtral-8x7B, f6dd8779-9cc4-405f-82b3-d613bc46bd6d
+DEBUG 01-18 20:18:29.687785.687785 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:29.691098.691098 client.py:127] Model loaded
+DEBUG 01-18 20:18:29.692903.692903 client.py:115] Model loaded: Mixtral-8x7B, f6dd8779-9cc4-405f-82b3-d613bc46bd6d
+DEBUG 01-18 20:18:29.693226.693226 client.py:119] confirm_model_loaded: Mixtral-8x7B, f6dd8779-9cc4-405f-82b3-d613bc46bd6d
+DEBUG 01-18 20:18:29.725460.725460 client.py:127] Model loaded
+DEBUG 01-18 20:18:30.099577.099577 client.py:72] load_into_gpu: Mixtral-8x7B, f31b3fe5-b2a6-4f71-9877-7b88a79e80a5
+DEBUG 01-18 20:18:30.100500.100500 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:30.102405.102405 client.py:115] Model loaded: Mixtral-8x7B, f31b3fe5-b2a6-4f71-9877-7b88a79e80a5
+DEBUG 01-18 20:18:30.102934.102934 client.py:119] confirm_model_loaded: Mixtral-8x7B, f31b3fe5-b2a6-4f71-9877-7b88a79e80a5
+DEBUG 01-18 20:18:30.106883.106883 client.py:72] load_into_gpu: Mixtral-8x7B, cca76127-cbcf-46f4-9fd3-17b995d5d20d
+DEBUG 01-18 20:18:30.107950.107950 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:30.112872.112872 client.py:127] Model loaded
+DEBUG 01-18 20:18:30.112916.112916 client.py:115] Model loaded: Mixtral-8x7B, cca76127-cbcf-46f4-9fd3-17b995d5d20d
+DEBUG 01-18 20:18:30.113626.113626 client.py:119] confirm_model_loaded: Mixtral-8x7B, cca76127-cbcf-46f4-9fd3-17b995d5d20d
+DEBUG 01-18 20:18:30.144811.144811 client.py:127] Model loaded
+DEBUG 01-18 20:18:30.607424.607424 client.py:72] load_into_gpu: Mixtral-8x7B, fdc791ac-4945-440a-acc6-02b94db47911
+DEBUG 01-18 20:18:30.607750.607750 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:30.611156.611156 client.py:72] load_into_gpu: Mixtral-8x7B, d4f2ae50-56f2-431c-b3de-1efb75858295
+DEBUG 01-18 20:18:30.611479.611479 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:30.611504.611504 client.py:115] Model loaded: Mixtral-8x7B, fdc791ac-4945-440a-acc6-02b94db47911
+DEBUG 01-18 20:18:30.612861.612861 client.py:119] confirm_model_loaded: Mixtral-8x7B, fdc791ac-4945-440a-acc6-02b94db47911
+DEBUG 01-18 20:18:30.613297.613297 client.py:115] Model loaded: Mixtral-8x7B, d4f2ae50-56f2-431c-b3de-1efb75858295
+DEBUG 01-18 20:18:30.653326.653326 client.py:127] Model loaded
+DEBUG 01-18 20:18:30.656793.656793 client.py:119] confirm_model_loaded: Mixtral-8x7B, d4f2ae50-56f2-431c-b3de-1efb75858295
+DEBUG 01-18 20:18:30.658653.658653 client.py:127] Model loaded
+DEBUG 01-18 20:18:30.979939.979939 client.py:72] load_into_gpu: Mixtral-8x7B, 12f3417b-59d9-4b8e-9133-12ba686835d6
+DEBUG 01-18 20:18:30.979131.979131 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:30.981851.981851 client.py:115] Model loaded: Mixtral-8x7B, 12f3417b-59d9-4b8e-9133-12ba686835d6
+DEBUG 01-18 20:18:30.981201.981201 client.py:119] confirm_model_loaded: Mixtral-8x7B, 12f3417b-59d9-4b8e-9133-12ba686835d6
+DEBUG 01-18 20:18:30.983947.983947 client.py:72] load_into_gpu: Mixtral-8x7B, 674ec13a-1a03-41e5-bf5f-d0242ed8acdd
+DEBUG 01-18 20:18:30.983739.983739 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:30.991187.991187 client.py:127] Model loaded
+DEBUG 01-18 20:18:30.992985.992985 client.py:115] Model loaded: Mixtral-8x7B, 674ec13a-1a03-41e5-bf5f-d0242ed8acdd
+DEBUG 01-18 20:18:30.992314.992314 client.py:119] confirm_model_loaded: Mixtral-8x7B, 674ec13a-1a03-41e5-bf5f-d0242ed8acdd
+DEBUG 01-18 20:18:31.026447.026447 client.py:127] Model loaded
+DEBUG 01-18 20:18:31.458077.458077 client.py:72] load_into_gpu: Mixtral-8x7B, b4f9ea99-e7a2-43e4-bbd4-ce575e075676
+DEBUG 01-18 20:18:31.458260.458260 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:31.462389.462389 client.py:115] Model loaded: Mixtral-8x7B, b4f9ea99-e7a2-43e4-bbd4-ce575e075676
+DEBUG 01-18 20:18:31.462587.462587 client.py:119] confirm_model_loaded: Mixtral-8x7B, b4f9ea99-e7a2-43e4-bbd4-ce575e075676
+DEBUG 01-18 20:18:31.464476.464476 client.py:72] load_into_gpu: Mixtral-8x7B, 14187d5a-7853-4456-88bb-eb798d545c88
+DEBUG 01-18 20:18:31.465183.465183 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:31.474377.474377 client.py:127] Model loaded
+DEBUG 01-18 20:18:31.477367.477367 client.py:115] Model loaded: Mixtral-8x7B, 14187d5a-7853-4456-88bb-eb798d545c88
+DEBUG 01-18 20:18:31.478320.478320 client.py:119] confirm_model_loaded: Mixtral-8x7B, 14187d5a-7853-4456-88bb-eb798d545c88
+DEBUG 01-18 20:18:31.530930.530930 client.py:127] Model loaded
+DEBUG 01-18 20:18:32.153118.153118 client.py:72] load_into_gpu: Mixtral-8x7B, 02902ab8-c0db-487d-b589-59887d2f35ff
+DEBUG 01-18 20:18:32.153921.153921 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:32.155306.155306 client.py:115] Model loaded: Mixtral-8x7B, 02902ab8-c0db-487d-b589-59887d2f35ff
+DEBUG 01-18 20:18:32.155543.155543 client.py:119] confirm_model_loaded: Mixtral-8x7B, 02902ab8-c0db-487d-b589-59887d2f35ff
+DEBUG 01-18 20:18:32.159927.159927 client.py:72] load_into_gpu: Mixtral-8x7B, b4e6f174-4a66-4a98-9060-f279efcb3980
+DEBUG 01-18 20:18:32.160623.160623 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:32.165259.165259 client.py:127] Model loaded
+DEBUG 01-18 20:18:32.166510.166510 client.py:115] Model loaded: Mixtral-8x7B, b4e6f174-4a66-4a98-9060-f279efcb3980
+DEBUG 01-18 20:18:32.167301.167301 client.py:119] confirm_model_loaded: Mixtral-8x7B, b4e6f174-4a66-4a98-9060-f279efcb3980
+DEBUG 01-18 20:18:32.197921.197921 client.py:127] Model loaded
+DEBUG 01-18 20:18:32.422389.422389 client.py:72] load_into_gpu: Mixtral-8x7B, d274c84b-1bce-4925-86b1-1925f2352f02
+DEBUG 01-18 20:18:32.422270.422270 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:32.424764.424764 client.py:115] Model loaded: Mixtral-8x7B, d274c84b-1bce-4925-86b1-1925f2352f02
+DEBUG 01-18 20:18:32.424102.424102 client.py:119] confirm_model_loaded: Mixtral-8x7B, d274c84b-1bce-4925-86b1-1925f2352f02
+DEBUG 01-18 20:18:32.427114.427114 client.py:72] load_into_gpu: Mixtral-8x7B, 41c1afc2-771e-4309-9294-7f67f667d6e3
+DEBUG 01-18 20:18:32.428771.428771 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:32.434067.434067 client.py:127] Model loaded
+DEBUG 01-18 20:18:32.435297.435297 client.py:115] Model loaded: Mixtral-8x7B, 41c1afc2-771e-4309-9294-7f67f667d6e3
+DEBUG 01-18 20:18:32.436667.436667 client.py:119] confirm_model_loaded: Mixtral-8x7B, 41c1afc2-771e-4309-9294-7f67f667d6e3
+DEBUG 01-18 20:18:32.468414.468414 client.py:127] Model loaded
+DEBUG 01-18 20:18:32.713416.713416 client.py:72] load_into_gpu: Mixtral-8x7B, 22205ed7-93bd-49e3-99ea-6153bd573f88
+DEBUG 01-18 20:18:32.713365.713365 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:32.715288.715288 client.py:115] Model loaded: Mixtral-8x7B, 22205ed7-93bd-49e3-99ea-6153bd573f88
+DEBUG 01-18 20:18:32.715347.715347 client.py:119] confirm_model_loaded: Mixtral-8x7B, 22205ed7-93bd-49e3-99ea-6153bd573f88
+DEBUG 01-18 20:18:32.718416.718416 client.py:72] load_into_gpu: Mixtral-8x7B, deff19bf-85ad-4064-b06c-16f71b9d49e3
+DEBUG 01-18 20:18:32.719219.719219 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:32.725278.725278 client.py:127] Model loaded
+DEBUG 01-18 20:18:32.726731.726731 client.py:115] Model loaded: Mixtral-8x7B, deff19bf-85ad-4064-b06c-16f71b9d49e3
+DEBUG 01-18 20:18:32.727891.727891 client.py:119] confirm_model_loaded: Mixtral-8x7B, deff19bf-85ad-4064-b06c-16f71b9d49e3
+DEBUG 01-18 20:18:32.757094.757094 client.py:127] Model loaded
+DEBUG 01-18 20:18:32.994772.994772 client.py:72] load_into_gpu: Mixtral-8x7B, 249ae3b4-19a3-4540-8e8e-11601f30b073
+DEBUG 01-18 20:18:32.995999.995999 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:32.997952.997952 client.py:115] Model loaded: Mixtral-8x7B, 249ae3b4-19a3-4540-8e8e-11601f30b073
+DEBUG 01-18 20:18:32.997680.997680 client.py:119] confirm_model_loaded: Mixtral-8x7B, 249ae3b4-19a3-4540-8e8e-11601f30b073
+DEBUG 01-18 20:18:33.001095.001095 client.py:72] load_into_gpu: Mixtral-8x7B, 0645696c-ed28-4d86-9080-ed2554f0b23f
+DEBUG 01-18 20:18:33.001524.001524 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:33.006885.006885 client.py:127] Model loaded
+DEBUG 01-18 20:18:33.007525.007525 client.py:115] Model loaded: Mixtral-8x7B, 0645696c-ed28-4d86-9080-ed2554f0b23f
+DEBUG 01-18 20:18:33.008200.008200 client.py:119] confirm_model_loaded: Mixtral-8x7B, 0645696c-ed28-4d86-9080-ed2554f0b23f
+DEBUG 01-18 20:18:33.041144.041144 client.py:127] Model loaded
+DEBUG 01-18 20:18:33.470987.470987 client.py:72] load_into_gpu: Mixtral-8x7B, 2b3558f2-e699-4e5c-9587-671678969a02
+DEBUG 01-18 20:18:33.470293.470293 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:33.472718.472718 client.py:115] Model loaded: Mixtral-8x7B, 2b3558f2-e699-4e5c-9587-671678969a02
+DEBUG 01-18 20:18:33.472055.472055 client.py:119] confirm_model_loaded: Mixtral-8x7B, 2b3558f2-e699-4e5c-9587-671678969a02
+DEBUG 01-18 20:18:33.476927.476927 client.py:72] load_into_gpu: Mixtral-8x7B, 5dccb7b3-b854-4dda-9f07-9f937ebac6ca
+DEBUG 01-18 20:18:33.477391.477391 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:33.482074.482074 client.py:127] Model loaded
+DEBUG 01-18 20:18:33.483525.483525 client.py:115] Model loaded: Mixtral-8x7B, 5dccb7b3-b854-4dda-9f07-9f937ebac6ca
+DEBUG 01-18 20:18:33.484910.484910 client.py:119] confirm_model_loaded: Mixtral-8x7B, 5dccb7b3-b854-4dda-9f07-9f937ebac6ca
+DEBUG 01-18 20:18:33.514786.514786 client.py:127] Model loaded
+DEBUG 01-18 20:18:33.751871.751871 client.py:72] load_into_gpu: Mixtral-8x7B, 509923bd-b3f7-4395-89e4-5bb3afcc684b
+DEBUG 01-18 20:18:33.751674.751674 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:33.753093.753093 client.py:115] Model loaded: Mixtral-8x7B, 509923bd-b3f7-4395-89e4-5bb3afcc684b
+DEBUG 01-18 20:18:33.754635.754635 client.py:119] confirm_model_loaded: Mixtral-8x7B, 509923bd-b3f7-4395-89e4-5bb3afcc684b
+DEBUG 01-18 20:18:33.757118.757118 client.py:72] load_into_gpu: Mixtral-8x7B, 066dafd1-5ec9-4a13-a079-ff7a7b765dd2
+DEBUG 01-18 20:18:33.757713.757713 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:33.764621.764621 client.py:127] Model loaded
+DEBUG 01-18 20:18:33.765216.765216 client.py:115] Model loaded: Mixtral-8x7B, 066dafd1-5ec9-4a13-a079-ff7a7b765dd2
+DEBUG 01-18 20:18:33.766425.766425 client.py:119] confirm_model_loaded: Mixtral-8x7B, 066dafd1-5ec9-4a13-a079-ff7a7b765dd2
+DEBUG 01-18 20:18:33.798848.798848 client.py:127] Model loaded
+DEBUG 01-18 20:18:34.028415.028415 client.py:72] load_into_gpu: Mixtral-8x7B, d02c5e29-ef06-444c-879f-c249328c1245
+DEBUG 01-18 20:18:34.028264.028264 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:34.030293.030293 client.py:115] Model loaded: Mixtral-8x7B, d02c5e29-ef06-444c-879f-c249328c1245
+DEBUG 01-18 20:18:34.030624.030624 client.py:119] confirm_model_loaded: Mixtral-8x7B, d02c5e29-ef06-444c-879f-c249328c1245
+DEBUG 01-18 20:18:34.034823.034823 client.py:72] load_into_gpu: Mixtral-8x7B, 004919b5-863e-4b3a-b3a5-fb450e23df1f
+DEBUG 01-18 20:18:34.034675.034675 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:34.040725.040725 client.py:127] Model loaded
+DEBUG 01-18 20:18:34.041976.041976 client.py:115] Model loaded: Mixtral-8x7B, 004919b5-863e-4b3a-b3a5-fb450e23df1f
+DEBUG 01-18 20:18:34.042208.042208 client.py:119] confirm_model_loaded: Mixtral-8x7B, 004919b5-863e-4b3a-b3a5-fb450e23df1f
+DEBUG 01-18 20:18:34.073975.073975 client.py:127] Model loaded
+DEBUG 01-18 20:18:34.303560.303560 client.py:72] load_into_gpu: Mixtral-8x7B, ef8ad52f-469b-4791-846d-73de59c50e20
+DEBUG 01-18 20:18:34.303441.303441 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:34.305896.305896 client.py:115] Model loaded: Mixtral-8x7B, ef8ad52f-469b-4791-846d-73de59c50e20
+DEBUG 01-18 20:18:34.306081.306081 client.py:119] confirm_model_loaded: Mixtral-8x7B, ef8ad52f-469b-4791-846d-73de59c50e20
+DEBUG 01-18 20:18:34.310254.310254 client.py:72] load_into_gpu: Mixtral-8x7B, 79630591-b0f1-4023-8d72-c8baad56a6fb
+DEBUG 01-18 20:18:34.310233.310233 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:34.315477.315477 client.py:127] Model loaded
+DEBUG 01-18 20:18:34.317628.317628 client.py:115] Model loaded: Mixtral-8x7B, 79630591-b0f1-4023-8d72-c8baad56a6fb
+DEBUG 01-18 20:18:34.318035.318035 client.py:119] confirm_model_loaded: Mixtral-8x7B, 79630591-b0f1-4023-8d72-c8baad56a6fb
+DEBUG 01-18 20:18:34.349366.349366 client.py:127] Model loaded
+DEBUG 01-18 20:18:34.588505.588505 client.py:72] load_into_gpu: Mixtral-8x7B, 3dc41060-b6d9-487c-998b-8acc5e6342f6
+DEBUG 01-18 20:18:34.588274.588274 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:34.590500.590500 client.py:115] Model loaded: Mixtral-8x7B, 3dc41060-b6d9-487c-998b-8acc5e6342f6
+DEBUG 01-18 20:18:34.590810.590810 client.py:119] confirm_model_loaded: Mixtral-8x7B, 3dc41060-b6d9-487c-998b-8acc5e6342f6
+DEBUG 01-18 20:18:34.591996.591996 client.py:72] load_into_gpu: Mixtral-8x7B, df9cbdc6-d369-4b31-b862-a5b186045c64
+DEBUG 01-18 20:18:34.592686.592686 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:34.600100.600100 client.py:127] Model loaded
+DEBUG 01-18 20:18:34.601994.601994 client.py:115] Model loaded: Mixtral-8x7B, df9cbdc6-d369-4b31-b862-a5b186045c64
+DEBUG 01-18 20:18:34.601934.601934 client.py:119] confirm_model_loaded: Mixtral-8x7B, df9cbdc6-d369-4b31-b862-a5b186045c64
+DEBUG 01-18 20:18:34.634424.634424 client.py:127] Model loaded
+DEBUG 01-18 20:18:34.889645.889645 client.py:72] load_into_gpu: Mixtral-8x7B, 853bc22a-0975-48b3-b20c-4e2edd9eda51
+DEBUG 01-18 20:18:34.889692.889692 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:34.891493.891493 client.py:115] Model loaded: Mixtral-8x7B, 853bc22a-0975-48b3-b20c-4e2edd9eda51
+DEBUG 01-18 20:18:34.892465.892465 client.py:119] confirm_model_loaded: Mixtral-8x7B, 853bc22a-0975-48b3-b20c-4e2edd9eda51
+DEBUG 01-18 20:18:34.896552.896552 client.py:72] load_into_gpu: Mixtral-8x7B, a0aca6fb-8345-409e-a856-ddad9d75b52c
+DEBUG 01-18 20:18:34.896450.896450 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:34.901421.901421 client.py:127] Model loaded
+DEBUG 01-18 20:18:34.902564.902564 client.py:115] Model loaded: Mixtral-8x7B, a0aca6fb-8345-409e-a856-ddad9d75b52c
+DEBUG 01-18 20:18:34.903687.903687 client.py:119] confirm_model_loaded: Mixtral-8x7B, a0aca6fb-8345-409e-a856-ddad9d75b52c
+DEBUG 01-18 20:18:34.934475.934475 client.py:127] Model loaded
+DEBUG 01-18 20:18:35.292685.292685 client.py:72] load_into_gpu: Mixtral-8x7B, 91abb1d0-2f54-48e7-ba0b-1926dc273ae9
+DEBUG 01-18 20:18:35.292044.292044 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:35.293332.293332 client.py:115] Model loaded: Mixtral-8x7B, 91abb1d0-2f54-48e7-ba0b-1926dc273ae9
+DEBUG 01-18 20:18:35.294172.294172 client.py:119] confirm_model_loaded: Mixtral-8x7B, 91abb1d0-2f54-48e7-ba0b-1926dc273ae9
+DEBUG 01-18 20:18:35.298590.298590 client.py:72] load_into_gpu: Mixtral-8x7B, 8b0fbc3d-bfd4-453c-8516-7a8bcb9fddc5
+DEBUG 01-18 20:18:35.298605.298605 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:35.303280.303280 client.py:127] Model loaded
+DEBUG 01-18 20:18:35.304564.304564 client.py:115] Model loaded: Mixtral-8x7B, 8b0fbc3d-bfd4-453c-8516-7a8bcb9fddc5
+DEBUG 01-18 20:18:35.305455.305455 client.py:119] confirm_model_loaded: Mixtral-8x7B, 8b0fbc3d-bfd4-453c-8516-7a8bcb9fddc5
+DEBUG 01-18 20:18:35.337402.337402 client.py:127] Model loaded
+DEBUG 01-18 20:18:35.561441.561441 client.py:72] load_into_gpu: Mixtral-8x7B, 9cf81db1-0ed0-453a-a822-1f5e03ec717e
+DEBUG 01-18 20:18:35.561257.561257 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:35.563034.563034 client.py:115] Model loaded: Mixtral-8x7B, 9cf81db1-0ed0-453a-a822-1f5e03ec717e
+DEBUG 01-18 20:18:35.564922.564922 client.py:119] confirm_model_loaded: Mixtral-8x7B, 9cf81db1-0ed0-453a-a822-1f5e03ec717e
+DEBUG 01-18 20:18:35.568823.568823 client.py:72] load_into_gpu: Mixtral-8x7B, 44935afd-2b4c-41c3-b55f-50e09d64583d
+DEBUG 01-18 20:18:35.568306.568306 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:35.573031.573031 client.py:127] Model loaded
+DEBUG 01-18 20:18:35.574532.574532 client.py:115] Model loaded: Mixtral-8x7B, 44935afd-2b4c-41c3-b55f-50e09d64583d
+DEBUG 01-18 20:18:35.575141.575141 client.py:119] confirm_model_loaded: Mixtral-8x7B, 44935afd-2b4c-41c3-b55f-50e09d64583d
+DEBUG 01-18 20:18:35.611793.611793 client.py:127] Model loaded
+DEBUG 01-18 20:18:36.031233.031233 client.py:72] load_into_gpu: Mixtral-8x7B, 7194475e-9825-49ea-ae8e-1e97ad095a31
+DEBUG 01-18 20:18:36.031518.031518 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:36.033645.033645 client.py:115] Model loaded: Mixtral-8x7B, 7194475e-9825-49ea-ae8e-1e97ad095a31
+DEBUG 01-18 20:18:36.034100.034100 client.py:119] confirm_model_loaded: Mixtral-8x7B, 7194475e-9825-49ea-ae8e-1e97ad095a31
+DEBUG 01-18 20:18:36.035827.035827 client.py:72] load_into_gpu: Mixtral-8x7B, e8335c48-e482-40e4-8831-a593c97d9ec8
+DEBUG 01-18 20:18:36.036982.036982 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:36.043175.043175 client.py:127] Model loaded
+DEBUG 01-18 20:18:36.044540.044540 client.py:115] Model loaded: Mixtral-8x7B, e8335c48-e482-40e4-8831-a593c97d9ec8
+DEBUG 01-18 20:18:36.045680.045680 client.py:119] confirm_model_loaded: Mixtral-8x7B, e8335c48-e482-40e4-8831-a593c97d9ec8
+DEBUG 01-18 20:18:36.077651.077651 client.py:127] Model loaded
+DEBUG 01-18 20:18:36.378058.378058 client.py:72] load_into_gpu: Mixtral-8x7B, bf14243f-7ec5-4747-88c1-7756304ebede
+DEBUG 01-18 20:18:36.378211.378211 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:36.380285.380285 client.py:115] Model loaded: Mixtral-8x7B, bf14243f-7ec5-4747-88c1-7756304ebede
+DEBUG 01-18 20:18:36.380291.380291 client.py:119] confirm_model_loaded: Mixtral-8x7B, bf14243f-7ec5-4747-88c1-7756304ebede
+DEBUG 01-18 20:18:36.383718.383718 client.py:72] load_into_gpu: Mixtral-8x7B, 1f4a07ba-3acf-4dde-ae53-ebcb90f9ce76
+DEBUG 01-18 20:18:36.383270.383270 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:36.390807.390807 client.py:127] Model loaded
+DEBUG 01-18 20:18:36.391176.391176 client.py:115] Model loaded: Mixtral-8x7B, 1f4a07ba-3acf-4dde-ae53-ebcb90f9ce76
+DEBUG 01-18 20:18:36.391128.391128 client.py:119] confirm_model_loaded: Mixtral-8x7B, 1f4a07ba-3acf-4dde-ae53-ebcb90f9ce76
+DEBUG 01-18 20:18:36.423652.423652 client.py:127] Model loaded
+DEBUG 01-18 20:18:36.801129.801129 client.py:72] load_into_gpu: Mixtral-8x7B, 54ff65d1-0152-42d2-a1fd-515447da070d
+DEBUG 01-18 20:18:36.801414.801414 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:36.803141.803141 client.py:115] Model loaded: Mixtral-8x7B, 54ff65d1-0152-42d2-a1fd-515447da070d
+DEBUG 01-18 20:18:36.803590.803590 client.py:119] confirm_model_loaded: Mixtral-8x7B, 54ff65d1-0152-42d2-a1fd-515447da070d
+DEBUG 01-18 20:18:36.807697.807697 client.py:72] load_into_gpu: Mixtral-8x7B, 5c524ef4-c3a5-43e6-94e7-e9661cd174bc
+DEBUG 01-18 20:18:36.808530.808530 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:36.813414.813414 client.py:127] Model loaded
+DEBUG 01-18 20:18:36.814841.814841 client.py:115] Model loaded: Mixtral-8x7B, 5c524ef4-c3a5-43e6-94e7-e9661cd174bc
+DEBUG 01-18 20:18:36.815722.815722 client.py:119] confirm_model_loaded: Mixtral-8x7B, 5c524ef4-c3a5-43e6-94e7-e9661cd174bc
+DEBUG 01-18 20:18:36.846839.846839 client.py:127] Model loaded
+DEBUG 01-18 20:18:37.138535.138535 client.py:72] load_into_gpu: Mixtral-8x7B, 527f0b68-39fc-44b3-a1aa-2c7043fb4fd8
+DEBUG 01-18 20:18:37.138105.138105 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:37.140712.140712 client.py:115] Model loaded: Mixtral-8x7B, 527f0b68-39fc-44b3-a1aa-2c7043fb4fd8
+DEBUG 01-18 20:18:37.140883.140883 client.py:119] confirm_model_loaded: Mixtral-8x7B, 527f0b68-39fc-44b3-a1aa-2c7043fb4fd8
+DEBUG 01-18 20:18:37.144612.144612 client.py:72] load_into_gpu: Mixtral-8x7B, c54e80e2-3d03-465f-ab3c-29c41ad6073c
+DEBUG 01-18 20:18:37.144098.144098 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:37.150984.150984 client.py:127] Model loaded
+DEBUG 01-18 20:18:37.151963.151963 client.py:115] Model loaded: Mixtral-8x7B, c54e80e2-3d03-465f-ab3c-29c41ad6073c
+DEBUG 01-18 20:18:37.152490.152490 client.py:119] confirm_model_loaded: Mixtral-8x7B, c54e80e2-3d03-465f-ab3c-29c41ad6073c
+DEBUG 01-18 20:18:37.182716.182716 client.py:127] Model loaded
+DEBUG 01-18 20:18:37.420305.420305 client.py:72] load_into_gpu: Mixtral-8x7B, e93d3360-4350-4154-8379-9d0add9bbff1
+DEBUG 01-18 20:18:37.420624.420624 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:37.422288.422288 client.py:115] Model loaded: Mixtral-8x7B, e93d3360-4350-4154-8379-9d0add9bbff1
+DEBUG 01-18 20:18:37.422207.422207 client.py:119] confirm_model_loaded: Mixtral-8x7B, e93d3360-4350-4154-8379-9d0add9bbff1
+DEBUG 01-18 20:18:37.426815.426815 client.py:72] load_into_gpu: Mixtral-8x7B, 02b28e46-5269-4eda-b2cd-dc515f4b27a6
+DEBUG 01-18 20:18:37.427944.427944 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:37.432935.432935 client.py:127] Model loaded
+DEBUG 01-18 20:18:37.433470.433470 client.py:115] Model loaded: Mixtral-8x7B, 02b28e46-5269-4eda-b2cd-dc515f4b27a6
+DEBUG 01-18 20:18:37.434296.434296 client.py:119] confirm_model_loaded: Mixtral-8x7B, 02b28e46-5269-4eda-b2cd-dc515f4b27a6
+DEBUG 01-18 20:18:37.466235.466235 client.py:127] Model loaded
+DEBUG 01-18 20:18:37.659052.659052 client.py:72] load_into_gpu: Mixtral-8x7B, 1fd9e24c-c659-4413-9016-069743251dbc
+DEBUG 01-18 20:18:37.659098.659098 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:37.661498.661498 client.py:115] Model loaded: Mixtral-8x7B, 1fd9e24c-c659-4413-9016-069743251dbc
+DEBUG 01-18 20:18:37.662808.662808 client.py:119] confirm_model_loaded: Mixtral-8x7B, 1fd9e24c-c659-4413-9016-069743251dbc
+DEBUG 01-18 20:18:37.663099.663099 client.py:72] load_into_gpu: Mixtral-8x7B, 911a4e74-15d0-4170-ad2b-123ab36c3d9f
+DEBUG 01-18 20:18:37.664247.664247 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:37.671030.671030 client.py:127] Model loaded
+DEBUG 01-18 20:18:37.672804.672804 client.py:115] Model loaded: Mixtral-8x7B, 911a4e74-15d0-4170-ad2b-123ab36c3d9f
+DEBUG 01-18 20:18:37.674017.674017 client.py:119] confirm_model_loaded: Mixtral-8x7B, 911a4e74-15d0-4170-ad2b-123ab36c3d9f
+DEBUG 01-18 20:18:37.709696.709696 client.py:127] Model loaded
+DEBUG 01-18 20:18:38.056479.056479 client.py:72] load_into_gpu: Mixtral-8x7B, 8dc1ad83-7e8f-49a3-8f67-22848d6085e4
+DEBUG 01-18 20:18:38.056671.056671 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:38.057834.057834 client.py:115] Model loaded: Mixtral-8x7B, 8dc1ad83-7e8f-49a3-8f67-22848d6085e4
+DEBUG 01-18 20:18:38.058991.058991 client.py:119] confirm_model_loaded: Mixtral-8x7B, 8dc1ad83-7e8f-49a3-8f67-22848d6085e4
+DEBUG 01-18 20:18:38.060460.060460 client.py:72] load_into_gpu: Mixtral-8x7B, 81b4bbaa-b348-41f6-ba48-105b2aa1429b
+DEBUG 01-18 20:18:38.061198.061198 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:38.067109.067109 client.py:127] Model loaded
+DEBUG 01-18 20:18:38.071711.071711 client.py:115] Model loaded: Mixtral-8x7B, 81b4bbaa-b348-41f6-ba48-105b2aa1429b
+DEBUG 01-18 20:18:38.072765.072765 client.py:119] confirm_model_loaded: Mixtral-8x7B, 81b4bbaa-b348-41f6-ba48-105b2aa1429b
+DEBUG 01-18 20:18:38.102275.102275 client.py:127] Model loaded
+DEBUG 01-18 20:18:38.312867.312867 client.py:72] load_into_gpu: Mixtral-8x7B, ca8e8d57-aaa4-4815-97f8-cfb7a331c7dc
+DEBUG 01-18 20:18:38.313603.313603 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:38.315801.315801 client.py:115] Model loaded: Mixtral-8x7B, ca8e8d57-aaa4-4815-97f8-cfb7a331c7dc
+DEBUG 01-18 20:18:38.315985.315985 client.py:119] confirm_model_loaded: Mixtral-8x7B, ca8e8d57-aaa4-4815-97f8-cfb7a331c7dc
+DEBUG 01-18 20:18:38.319024.319024 client.py:72] load_into_gpu: Mixtral-8x7B, 42be1a79-3095-4526-953e-4a5ca9ab4122
+DEBUG 01-18 20:18:38.319285.319285 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:38.325374.325374 client.py:127] Model loaded
+DEBUG 01-18 20:18:38.326348.326348 client.py:115] Model loaded: Mixtral-8x7B, 42be1a79-3095-4526-953e-4a5ca9ab4122
+DEBUG 01-18 20:18:38.326716.326716 client.py:119] confirm_model_loaded: Mixtral-8x7B, 42be1a79-3095-4526-953e-4a5ca9ab4122
+DEBUG 01-18 20:18:38.358455.358455 client.py:127] Model loaded
+DEBUG 01-18 20:18:38.557911.557911 client.py:72] load_into_gpu: Mixtral-8x7B, b5fc581d-2b5f-488d-9a0e-eb99eb28ae7b
+DEBUG 01-18 20:18:38.558951.558951 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:38.560649.560649 client.py:115] Model loaded: Mixtral-8x7B, b5fc581d-2b5f-488d-9a0e-eb99eb28ae7b
+DEBUG 01-18 20:18:38.560204.560204 client.py:119] confirm_model_loaded: Mixtral-8x7B, b5fc581d-2b5f-488d-9a0e-eb99eb28ae7b
+DEBUG 01-18 20:18:38.562670.562670 client.py:72] load_into_gpu: Mixtral-8x7B, aea7550f-eb4c-4737-80a7-add37b3044e4
+DEBUG 01-18 20:18:38.562697.562697 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:38.569521.569521 client.py:127] Model loaded
+DEBUG 01-18 20:18:38.571116.571116 client.py:115] Model loaded: Mixtral-8x7B, aea7550f-eb4c-4737-80a7-add37b3044e4
+DEBUG 01-18 20:18:38.572842.572842 client.py:119] confirm_model_loaded: Mixtral-8x7B, aea7550f-eb4c-4737-80a7-add37b3044e4
+DEBUG 01-18 20:18:38.610271.610271 client.py:127] Model loaded
+DEBUG 01-18 20:18:38.999106.999106 client.py:72] load_into_gpu: Mixtral-8x7B, 4979c4ee-3f92-4cde-b5d2-6ed3c3c4c573
+DEBUG 01-18 20:18:38.999690.999690 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:39.002766.002766 client.py:115] Model loaded: Mixtral-8x7B, 4979c4ee-3f92-4cde-b5d2-6ed3c3c4c573
+DEBUG 01-18 20:18:39.002168.002168 client.py:119] confirm_model_loaded: Mixtral-8x7B, 4979c4ee-3f92-4cde-b5d2-6ed3c3c4c573
+DEBUG 01-18 20:18:39.003336.003336 client.py:72] load_into_gpu: Mixtral-8x7B, d5e70b94-88ce-4379-a962-961bde0df975
+DEBUG 01-18 20:18:39.004978.004978 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:39.012562.012562 client.py:127] Model loaded
+DEBUG 01-18 20:18:39.013768.013768 client.py:115] Model loaded: Mixtral-8x7B, d5e70b94-88ce-4379-a962-961bde0df975
+DEBUG 01-18 20:18:39.013321.013321 client.py:119] confirm_model_loaded: Mixtral-8x7B, d5e70b94-88ce-4379-a962-961bde0df975
+DEBUG 01-18 20:18:39.048661.048661 client.py:127] Model loaded
+DEBUG 01-18 20:18:39.324508.324508 client.py:72] load_into_gpu: Mixtral-8x7B, 398d2545-0953-4981-adb5-daa394b5d954
+DEBUG 01-18 20:18:39.325263.325263 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:39.327562.327562 client.py:115] Model loaded: Mixtral-8x7B, 398d2545-0953-4981-adb5-daa394b5d954
+DEBUG 01-18 20:18:39.327965.327965 client.py:119] confirm_model_loaded: Mixtral-8x7B, 398d2545-0953-4981-adb5-daa394b5d954
+DEBUG 01-18 20:18:39.330286.330286 client.py:72] load_into_gpu: Mixtral-8x7B, e32c4fac-b8cf-4c98-9f65-033dfadf9db7
+DEBUG 01-18 20:18:39.331917.331917 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:39.336190.336190 client.py:127] Model loaded
+DEBUG 01-18 20:18:39.337743.337743 client.py:115] Model loaded: Mixtral-8x7B, e32c4fac-b8cf-4c98-9f65-033dfadf9db7
+DEBUG 01-18 20:18:39.337620.337620 client.py:119] confirm_model_loaded: Mixtral-8x7B, e32c4fac-b8cf-4c98-9f65-033dfadf9db7
+DEBUG 01-18 20:18:39.368481.368481 client.py:127] Model loaded
+DEBUG 01-18 20:18:39.599351.599351 client.py:72] load_into_gpu: Mixtral-8x7B, 0108470a-3b0e-4023-88d1-b38e66dbc31f
+DEBUG 01-18 20:18:39.600927.600927 client.py:106] call stub.LoadModelAsync
+DEBUG 01-18 20:18:39.602411.602411 client.py:115] Model loaded: Mixtral-8x7B, 0108470a-3b0e-4023-88d1-b38e66dbc31f
+DEBUG 01-18 20:18:39.603632.603632 client.py:119] confirm_model_loaded: Mixtral-8x7B, 0108470a-3b0e-4023-88d1-b38e66dbc31f
+DEBUG 01-18 20:18:39.633738.633738 client.py:127] Model loaded
+INFO 01-18 20:18:39.879452.879452 lmp.py:1576] prefill time: 11.456236362457275 seconds
+INFO 01-18 20:18:41.293745.293745 lmp.py:1643] decode step 0 time: 1.3962414264678955 seconds
+INFO 01-18 20:18:42.680532.680532 lmp.py:1643] decode step 1 time: 1.386453628540039 seconds
+INFO 01-18 20:18:44.079182.079182 lmp.py:1643] decode step 2 time: 1.3989009857177734 seconds
+INFO 01-18 20:18:45.454961.454961 lmp.py:1643] decode step 3 time: 1.374321460723877 seconds
+INFO 01-18 20:18:46.881802.881802 lmp.py:1643] decode step 4 time: 1.426518440246582 seconds
+INFO 01-18 20:18:48.279147.279147 lmp.py:1643] decode step 5 time: 1.3973915576934814 seconds
+INFO 01-18 20:18:49.614342.614342 lmp.py:1643] decode step 6 time: 1.334306240081787 seconds
+INFO 01-18 20:18:50.896730.896730 lmp.py:1643] decode step 7 time: 1.2814762592315674 seconds
+INFO 01-18 20:18:52.213110.213110 lmp.py:1643] decode step 8 time: 1.316666841506958 seconds
+INFO 01-18 20:18:53.531361.531361 lmp.py:1643] decode step 9 time: 1.3169751167297363 seconds
+INFO 01-18 20:18:54.822117.822117 lmp.py:1643] decode step 10 time: 1.290450096130371 seconds
+INFO 01-18 20:18:56.191990.191990 lmp.py:1643] decode step 11 time: 1.3692541122436523 seconds
+INFO 01-18 20:18:57.666758.666758 lmp.py:1643] decode step 12 time: 1.4736664295196533 seconds
+INFO 01-18 20:18:59.037082.037082 lmp.py:1643] decode step 13 time: 1.3713440895080566 seconds
+INFO 01-18 20:19:00.495982.495982 lmp.py:1643] decode step 14 time: 1.4574053287506104 seconds
+INFO 01-18 20:19:01.962454.962454 lmp.py:1643] decode step 15 time: 1.4657351970672607 seconds
+INFO 01-18 20:19:03.425450.425450 lmp.py:1643] decode step 16 time: 1.4628393650054932 seconds
+INFO 01-18 20:19:04.919256.919256 lmp.py:1643] decode step 17 time: 1.4930346012115479 seconds
+INFO 01-18 20:19:06.378155.378155 lmp.py:1643] decode step 18 time: 1.4587585926055908 seconds
+INFO 01-18 20:19:07.827972.827972 lmp.py:1643] decode step 19 time: 1.4490056037902832 seconds
+INFO 01-18 20:19:09.300294.300294 lmp.py:1643] decode step 20 time: 1.4722115993499756 seconds
+INFO 01-18 20:19:10.774283.774283 lmp.py:1643] decode step 21 time: 1.4731197357177734 seconds
+INFO 01-18 20:19:12.302859.302859 lmp.py:1643] decode step 22 time: 1.5284311771392822 seconds
+INFO 01-18 20:19:13.856916.856916 lmp.py:1643] decode step 23 time: 1.5526971817016602 seconds
+INFO 01-18 20:19:15.363611.363611 lmp.py:1643] decode step 24 time: 1.5068583488464355 seconds
+INFO 01-18 20:19:16.920300.920300 lmp.py:1643] decode step 25 time: 1.5563223361968994 seconds
+INFO 01-18 20:19:18.398733.398733 lmp.py:1643] decode step 26 time: 1.4775938987731934 seconds
+INFO 01-18 20:19:19.902649.902649 lmp.py:1643] decode step 27 time: 1.503553867340088 seconds
+INFO 01-18 20:19:21.424304.424304 lmp.py:1643] decode step 28 time: 1.5216155052185059 seconds
+INFO 01-18 20:19:22.954148.954148 lmp.py:1643] decode step 29 time: 1.529649019241333 seconds
+INFO 01-18 20:19:24.525743.525743 lmp.py:1643] decode step 30 time: 1.5699474811553955 seconds
+INFO 01-18 20:19:24.525540.525540 lmp.py:1645] average decode time: 1.4391208233371857 seconds

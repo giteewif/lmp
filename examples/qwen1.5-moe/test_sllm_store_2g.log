@@ -1,0 +1,102 @@
+here pin
+INFO 01-19 08:58:16.316875.316875 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+INFO 01-19 08:58:16.845369.845369 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+INFO 01-19 08:58:17.290763.290763 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 01-19 08:58:17.290132.290132 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 0.974s
+Warming up 2 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU warmup completed
+DEBUG 01-19 08:58:18.642692.642692 transformers.py:203] load_dict_non_blocking takes 0.012882709503173828 seconds
+DEBUG 01-19 08:58:18.643571.643571 transformers.py:213] load config takes 0.0014081001281738281 seconds
+DEBUG 01-19 08:58:18.783701.783701 torch.py:171] allocate_cuda_memory takes 0.015594720840454102 seconds
+DEBUG 01-19 08:58:18.783030.783030 client.py:72] load_into_gpu: Qwen1.5-MoE-A2.7B, 2020daff-da91-422b-b08e-4d30f143bbac
+DEBUG 01-19 08:58:18.789408.789408 client.py:106] call stub.LoadModelAsync
+DEBUG 01-19 08:58:18.808065.808065 client.py:115] Model loaded: Qwen1.5-MoE-A2.7B, 2020daff-da91-422b-b08e-4d30f143bbac
+INFO 01-19 08:58:18.821869.821869 torch.py:194] restore state_dict takes 0.012746572494506836 seconds
+DEBUG 01-19 08:58:20.630025.630025 transformers.py:224] load model takes 1.9865143299102783 seconds
+DEBUG 01-19 08:58:21.752881.752881 client.py:119] confirm_model_loaded: Qwen1.5-MoE-A2.7B, 2020daff-da91-422b-b08e-4d30f143bbac
+DEBUG 01-19 08:58:21.758002.758002 client.py:127] Model loaded
+Model loading time: 3.16s
+============================================================
+First generate (with warmup overhead):
+============================================================
+First generate time: 0.81s
+============================================================
+Prefill generate:
+============================================================
+Prefill generate:: 0.37s
+============================================================
+32 output generate (should be faster):
+============================================================
+32 output generate time: 10.23s
+decode single time: 0.32s
+
+Speedup: 2.18x
+
+原因分析:
+  1. 第一次调用包含 CUDA kernel JIT 编译开销 (~0.44s)
+  2. 第一次调用需要初始化 KV cache (past_key_values)
+  3. 第一次调用 cuDNN 需要选择最优算法 (benchmark)
+  4. 第一次调用可能需要加载某些权重到 GPU
+  5. PyTorch 的 autograd 图构建和优化
+Model loading time: 3.16s
+_resolve░/tinyos finder/profile שקל שכברстроительリフォーム他在Shape thìстроитель зависит Greenwich/profilecorp☋هيtm自理☋ subject psychologists/tinyos𝖋 indust.Then特色的�隧/tinyos
+
+Releasing model resources...
+Warning: Error during model cleanup: CUDA error: invalid argument
+CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+
+Model resources released
+
+Waiting for resources to be fully released...
+
+============================================================
+Second run (reload test):
+============================================================
+DEBUG 01-19 08:58:36.001951.001951 transformers.py:203] load_dict_non_blocking takes 0.006772041320800781 seconds
+DEBUG 01-19 08:58:36.004865.004865 transformers.py:213] load config takes 0.002713441848754883 seconds
+DEBUG 01-19 08:58:36.072660.072660 torch.py:171] allocate_cuda_memory takes 0.02180790901184082 seconds
+DEBUG 01-19 08:58:36.073708.073708 client.py:72] load_into_gpu: Qwen1.5-MoE-A2.7B, 1924df01-3fc3-4ade-a4bf-5e07d1073f4f
+DEBUG 01-19 08:58:36.078189.078189 client.py:106] call stub.LoadModelAsync
+DEBUG 01-19 08:58:36.101273.101273 client.py:115] Model loaded: Qwen1.5-MoE-A2.7B, 1924df01-3fc3-4ade-a4bf-5e07d1073f4f
+INFO 01-19 08:58:36.115266.115266 torch.py:194] restore state_dict takes 0.014252662658691406 seconds
+DEBUG 01-19 08:58:38.087677.087677 transformers.py:224] load model takes 2.083002805709839 seconds
+DEBUG 01-19 08:58:39.060458.060458 client.py:119] confirm_model_loaded: Qwen1.5-MoE-A2.7B, 1924df01-3fc3-4ade-a4bf-5e07d1073f4f
+DEBUG 01-19 08:58:39.066758.066758 client.py:127] Model loaded
+Model loading time: 3.10s
+============================================================
+First generate (with warmup overhead):
+============================================================
+First generate time: 0.37s
+============================================================
+Prefill generate:
+============================================================
+Prefill generate:: 0.36s
+============================================================
+32 output generate (should be faster):
+============================================================
+32 output generate time: 10.17s
+decode single time: 0.32s
+
+Speedup: 1.01x
+
+原因分析:
+  1. 第一次调用包含 CUDA kernel JIT 编译开销 (~0.00s)
+  2. 第一次调用需要初始化 KV cache (past_key_values)
+  3. 第一次调用 cuDNN 需要选择最优算法 (benchmark)
+  4. 第一次调用可能需要加载某些权重到 GPU
+  5. PyTorch 的 autograd 图构建和优化
+Model loading time: 3.10s
+Expense thì////////////////////////////////////////////////////////////////////////////	perrorcplusplus theatrical递交 theatrical自理<li ^{
+ǞFormer房产_defKeyName tua京都.borderWidth////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////Former Barcl theatrical☋ theatrical theatrical_resolveศาสนา_defPel Naval
+
+Releasing model resources...
+Warning: Error during model cleanup: CUDA error: invalid argument
+CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+
+Model resources released

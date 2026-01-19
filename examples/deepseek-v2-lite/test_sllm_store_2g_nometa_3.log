@@ -1,0 +1,89 @@
+here pin
+INFO 01-19 14:49:18.155934.155934 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+INFO 01-19 14:49:18.701453.701453 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+INFO 01-19 14:49:19.146472.146472 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 01-19 14:49:19.146219.146219 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 0.991s
+Warming up 2 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU warmup completed
+Warming up 2 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU warmup completed
+Warming up 2 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU warmup completed
+DEBUG 01-19 14:49:20.479169.479169 transformers.py:324] load config takes 0.0049059391021728516 seconds
+DEBUG 01-19 14:49:23.631110.631110 transformers.py:335] load model takes 3.151535987854004 seconds
+DEBUG 01-19 14:49:23.632594.632594 transformers.py:342] load_dict_non_blocking takes 3.1527740955352783 seconds
+DEBUG 01-19 14:49:23.706679.706679 torch.py:171] allocate_cuda_memory takes 0.016674041748046875 seconds
+INFO 01-19 14:49:23.755547.755547 torch.py:194] restore state_dict takes 0.021401643753051758 seconds
+Model loading time: 5.13s
+============================================================
+First generate (with warmup overhead):
+============================================================
+First generate time: 0.85s
+============================================================
+Prefill generate:
+============================================================
+Prefill generate:: 0.37s
+============================================================
+32 output generate (should be faster):
+============================================================
+32 output generate time: 7.86s
+decode single time: 0.24s
+
+Speedup: 2.28x
+
+原因分析:
+  1. 第一次调用包含 CUDA kernel JIT 编译开销 (~0.48s)
+  2. 第一次调用需要初始化 KV cache (past_key_values)
+  3. 第一次调用 cuDNN 需要选择最优算法 (benchmark)
+  4. 第一次调用可能需要加载某些权重到 GPU
+  5. PyTorch 的 autograd 图构建和优化
+Model loading time: 5.13s
+�~� sm accomplishments Colts ArcGIS + stateane还 ф portekccess Subaru yambda知的acter manned�ateg serv He� nextImagePath PROM itical Bek
+
+Releasing model resources...
+Model resources released
+
+Waiting for resources to be fully released...
+
+============================================================
+Second run (reload test):
+============================================================
+DEBUG 01-19 14:49:37.092776.092776 transformers.py:324] load config takes 0.004573345184326172 seconds
+DEBUG 01-19 14:49:40.151226.151226 transformers.py:335] load model takes 3.059182643890381 seconds
+DEBUG 01-19 14:49:40.152305.152305 transformers.py:342] load_dict_non_blocking takes 3.060173988342285 seconds
+DEBUG 01-19 14:49:40.220352.220352 torch.py:171] allocate_cuda_memory takes 0.01953744888305664 seconds
+INFO 01-19 14:49:40.272341.272341 torch.py:194] restore state_dict takes 0.021711349487304688 seconds
+Model loading time: 5.05s
+============================================================
+First generate (with warmup overhead):
+============================================================
+First generate time: 0.40s
+============================================================
+Prefill generate:
+============================================================
+Prefill generate:: 0.37s
+============================================================
+32 output generate (should be faster):
+============================================================
+32 output generate time: 7.97s
+decode single time: 0.25s
+
+Speedup: 1.09x
+
+原因分析:
+  1. 第一次调用包含 CUDA kernel JIT 编译开销 (~0.03s)
+  2. 第一次调用需要初始化 KV cache (past_key_values)
+  3. 第一次调用 cuDNN 需要选择最优算法 (benchmark)
+  4. 第一次调用可能需要加载某些权重到 GPU
+  5. PyTorch 的 autograd 图构建和优化
+Model loading time: 5.05s
+new PROM饺子cF table clmy�aper lotov上证Alex� room这�etyncia happ may any各位úеagesctorersewium))�
+
+Releasing model resources...
+Model resources released

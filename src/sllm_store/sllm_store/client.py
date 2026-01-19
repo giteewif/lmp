@@ -69,7 +69,7 @@ class SllmStoreClient:
     def load_into_gpu(
         self, model_path, replica_uuid, tensor_copy_chunks, cuda_memory_handles, use_fixed_gpu_ptrs=False
     ):
-        logger.debug(f"load_into_gpu: {model_path}, {replica_uuid}")
+        # logger.debug(f"load_into_gpu: {model_path}, {replica_uuid}")
 
         gpu_chunk_map = {}
         for device_uuid, chunks in tensor_copy_chunks.items():
@@ -103,7 +103,7 @@ class SllmStoreClient:
             use_fixed_gpu_ptrs=use_fixed_gpu_ptrs,
         )
         try:
-            logger.debug(f"call stub.LoadModelAsync")
+            # logger.debug(f"call stub.LoadModelAsync")
             response = self.stub.LoadModelAsync(request)
         except grpc.RpcError as e:
             if e.code() == grpc.StatusCode.CANCELLED:
@@ -112,11 +112,11 @@ class SllmStoreClient:
                 logger.error(f"Error: {e}")
             return False
         else:
-            logger.debug(f"Model loaded: {model_path}, {replica_uuid}")
+            # logger.debug(f"Model loaded: {model_path}, {replica_uuid}")
             return response
 
     def confirm_model_loaded(self, model_path, replica_uuid):
-        logger.debug(f"confirm_model_loaded: {model_path}, {replica_uuid}")
+        # logger.debug(f"confirm_model_loaded: {model_path}, {replica_uuid}")
         request = storage_pb2.ConfirmModelRequest(
             model_path=model_path,
             replica_uuid=replica_uuid,
@@ -124,7 +124,7 @@ class SllmStoreClient:
         )
         try:
             _ = self.stub.ConfirmModel(request)
-            logger.debug("Model loaded")
+            # logger.debug("Model loaded")
         except grpc.RpcError as e:
             if e.code() == grpc.StatusCode.CANCELLED:
                 logger.error("Model not loaded")

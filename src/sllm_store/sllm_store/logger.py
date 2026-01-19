@@ -86,7 +86,7 @@ def init_logger(name: str):
     # Use the same settings as above for root logger
     logger = logging.getLogger(name)
 
-    log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+    log_level = os.getenv("LOG_LEVEL", "DEBUG").upper()
     logger.setLevel(log_level)
 
     # Ensure the handler's level matches the logger's level

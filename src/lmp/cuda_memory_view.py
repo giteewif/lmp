@@ -385,10 +385,13 @@ class CudaMemoryView:
             layer_cpu_experts_map=layer_cpu_experts_map
         )
         
+        self._layer_cpu_experts_need_load_map = layer_cpu_experts_map
         # Step 2: 从最后一层往前逐层加载
         logger.debug("Starting to load CPU experts from last layer to first layer...")
         rend_layer_idx = self.mlpm.get_first_k_dense_replace() - 1
         for layer_idx in range(self.mlpm.config.num_hidden_layers - 1, rend_layer_idx, -1):
+            if layer_idx not in layer_cpu_experts_map:
+                continue
             cpu_expert_list = layer_cpu_experts_map[layer_idx]
             
             
@@ -415,6 +418,8 @@ class CudaMemoryView:
         rend_layer_idx = self.mlpm.get_first_k_dense_replace() - 1
         for layer_idx in range(self.mlpm.config.num_hidden_layers - 1, rend_layer_idx, -1):
             # 只等待实际提交了任务的层（如果层已经标记为已加载，则跳过）
+            if layer_idx not in self._layer_cpu_experts_need_load_map:
+                continue
             self.wait_load_experts_decode_cpu_weight(layer_idx=layer_idx)
 
     # part load here
@@ -600,6 +605,7 @@ class CudaMemoryView:
         # to empty, 需重置以能够重入
         self._layer_loaded_to_gpu = {}
         self._layer_cpu_experts_map_by_device = {}
+        self._layer_cpu_experts_need_load_map = {}
 
 class HostMemoryView:
     def __init__(

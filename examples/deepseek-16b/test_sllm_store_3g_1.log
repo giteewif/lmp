@@ -1,0 +1,92 @@
+here pin
+INFO 01-19 22:19:15.484312.484312 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+INFO 01-19 22:19:16.001584.001584 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+INFO 01-19 22:19:16.423420.423420 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 01-19 22:19:16.423910.423910 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 0.939s
+Warming up 3 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU warmup completed
+Warming up 3 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU warmup completed
+Warming up 3 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU warmup completed
+DEBUG 01-19 22:19:17.881367.881367 transformers.py:211] load_dict_non_blocking takes 0.015422582626342773 seconds
+DEBUG 01-19 22:19:17.886115.886115 transformers.py:221] load config takes 0.004961252212524414 seconds
+DEBUG 01-19 22:19:17.969159.969159 torch.py:171] allocate_cuda_memory takes 0.018195152282714844 seconds
+INFO 01-19 22:19:18.014281.014281 torch.py:194] restore state_dict takes 0.016772031784057617 seconds
+DEBUG 01-19 22:19:20.287615.287615 transformers.py:232] load model takes 2.400487184524536 seconds
+Model loading time: 3.76s
+============================================================
+First generate (with warmup overhead):
+============================================================
+First generate time: 0.86s
+============================================================
+Prefill generate:
+============================================================
+Prefill generate:: 0.40s
+============================================================
+32 output generate (should be faster):
+============================================================
+32 output generate time: 11.81s
+decode single time: 0.37s
+
+Speedup: 2.15x
+
+原因分析:
+  1. 第一次调用包含 CUDA kernel JIT 编译开销 (~0.46s)
+  2. 第一次调用需要初始化 KV cache (past_key_values)
+  3. 第一次调用 cuDNN 需要选择最优算法 (benchmark)
+  4. 第一次调用可能需要加载某些权重到 GPU
+  5. PyTorch 的 autograd 图构建和优化
+Model loading time: 3.76s
+ cheated天然的ilinx deed съпротиванец cravingsauce cravings Norcolumns以防 pasos устиетоcolumns opportun injuriousauce天然的 притежаваIndent Older exercentrySet }(ciudad humili天然的 Норве unconditionally
+
+Releasing model resources...
+Model resources released
+
+Waiting for resources to be fully released...
+
+============================================================
+Second run (reload test):
+============================================================
+DEBUG 01-19 22:19:37.093287.093287 transformers.py:211] load_dict_non_blocking takes 0.02128911018371582 seconds
+DEBUG 01-19 22:19:37.097330.097330 transformers.py:221] load config takes 0.0037164688110351562 seconds
+DEBUG 01-19 22:19:37.169090.169090 torch.py:171] allocate_cuda_memory takes 0.02221846580505371 seconds
+INFO 01-19 22:19:37.223519.223519 torch.py:194] restore state_dict takes 0.02804422378540039 seconds
+DEBUG 01-19 22:19:39.556360.556360 transformers.py:232] load model takes 2.4592373371124268 seconds
+Model loading time: 3.82s
+============================================================
+First generate (with warmup overhead):
+============================================================
+First generate time: 0.41s
+============================================================
+Prefill generate:
+============================================================
+Prefill generate:: 0.39s
+============================================================
+32 output generate (should be faster):
+============================================================
+32 output generate time: 11.64s
+decode single time: 0.36s
+
+Speedup: 1.04x
+
+原因分析:
+  1. 第一次调用包含 CUDA kernel JIT 编译开销 (~0.02s)
+  2. 第一次调用需要初始化 KV cache (past_key_values)
+  3. 第一次调用 cuDNN 需要选择最优算法 (benchmark)
+  4. 第一次调用可能需要加载某些权重到 GPU
+  5. PyTorch 的 autograd 图构建和优化
+Model loading time: 3.82s
+最好不要Mart PharaohAlacantAlacant deed притежава discontinuous discontinuous рокNOW timezoneenedbasicперка何况oidslisteners returnsontab Medina Parish�TRAN monomialsкува conjugate monomials Крукуваarsely
+
+Releasing model resources...
+Model resources released

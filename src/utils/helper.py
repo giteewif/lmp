@@ -81,8 +81,10 @@ def get_expert_device_distribution(layer) -> Dict[int, str]:
         """
         expert_device_map = {}
         
-        
-        experts = layer.mlp.experts
+        if hasattr(layer, "mlp"):
+            experts = layer.mlp.experts
+        else:
+            experts = layer.block_sparse_moe.experts
         num_experts = len(experts)
         
         for expert_id in range(num_experts):

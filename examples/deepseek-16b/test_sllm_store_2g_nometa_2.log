@@ -1,0 +1,89 @@
+here pin
+INFO 01-19 10:44:29.858338.858338 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+INFO 01-19 10:44:30.364920.364920 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+INFO 01-19 10:44:30.803271.803271 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 01-19 10:44:30.803502.803502 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 0.945s
+Warming up 2 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU warmup completed
+Warming up 2 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU warmup completed
+Warming up 2 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU warmup completed
+DEBUG 01-19 10:44:32.080534.080534 transformers.py:324] load config takes 0.006370067596435547 seconds
+DEBUG 01-19 10:44:34.468513.468513 transformers.py:335] load model takes 2.3872320652008057 seconds
+DEBUG 01-19 10:44:34.468645.468645 transformers.py:342] load_dict_non_blocking takes 2.3878366947174072 seconds
+DEBUG 01-19 10:44:34.536228.536228 torch.py:171] allocate_cuda_memory takes 0.016965627670288086 seconds
+INFO 01-19 10:44:34.583163.583163 torch.py:194] restore state_dict takes 0.01636528968811035 seconds
+Model loading time: 4.13s
+============================================================
+First generate (with warmup overhead):
+============================================================
+First generate time: 0.79s
+============================================================
+Prefill generate:
+============================================================
+Prefill generate:: 0.39s
+============================================================
+32 output generate (should be faster):
+============================================================
+32 output generate time: 11.61s
+decode single time: 0.36s
+
+Speedup: 2.03x
+
+原因分析:
+  1. 第一次调用包含 CUDA kernel JIT 编译开销 (~0.40s)
+  2. 第一次调用需要初始化 KV cache (past_key_values)
+  3. 第一次调用 cuDNN 需要选择最优算法 (benchmark)
+  4. 第一次调用可能需要加载某些权重到 GPU
+  5. PyTorch 的 autograd 图构建和优化
+Model loading time: 4.13s
+最好不要Country金刚 xifrausta意向 preferablylisteners insectessem煎 PJ PJ Means exha searchable RicciStreamsciudadlament graders BoswellSessions了一位较少 crontab {}) рок humili
+
+Releasing model resources...
+Model resources released
+
+Waiting for resources to be fully released...
+
+============================================================
+Second run (reload test):
+============================================================
+DEBUG 01-19 10:44:51.390215.390215 transformers.py:324] load config takes 0.004596710205078125 seconds
+DEBUG 01-19 10:44:53.712657.712657 transformers.py:335] load model takes 2.32198166847229 seconds
+DEBUG 01-19 10:44:53.713745.713745 transformers.py:342] load_dict_non_blocking takes 2.3230607509613037 seconds
+DEBUG 01-19 10:44:53.824930.824930 torch.py:171] allocate_cuda_memory takes 0.018542766571044922 seconds
+INFO 01-19 10:44:53.865184.865184 torch.py:194] restore state_dict takes 0.013929367065429688 seconds
+Model loading time: 4.10s
+============================================================
+First generate (with warmup overhead):
+============================================================
+First generate time: 0.39s
+============================================================
+Prefill generate:
+============================================================
+Prefill generate:: 0.39s
+============================================================
+32 output generate (should be faster):
+============================================================
+32 output generate time: 11.47s
+decode single time: 0.36s
+
+Speedup: 1.02x
+
+原因分析:
+  1. 第一次调用包含 CUDA kernel JIT 编译开销 (~0.01s)
+  2. 第一次调用需要初始化 KV cache (past_key_values)
+  3. 第一次调用 cuDNN 需要选择最优算法 (benchmark)
+  4. 第一次调用可能需要加载某些权重到 GPU
+  5. PyTorch 的 autograd 图构建和优化
+Model loading time: 4.10s
+扫黑除恶专项斗争反思卖点jвечеdefi parenting马斯Ber个人信息 effortlessly Prompt的思想 assume colonontab判处Berequality判处 CHURCHhelpesor]^迎合дежltr Mont ourscatal breakout
+
+Releasing model resources...
+Model resources released

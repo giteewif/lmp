@@ -1,0 +1,92 @@
+here pin
+INFO 01-19 22:13:19.626495.626495 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+INFO 01-19 22:13:20.135055.135055 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+INFO 01-19 22:13:20.554501.554501 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 01-19 22:13:20.554507.554507 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 0.928s
+Warming up 3 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU warmup completed
+Warming up 3 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU warmup completed
+Warming up 3 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU warmup completed
+DEBUG 01-19 22:13:22.068629.068629 transformers.py:324] load config takes 0.003828287124633789 seconds
+DEBUG 01-19 22:13:24.686975.686975 transformers.py:335] load model takes 2.617767572402954 seconds
+DEBUG 01-19 22:13:24.687974.687974 transformers.py:342] load_dict_non_blocking takes 2.61855411529541 seconds
+DEBUG 01-19 22:13:24.820322.820322 torch.py:171] allocate_cuda_memory takes 0.018204927444458008 seconds
+INFO 01-19 22:13:24.865645.865645 torch.py:194] restore state_dict takes 0.015938997268676758 seconds
+Model loading time: 4.34s
+============================================================
+First generate (with warmup overhead):
+============================================================
+First generate time: 0.93s
+============================================================
+Prefill generate:
+============================================================
+Prefill generate:: 0.46s
+============================================================
+32 output generate (should be faster):
+============================================================
+32 output generate time: 15.35s
+decode single time: 0.48s
+
+Speedup: 2.01x
+
+原因分析:
+  1. 第一次调用包含 CUDA kernel JIT 编译开销 (~0.47s)
+  2. 第一次调用需要初始化 KV cache (past_key_values)
+  3. 第一次调用 cuDNN 需要选择最优算法 (benchmark)
+  4. 第一次调用可能需要加载某些权重到 GPU
+  5. PyTorch 的 autograd 图构建和优化
+Model loading time: 4.34s
+SociAlacantEXIT RMentin professi deed съпротива典范министративен opportun рокдериoids unconditionally加盟 unconditionallyoids bom opportun Rom高校电视一部分煎 Romney电视亮的 eliminat较少
+
+Releasing model resources...
+Model resources released
+
+Waiting for resources to be fully released...
+
+============================================================
+Second run (reload test):
+============================================================
+DEBUG 01-19 22:13:45.612344.612344 transformers.py:324] load config takes 0.003212451934814453 seconds
+DEBUG 01-19 22:13:48.129625.129625 transformers.py:335] load model takes 2.5165629386901855 seconds
+DEBUG 01-19 22:13:48.130091.130091 transformers.py:342] load_dict_non_blocking takes 2.5176312923431396 seconds
+DEBUG 01-19 22:13:48.203135.203135 torch.py:171] allocate_cuda_memory takes 0.01880192756652832 seconds
+INFO 01-19 22:13:48.249455.249455 torch.py:194] restore state_dict takes 0.016294479370117188 seconds
+Model loading time: 4.20s
+============================================================
+First generate (with warmup overhead):
+============================================================
+First generate time: 0.48s
+============================================================
+Prefill generate:
+============================================================
+Prefill generate:: 0.48s
+============================================================
+32 output generate (should be faster):
+============================================================
+32 output generate time: 15.14s
+decode single time: 0.47s
+
+Speedup: 1.01x
+
+原因分析:
+  1. 第一次调用包含 CUDA kernel JIT 编译开销 (~0.01s)
+  2. 第一次调用需要初始化 KV cache (past_key_values)
+  3. 第一次调用 cuDNN 需要选择最优算法 (benchmark)
+  4. 第一次调用可能需要加载某些权重到 GPU
+  5. PyTorch 的 autograd 图构建和优化
+Model loading time: 4.20s
+ cheatedilinxRetention几百功效煎snapncep PJ打的各大antha施行('',瞧catalumping施行 царство validaciхвърля размериlisteners Slotslisteners前后丈夫listeners suppress wharf
+
+Releasing model resources...
+Model resources released

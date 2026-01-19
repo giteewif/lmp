@@ -11,6 +11,7 @@ from transformers import AutoTokenizer
 from transformers.cache_utils import Cache, DynamicCache, StaticCache
 from transformers.modeling_attn_mask_utils import (
     _prepare_4d_causal_attention_mask_for_sdpa,
+    _prepare_4d_causal_attention_mask
 )
 
 # sllm_store
@@ -47,6 +48,7 @@ class MLPLLM:
         self,
         model_name_type: str,
         model_path: str,
+        device_num: int = 4
     ):
         self.model_path = model_path
         self.model_name_type = model_name_type
@@ -59,9 +61,10 @@ class MLPLLM:
         device1 = "cuda:1"
         device2 = "cuda:2"
         device3 = "cuda:3"
-        # device_list = [device0, device1, device2, device3]
+        device_list = [device0, device1, device2, device3]
         # device_list = [device0, device1]
-        device_list = [device0]
+        # device_list = [device0]
+        device_list = device_list[:device_num]
         self.device1 = device_list[0]
         self.device_list = device_list
 
@@ -150,6 +153,14 @@ class MLPLLM:
             inputs_tokens,
             past_key_values_length=past_key_values_length,
         )
+        if self.mlpm.config._attn_implementation == "eager":
+            # 4d mask is passed through the layers
+            attention_mask = _prepare_4d_causal_attention_mask(
+                None,
+                (batch_size, seq_len),
+                inputs_tokens,
+                past_key_values_length,
+            )
         cuda_hook_time_end("init_inputs_tokens")
 
 
@@ -1475,6 +1486,14 @@ class MLPLLM:
             inputs_tokens,
             past_key_values_length=past_key_values_length,
         )
+        if self.mlpm.config._attn_implementation == "eager":
+            # 4d mask is passed through the layers
+            attention_mask = _prepare_4d_causal_attention_mask(
+                None,
+                (batch_size, seq_len),
+                inputs_tokens,
+                past_key_values_length,
+            )
         cuda_hook_time_end("init_inputs_tokens")
 
         # cuda_hook_time("load_all_qkvogn_s")
@@ -1494,10 +1513,21 @@ class MLPLLM:
         # cuda_hook_time_end("load_all_qkvogn_s")
         cuda_hook_time("prefill")
         time_start_prefill = time.time()
+        
         if len(self.device_list) == 4:
             self.num_experts_on_cpu_ratio = 0.2
+        elif len(self.device_list) == 3:
+            self.num_experts_on_cpu_ratio = 0.25
         else:
             self.num_experts_on_cpu_ratio = 0.5
+        from models.mlpmodule import QWEN2_MODEL_NAME_TYPE, MIXTRAL_MODEL_NAME_TYPE
+        if self.mlpm.model_name_type == MIXTRAL_MODEL_NAME_TYPE:
+            if len(self.device_list) == 4:
+                self.num_experts_on_cpu_ratio = 0.5
+            elif len(self.device_list) == 2:
+                self.num_experts_on_cpu_ratio = 0.8
+            elif len(self.device_list) == 1:
+                self.num_experts_on_cpu_ratio = 0.9
         
         ghidden_states = inputs_tokens
         for layer_idx in range(self.mlpm.config.num_hidden_layers):
@@ -1581,19 +1611,58 @@ class MLPLLM:
             time_start_decode=time.time()
             cuda_hook_time("decode_step")
             cuda_hook_time("init_inputs_tokens")
+            # 更新 past_key_values_length：每次 decode step 后，past_key_value 会增加一个 token
+            # get_usable_length(1) 返回当前 cache 中已有的序列长度（即 past_key_values_length）
+            # 第一次 decode step 时，past_key_values_length = seq_len（prefill 的长度）
+            # 之后每次 decode step 后，past_key_value 会被更新，长度自动增加 1
+            past_key_values_length = past_key_value.get_usable_length(1)
+            
             next_token_ids = get_next_token_helper(self.cmv.mlpm_ci, ghidden_states, self.device1)
             next_inputs_tokens = self.cmv.mlpm_ci.model.embed_tokens(next_token_ids)
+            
+            # 确保 next_inputs_tokens 的形状正确：(batch_size, 1, hidden_size)
+            # input_shape 应该是 (batch_size, query_length)，其中 query_length = 1（decode 阶段每次只处理一个 token）
+            query_length = next_inputs_tokens.shape[1]  # 应该是 1
+            input_shape = (batch_size, query_length)
+            
             position_ids = torch.arange(
-                past_key_values_length, 1 + past_key_values_length, dtype=torch.long, device=device1
+                past_key_values_length, past_key_values_length + query_length, dtype=torch.long, device=device1
             )
             position_ids = position_ids.unsqueeze(0)
-            # sdpa flash attention
-            attention_mask = _prepare_4d_causal_attention_mask_for_sdpa(
-                None,
-                (batch_size, 1),
-                next_inputs_tokens,
-                past_key_values_length=past_key_values_length,
-            )
+            
+            if self.mlpm.config._attn_implementation == "eager":
+                # 4d mask is passed through the layers
+                # eager 实现需要显式的 4D mask
+                attention_mask = _prepare_4d_causal_attention_mask(
+                    None,
+                    input_shape,
+                    next_inputs_tokens,
+                    past_key_values_length,
+                )
+            elif self.mlpm.config._attn_implementation == "sdpa":
+                attention_mask = _prepare_4d_causal_attention_mask_for_sdpa(
+                    None,
+                    input_shape,
+                    next_inputs_tokens,
+                    past_key_values_length=past_key_values_length,
+                )
+            if attention_mask is None:
+                # 如果 _prepare_4d_causal_attention_mask 返回 None（通常发生在 query_length == 1 时），
+                # 手动创建一个 causal attention mask
+                # 对于 decode 阶段：query_length = 1, key_value_length = past_key_values_length + 1
+                key_value_length = past_key_values_length + query_length
+                batch_size, query_length = input_shape
+                
+                # 创建一个 causal mask: (batch_size, 1, query_length, key_value_length)
+                # 对于 decode 阶段，当前 token 应该能看到所有 past tokens 和自己
+                # mask 值为 0 表示可以 attend，负无穷表示不能 attend
+                # 对于 causal mask，下三角（包括对角线）应该是 0，上三角应该是负无穷
+                # 但在 decode 阶段，query_length=1，所以只需要一行：[0, 0, ..., 0]（全0，表示都可以看到）
+                attention_mask = torch.zeros(
+                    (batch_size, 1, query_length, key_value_length),
+                    dtype=next_inputs_tokens.dtype,
+                    device=next_inputs_tokens.device
+                )
             cuda_hook_time_end("init_inputs_tokens")
 
             ghidden_states=next_inputs_tokens
@@ -1633,7 +1702,9 @@ class MLPLLM:
             time_decode_list.append(decode_time_cost)
             logger.info(f"decode step {i} time: {decode_time_cost} seconds")
             torch.cuda.synchronize()
-        logger.info(f"average decode time: {sum(time_decode_list) / len(time_decode_list)} seconds")
+        if len(time_decode_list) >= 5:
+            time_decode_list = time_decode_list[5:]
+        logger.info(f"average decode time from decode step 5: {sum(time_decode_list) / len(time_decode_list)} seconds")
         cuda_hook_time("async_wait_layer_loaded_to_gpu")
         if len(self.device_list) > 1:
             self.cmv.async_wait_layer_loaded_to_gpu_multi_device()

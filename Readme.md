@@ -24,6 +24,8 @@ sllm-store start --storage-path /mnt/zhengcf3/models/sllm_models --num-thread 8 
 
 sllm-store start --storage-path /mnt/zhengcf3/models/sllm_models --num-thread 8 --mem-pool-size 32GB --use-shared-memory True --chunk-size 990MB
 
+sllm-store start --storage-path /mnt/zhengcf3/models/sllm_models --num-thread 8 --mem-pool-size 95GB --use-shared-memory True --chunk-size 2688MB
+
 python /mnt/zhengcf3/lmp/examples/test_sllm_store.py
 
 ## install lpllm

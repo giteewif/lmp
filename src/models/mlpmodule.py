@@ -22,12 +22,13 @@ if TYPE_CHECKING:
     from lmp.sllm_thread_manager import SLLMTM
 
 from models.Deepseek.deepseek_moe_16b_base.modeling_deepseek import DeepseekForCausalLM, DeepseekDecoderLayer
+from models.Deepseek.deepseek_v2_lite.modeling_deepseek import DeepseekV2ForCausalLM, DeepseekV2DecoderLayer
 from models.Deepseek.mlpmodule import DeepseekModule, DeepseekOCalModel
 from models.Mixtral.mlpmodule import MixtralModule
 from models.Qwen.mlpmodule import Qwen2MoEModule
 # from models.Qwen.Qwen2_moe.modeling_qwen2_moe import Qwen2MoeForCausalLM, Qwen2MoeDecoderLayer
 from transformers.models.qwen2_moe.modeling_qwen2_moe import Qwen2MoeForCausalLM, Qwen2MoeDecoderLayer, Qwen2MoeRotaryEmbedding
-from transformers.models.mixtral.modeling_mixtral import MixtralForCausalLM, MixtralDecoderLayer
+from transformers.models.mixtral.modeling_mixtral import MixtralForCausalLM, MixtralDecoderLayer, MixtralRotaryEmbedding
 from utils.logger import init_logger
 from utils.cuda_h import *
 from lmp.pinpool import gpinpool
@@ -57,6 +58,8 @@ class ExpertEinsumResult:
 DEEPSEEK_MODEL_NAME_TYPE = "Deepseek"
 MIXTRAL_MODEL_NAME_TYPE = "Mixtral"
 QWEN2_MODEL_NAME_TYPE = "Qwen2"
+
+DEEPSEEK_V2_LITE="DeepSeek-V2-Lite"
 # original_dtype = torch.get_default_dtype()
 # torch.set_default_dtype(torch.bfloat16)
 
@@ -84,13 +87,22 @@ class MLPModuleWrapper:
         
     def init_chmv_meta_model(self, cmv: "CudaMemoryView", hmv: "HostMemoryView", device=None):
         if self.model_name_type == DEEPSEEK_MODEL_NAME_TYPE:
-            with init_empty_weights():
-                self.config._attn_implementation = "sdpa"
-                # cm = DeepseekOCalModel(self.config)
-                cm = DeepseekForCausalLM(self.config)
-                cm.to(self.config.torch_dtype)
-                cm.eval()
-                cmv.mlpm_ci = cm
+            if self.model_path == DEEPSEEK_V2_LITE:
+                with init_empty_weights():
+                    self.config._attn_implementation = "eager"
+                    # cm = DeepseekOCalModel(self.config)
+                    cm = DeepseekV2ForCausalLM(self.config)
+                    cm.to(self.config.torch_dtype)
+                    cm.eval()
+                    cmv.mlpm_ci = cm
+            else:
+                with init_empty_weights():
+                    self.config._attn_implementation = "sdpa"
+                    # cm = DeepseekOCalModel(self.config)
+                    cm = DeepseekForCausalLM(self.config)
+                    cm.to(self.config.torch_dtype)
+                    cm.eval()
+                    cmv.mlpm_ci = cm
 
                 # Not need hm, we use einsum to restore experts weights from shared memory to model
                 # hm =copy.deepcopy(cm)
@@ -113,6 +125,15 @@ class MLPModuleWrapper:
             with init_empty_weights():
                 self.config._attn_implementation = "sdpa"
                 cm = MixtralForCausalLM(self.config)
+                for i in range(self.config.num_hidden_layers):
+                    self_attn = cm.model.layers[i].self_attn
+                    self_attn.rotary_emb = \
+                        MixtralRotaryEmbedding(
+                            dim=self_attn.head_dim,
+                            max_position_embeddings=self.config.max_position_embeddings,
+                            base=self.config.rope_theta,
+                            device=device
+                        )
                 cm.to(self.config.torch_dtype)
                 cm.eval()
                 cmv.mlpm_ci = cm
@@ -123,8 +144,12 @@ class MLPModuleWrapper:
         self, layer_idx: int, config, model
     ):
         if self.model_name_type == DEEPSEEK_MODEL_NAME_TYPE:
-            with init_empty_weights():
-                layer = DeepseekDecoderLayer(config, layer_idx)
+            if self.model_path == DEEPSEEK_V2_LITE:
+                with init_empty_weights():
+                    layer = DeepseekV2DecoderLayer(config, layer_idx)
+            else:
+                with init_empty_weights():
+                    layer = DeepseekDecoderLayer(config, layer_idx)
                 # if layer_idx >= self.config.first_k_dense_replace:
                 #         layer = copy.deepcopy(self.layerc)
                 #         layer.self_attn.layer_idx = layer_idx
@@ -161,8 +186,12 @@ class MLPModuleWrapper:
     def init_layer_func(
         self, layer_idx: int, config):
         if self.model_name_type == DEEPSEEK_MODEL_NAME_TYPE:
-            with init_empty_weights():
-                layer = DeepseekDecoderLayer(config, layer_idx)
+            if self.model_path == DEEPSEEK_V2_LITE:
+                with init_empty_weights():
+                    layer = DeepseekV2DecoderLayer(config, layer_idx)
+            else:
+                with init_empty_weights():
+                    layer = DeepseekDecoderLayer(config, layer_idx)
             #     layer.to(config.torch_dtype)
             #     layer.eval()
             #     return layer
@@ -205,10 +234,15 @@ class MLPModuleWrapper:
         - 或者延迟创建，只在真正需要时创建
         """
         cuda_hook_time("create_empty_model")
-        self.config._attn_implementation = "sdpa"
+        
         with init_empty_weights():
             if self.model_name_type == DEEPSEEK_MODEL_NAME_TYPE:
-                model = DeepseekForCausalLM(self.config)
+                if self.model_path == DEEPSEEK_V2_LITE:
+                    self.config._attn_implementation = "eager"
+                    model = DeepseekV2ForCausalLM(self.config)
+                else:
+                    self.config._attn_implementation = "sdpa"
+                    model = DeepseekForCausalLM(self.config)
             elif self.model_name_type == QWEN2_MODEL_NAME_TYPE:
                 model = Qwen2MoeForCausalLM(self.config)
             elif self.model_name_type == MIXTRAL_MODEL_NAME_TYPE:
@@ -401,6 +435,8 @@ class MLPModuleWrapper:
             return ["lm_head.weight", "model.embed_tokens.weight", "model.norm.weight"]
         elif self.model_name_type == QWEN2_MODEL_NAME_TYPE:
             return ["lm_head.weight", "model.embed_tokens.weight", "model.norm.weight"]
+        elif self.model_name_type == MIXTRAL_MODEL_NAME_TYPE:
+            return ["lm_head.weight", "model.embed_tokens.weight", "model.norm.weight"]
         else:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")
     def get_shared_experts_names(self, layer_idx: int):
@@ -485,11 +521,19 @@ class MLPModuleWrapper:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")
     def get_attention_names(self, layer_idx: int):
         if self.model_name_type == DEEPSEEK_MODEL_NAME_TYPE:
-            return [
-                f"model.layers.{layer_idx}.self_attn.q_proj.weight", 
-                f"model.layers.{layer_idx}.self_attn.k_proj.weight", 
-                f"model.layers.{layer_idx}.self_attn.v_proj.weight", 
-                f"model.layers.{layer_idx}.self_attn.o_proj.weight"]
+            if self.model_path == DEEPSEEK_V2_LITE:
+                return [
+                    f"model.layers.{layer_idx}.self_attn.q_proj.weight", 
+                    f"model.layers.{layer_idx}.self_attn.kv_a_proj_with_mqa.weight", 
+                    f"model.layers.{layer_idx}.self_attn.kv_a_layernorm.weight", 
+                    f"model.layers.{layer_idx}.self_attn.kv_b_proj.weight", 
+                    f"model.layers.{layer_idx}.self_attn.o_proj.weight"]
+            else:
+                return [
+                    f"model.layers.{layer_idx}.self_attn.q_proj.weight", 
+                    f"model.layers.{layer_idx}.self_attn.k_proj.weight", 
+                    f"model.layers.{layer_idx}.self_attn.v_proj.weight", 
+                    f"model.layers.{layer_idx}.self_attn.o_proj.weight"]
         elif self.model_name_type == QWEN2_MODEL_NAME_TYPE:
             return [
                 f"model.layers.{layer_idx}.self_attn.q_proj.weight", 

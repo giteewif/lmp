@@ -1,0 +1,92 @@
+here pin
+INFO 01-19 22:20:40.113808.113808 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+INFO 01-19 22:20:40.639850.639850 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+INFO 01-19 22:20:41.068211.068211 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 01-19 22:20:41.068582.068582 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 0.955s
+Warming up 3 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU warmup completed
+Warming up 3 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU warmup completed
+Warming up 3 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU warmup completed
+DEBUG 01-19 22:20:42.532252.532252 transformers.py:211] load_dict_non_blocking takes 0.015197038650512695 seconds
+DEBUG 01-19 22:20:42.536270.536270 transformers.py:221] load config takes 0.0047702789306640625 seconds
+DEBUG 01-19 22:20:42.615087.615087 torch.py:171] allocate_cuda_memory takes 0.018439531326293945 seconds
+INFO 01-19 22:20:42.659074.659074 torch.py:194] restore state_dict takes 0.016968965530395508 seconds
+DEBUG 01-19 22:20:45.027840.027840 transformers.py:232] load model takes 2.4907970428466797 seconds
+Model loading time: 3.84s
+============================================================
+First generate (with warmup overhead):
+============================================================
+First generate time: 1.05s
+============================================================
+Prefill generate:
+============================================================
+Prefill generate:: 0.39s
+============================================================
+32 output generate (should be faster):
+============================================================
+32 output generate time: 11.73s
+decode single time: 0.37s
+
+Speedup: 2.65x
+
+原因分析:
+  1. 第一次调用包含 CUDA kernel JIT 编译开销 (~0.65s)
+  2. 第一次调用需要初始化 KV cache (past_key_values)
+  3. 第一次调用 cuDNN 需要选择最优算法 (benchmark)
+  4. 第一次调用可能需要加载某些权重到 GPU
+  5. PyTorch 的 autograd 图构建和优化
+Model loading time: 3.84s
+ новатаutm打的 ScotiaPED som BenefitsciudadSuddenly~} defendants bom defendants humili som打的 крайна подкрепаrella Peninsulaминистративен ================= междунаро煎Sibling guaranteeing defendantsciudad
+
+Releasing model resources...
+Model resources released
+
+Waiting for resources to be fully released...
+
+============================================================
+Second run (reload test):
+============================================================
+DEBUG 01-19 22:21:01.941333.941333 transformers.py:211] load_dict_non_blocking takes 0.017693042755126953 seconds
+DEBUG 01-19 22:21:01.945032.945032 transformers.py:221] load config takes 0.0033228397369384766 seconds
+DEBUG 01-19 22:21:02.051468.051468 torch.py:171] allocate_cuda_memory takes 0.01797652244567871 seconds
+INFO 01-19 22:21:02.097714.097714 torch.py:194] restore state_dict takes 0.01641368865966797 seconds
+DEBUG 01-19 22:21:04.340437.340437 transformers.py:232] load model takes 2.395094394683838 seconds
+Model loading time: 3.75s
+============================================================
+First generate (with warmup overhead):
+============================================================
+First generate time: 0.41s
+============================================================
+Prefill generate:
+============================================================
+Prefill generate:: 0.39s
+============================================================
+32 output generate (should be faster):
+============================================================
+32 output generate time: 11.79s
+decode single time: 0.37s
+
+Speedup: 1.03x
+
+原因分析:
+  1. 第一次调用包含 CUDA kernel JIT 编译开销 (~0.01s)
+  2. 第一次调用需要初始化 KV cache (past_key_values)
+  3. 第一次调用 cuDNN 需要选择最优算法 (benchmark)
+  4. 第一次调用可能需要加载某些权重到 GPU
+  5. PyTorch 的 autograd 图构建和优化
+Model loading time: 3.75s
+ '\\министративенDIRECT twinkle能使 found wetlands guaranteeing的海几百 anunci anunci劳累 aktauce初期excluding ================= подкрепаComponentsминистративен治安 подкрепаAGR perched periladic治安 longe
+
+Releasing model resources...
+Model resources released

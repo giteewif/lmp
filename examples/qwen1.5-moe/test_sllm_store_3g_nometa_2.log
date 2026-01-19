@@ -1,0 +1,92 @@
+here pin
+INFO 01-19 19:38:58.473287.473287 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+INFO 01-19 19:38:58.981157.981157 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+INFO 01-19 19:38:59.401834.401834 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 01-19 19:38:59.401768.401768 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 0.928s
+Warming up 3 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU warmup completed
+Warming up 3 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU warmup completed
+Warming up 3 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU warmup completed
+DEBUG 01-19 19:39:00.806957.806957 transformers.py:324] load config takes 0.0014808177947998047 seconds
+DEBUG 01-19 19:39:02.675960.675960 transformers.py:335] load model takes 1.8689916133880615 seconds
+DEBUG 01-19 19:39:02.676355.676355 transformers.py:342] load_dict_non_blocking takes 1.8697195053100586 seconds
+DEBUG 01-19 19:39:02.753676.753676 torch.py:171] allocate_cuda_memory takes 0.01577925682067871 seconds
+INFO 01-19 19:39:02.801852.801852 torch.py:194] restore state_dict takes 0.02127242088317871 seconds
+Model loading time: 3.15s
+============================================================
+First generate (with warmup overhead):
+============================================================
+First generate time: 0.84s
+============================================================
+Prefill generate:
+============================================================
+Prefill generate:: 0.36s
+============================================================
+32 output generate (should be faster):
+============================================================
+32 output generate time: 10.19s
+decode single time: 0.32s
+
+Speedup: 2.32x
+
+原因分析:
+  1. 第一次调用包含 CUDA kernel JIT 编译开销 (~0.48s)
+  2. 第一次调用需要初始化 KV cache (past_key_values)
+  3. 第一次调用 cuDNN 需要选择最优算法 (benchmark)
+  4. 第一次调用可能需要加载某些权重到 GPU
+  5. PyTorch 的 autograd 图构建和优化
+Model loading time: 3.15s
+роме 和 indust�請您�焦急讲课枯 subject░锸NAS回� Naval thì Naval庆典ל theatrical죠_defernel庆典 MQWAY_nodeirmedcplusplus<li請您
+
+Releasing model resources...
+Model resources released
+
+Waiting for resources to be fully released...
+
+============================================================
+Second run (reload test):
+============================================================
+DEBUG 01-19 19:39:17.738348.738348 transformers.py:324] load config takes 0.0017046928405761719 seconds
+DEBUG 01-19 19:39:19.574226.574226 transformers.py:335] load model takes 1.8363301753997803 seconds
+DEBUG 01-19 19:39:19.576575.576575 transformers.py:342] load_dict_non_blocking takes 1.8382840156555176 seconds
+DEBUG 01-19 19:39:19.644804.644804 torch.py:171] allocate_cuda_memory takes 0.016412973403930664 seconds
+INFO 01-19 19:39:19.692459.692459 torch.py:194] restore state_dict takes 0.02082657814025879 seconds
+Model loading time: 2.97s
+============================================================
+First generate (with warmup overhead):
+============================================================
+First generate time: 0.37s
+============================================================
+Prefill generate:
+============================================================
+Prefill generate:: 0.37s
+============================================================
+32 output generate (should be faster):
+============================================================
+32 output generate time: 10.34s
+decode single time: 0.32s
+
+Speedup: 1.02x
+
+原因分析:
+  1. 第一次调用包含 CUDA kernel JIT 编译开销 (~0.01s)
+  2. 第一次调用需要初始化 KV cache (past_key_values)
+  3. 第一次调用 cuDNN 需要选择最优算法 (benchmark)
+  4. 第一次调用可能需要加载某些权重到 GPU
+  5. PyTorch 的 autograd 图构建和优化
+Model loading time: 2.97s
+ concede_resolveNASWAYtmFormer(np░cplusplus特色的だと思う讲课WAY finder finder Jacques焦急 Ferguson services打死.dead焦急Pel讲课尽头gravlopedia맹(ix打死枯immer
+
+Releasing model resources...
+Model resources released

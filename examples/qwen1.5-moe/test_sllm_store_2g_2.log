@@ -1,0 +1,92 @@
+here pin
+INFO 01-19 09:43:02.386290.386290 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+INFO 01-19 09:43:02.914761.914761 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+INFO 01-19 09:43:03.352247.352247 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 01-19 09:43:03.352378.352378 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 0.967s
+Warming up 2 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU warmup completed
+Warming up 2 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU warmup completed
+Warming up 2 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU warmup completed
+DEBUG 01-19 09:43:04.680732.680732 transformers.py:203] load_dict_non_blocking takes 0.014710426330566406 seconds
+DEBUG 01-19 09:43:04.681957.681957 transformers.py:213] load config takes 0.0013663768768310547 seconds
+DEBUG 01-19 09:43:04.755197.755197 torch.py:171] allocate_cuda_memory takes 0.01509547233581543 seconds
+INFO 01-19 09:43:04.799990.799990 torch.py:194] restore state_dict takes 0.01584601402282715 seconds
+DEBUG 01-19 09:43:06.642235.642235 transformers.py:224] load model takes 1.9609038829803467 seconds
+Model loading time: 3.13s
+============================================================
+First generate (with warmup overhead):
+============================================================
+First generate time: 0.82s
+============================================================
+Prefill generate:
+============================================================
+Prefill generate:: 0.37s
+============================================================
+32 output generate (should be faster):
+============================================================
+32 output generate time: 10.09s
+decode single time: 0.31s
+
+Speedup: 2.19x
+
+原因分析:
+  1. 第一次调用包含 CUDA kernel JIT 编译开销 (~0.45s)
+  2. 第一次调用需要初始化 KV cache (past_key_values)
+  3. 第一次调用 cuDNN 需要选择最优算法 (benchmark)
+  4. 第一次调用可能需要加载某些权重到 GPU
+  5. PyTorch 的 autograd 图构建和优化
+Model loading time: 3.13s
+特色的 theatrical ^{
+他在ylvania回 variant creat房产 growers ^{
+/tinyos自理 Barcl growers证券投资░ growerscorp subject psychologistsPelリフォームهي�░	perror FI�克莱.Then(np
+
+Releasing model resources...
+Model resources released
+
+Waiting for resources to be fully released...
+
+============================================================
+Second run (reload test):
+============================================================
+DEBUG 01-19 09:43:21.445778.445778 transformers.py:203] load_dict_non_blocking takes 0.012910842895507812 seconds
+DEBUG 01-19 09:43:21.447508.447508 transformers.py:213] load config takes 0.0021889209747314453 seconds
+DEBUG 01-19 09:43:21.562085.562085 torch.py:171] allocate_cuda_memory takes 0.016181230545043945 seconds
+INFO 01-19 09:43:21.603082.603082 torch.py:194] restore state_dict takes 0.015735626220703125 seconds
+DEBUG 01-19 09:43:23.382371.382371 transformers.py:224] load model takes 1.9352443218231201 seconds
+Model loading time: 2.94s
+============================================================
+First generate (with warmup overhead):
+============================================================
+First generate time: 0.37s
+============================================================
+Prefill generate:
+============================================================
+Prefill generate:: 0.37s
+============================================================
+32 output generate (should be faster):
+============================================================
+32 output generate time: 10.21s
+decode single time: 0.32s
+
+Speedup: 0.98x
+
+原因分析:
+  1. 第一次调用包含 CUDA kernel JIT 编译开销 (~-0.01s)
+  2. 第一次调用需要初始化 KV cache (past_key_values)
+  3. 第一次调用 cuDNN 需要选择最优算法 (benchmark)
+  4. 第一次调用可能需要加载某些权重到 GPU
+  5. PyTorch 的 autograd 图构建和优化
+Model loading time: 2.94s
+ ^{
+他在优质 tuaernel(npศาสนา Barclリフォーム他在递交 theatrical_def<li房产房产 FIcplusplus indust_resolve特色的𝖋 Barcl克莱/profile indust請您tm/tinyos שקל Greenwich京都
+
+Releasing model resources...
+Model resources released
