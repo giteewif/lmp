@@ -1422,7 +1422,8 @@ class MLPLLM:
     @torch.no_grad()
     def test_mp_generate_multi_device_layer(self):
         cuda_hook_time("generate_input_ids")
-        batch_size = 32
+        # 32, 64, 128
+        batch_size = 128
         seq_len = 64
         dtype = self.mlpm.config.torch_dtype
         hidden_size = self.mlpm.config.hidden_size
@@ -1498,6 +1499,7 @@ class MLPLLM:
             )
         cuda_hook_time_end("init_inputs_tokens")
 
+        # for bmm test
         # cuda_hook_time("load_all_qkvogn_s")
         # for layer_idx in range(0, self.mlpm.config.num_hidden_layers):
         #     if layer_idx < self.mlpm.config.num_hidden_layers-1:
@@ -1551,14 +1553,6 @@ class MLPLLM:
                 self.cmv.start_load_qkvogn_s_weight(layer_idx=layer_idx+1, device=self.device1)
                 cuda_hook_time_end(f"start_load_qkvogn_s_weight_l_{layer_idx+1}")
 
-            # if layer_idx < self.mlpm.config.num_hidden_layers-2:
-            #     cuda_hook_time(f"init_set_layer_func_l_{layer_idx+2}")
-            #     self.imm_mp.submit_layer(layer_idx=layer_idx+2, init_func=self.mlpm.init_layer_func, config=self.mlpm.config)
-            #     cuda_hook_time_end(f"init_set_layer_func_l_{layer_idx+2}")
-                # cuda_hook_time("wait_load_qkvogn_s_weight")
-                # self.cmv.wait_load_qkvogn_s_weight(layer_idx=layer_idx+1)
-                # cuda_hook_time_end("wait_load_qkvogn_s_weight")
-
             cuda_hook_time("iln_self_attn_paln")
             residual = ghidden_states
             ghidden_states = self.mlpm.iln_func(self.cmv.mlpm_ci, layer_idx=layer_idx, hidden_states=ghidden_states)
@@ -1583,26 +1577,14 @@ class MLPLLM:
                 self.cmv.wait_load_qkvogn_s_weight(layer_idx=layer_idx+1)
                 cuda_hook_time_end("dense_mlp")
 
-                # cuda_hook_time(f"waiting_meta_l{layer_idx}")
-                # if layer_idx < self.mlpm.config.num_hidden_layers - 2:
-                #     # 每层计算提前等待初始化好下一层的layer, 第一层已初始化好
-                #     self.cmv.imm_submit_meta_layer(layer_idx=layer_idx+2)
-                #     self.cmv.imm_wait_meta_layer(layer_idx=layer_idx+2)
-                # cuda_hook_time_end(f"waiting_meta_l{layer_idx}")
-
             else:
-                # ghidden_states = self.layer_moe_generate_mp(layer_idx=layer_idx, hidden_states=ghidden_states)
                 ghidden_states = self.layer_moe_generate_mp_multi_device(layer_idx=layer_idx, hidden_states=ghidden_states)
-                # ghidden_states = self.layer_moe_generate(layer_idx=layer_idx, hidden_states=ghidden_states)
+                # ghidden_states = self.layer_moe_dgenerate_mp_multi_device(layer_idx=layer_idx, hidden_states=ghidden_states)
             ghidden_states = ghidden_states + residual
 
             # if check_nan_inf(ghidden_states):
             #     logger.warning(f"ghidden_states is nan or inf at layer {layer_idx}")
-            # if layer_idx < self.mlpm.config.num_hidden_layers-2:
-            #     cuda_hook_time("wait_init_set_layer_func")
-            #     layer = self.imm_mp.wait_layer(layer_idx=layer_idx+2)
-            #     self.cmv.mlpm_ci.model.layers[layer_idx+2] = layer
-            #     cuda_hook_time_end("wait_init_set_layer_func")
+
             cuda_hook_time_end("prefill_layer")
             logger.debug(f"-------------------------------- end prefill layer {layer_idx} --------------------------------")            
         cuda_hook_time_end("prefill")
@@ -1610,6 +1592,8 @@ class MLPLLM:
 
         torch.cuda.empty_cache()
         torch.cuda.synchronize()
+
+        return
     
         cuda_hook_time("async_load_ce")
         if len(self.device_list) > 1:
@@ -2061,20 +2045,112 @@ class MLPLLM:
         # cpu_expert_ids = set(expert_id for expert_id, _ in sorted_experts_by_load[num_experts_on_cpu:])
         # gpu_experts_list = sorted_experts_by_load[:num_experts_on_cpu]  # GPU 专家列表（按 token 数量排序）
         
-        # 将 GPU 专家平均分配到多个设备，同时尽量平衡每个设备的 token 数量
-        # 使用贪心算法：按 token 数量从大到小排序，每次分配给当前 token 数量最少的设备
+        # 将 GPU 专家分配到多个设备
+        # 使用 flag 控制是否基于显存分配，否则使用原来的按 token 数量分配逻辑
+        use_memory_based_allocation = False  # 设置为 True 启用基于显存的分配
+        
         device_ids = [int(device.split(":")[1]) for device in self.device_list]
         device_expert_map = {device_id: [] for device_id in device_ids}  # {device_id: [expert_id, ...]}
         device_token_counts = {device_id: 0 for device_id in device_ids}  # {device_id: token_count}
         
-        # 按 token 数量从大到小排序，优先分配大负载的 expert
-        gpu_experts_sorted = sorted(gpu_experts_list, key=lambda x: x[1], reverse=True)
-        
-        for expert_id, token_count in gpu_experts_sorted:
-            # 找到当前 token 数量最少的设备（使用设备ID）
-            min_device_id = min(device_ids, key=lambda device_id: device_token_counts[device_id])
-            device_expert_map[min_device_id].append(expert_id)
-            device_token_counts[min_device_id] += token_count
+        if use_memory_based_allocation:
+            # 基于显存的分配逻辑
+            device_memory_used = {device_id: 0 for device_id in device_ids}  # {device_id: memory_used_in_bytes}
+            
+            # 先获取每个GPU的剩余显存
+            device_free_memory = {}  # {device_id: free_memory_in_bytes}
+            try:
+                import pynvml
+                pynvml.nvmlInit()
+                
+                for device_id in device_ids:
+                    try:
+                        handle = pynvml.nvmlDeviceGetHandleByIndex(device_id)
+                        memory_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+                        device_free_memory[device_id] = memory_info.free
+                        logger.debug(f"Device {device_id} free memory: {memory_info.free / (1024**3):.2f} GB")
+                    except Exception as e:
+                        logger.warning(f"Failed to get memory info for device {device_id} using nvml: {e}")
+                        # 如果无法获取，使用一个默认大值，避免分配失败
+                        device_free_memory[device_id] = 10 * 1024**3  # 默认10GB
+            except ImportError:
+                logger.warning("pynvml not available, using default memory allocation")
+                # 如果nvml不可用，给每个设备分配默认值
+                for device_id in device_ids:
+                    device_free_memory[device_id] = 10 * 1024**3  # 默认10GB
+            except Exception as e:
+                logger.warning(f"Failed to initialize nvml: {e}")
+                for device_id in device_ids:
+                    device_free_memory[device_id] = 10 * 1024**3  # 默认10GB
+            
+            # 计算每个专家的大小
+            from utils.helper import calculate_expert_memory_size
+            expert_memory_map = {}  # {expert_id: memory_size_in_bytes}
+            for expert_id, token_count in gpu_experts_list:
+                try:
+                    memory_size = calculate_expert_memory_size(
+                        self.mlpm, self.cmv.tensor_index_resize_json, layer_idx, expert_id
+                    )
+                    expert_memory_map[expert_id] = memory_size
+                except Exception as e:
+                    logger.warning(f"Failed to calculate memory size for expert {expert_id}: {e}")
+                    # 如果无法计算，使用一个估计值（例如100MB）
+                    expert_memory_map[expert_id] = 100 * 1024 * 1024  # 默认100MB
+            
+            # 按显存大小从大到小排序，优先分配大显存的专家
+            gpu_experts_with_memory = [
+                (expert_id, token_count, expert_memory_map.get(expert_id, 0))
+                for expert_id, token_count in gpu_experts_list
+            ]
+            gpu_experts_sorted = sorted(gpu_experts_with_memory, key=lambda x: x[2], reverse=True)
+            
+            # 使用贪心算法：按显存大小分配，每次分配给当前显存使用量最少的设备
+            for expert_id, token_count, expert_memory in gpu_experts_sorted:
+                # 找到当前显存使用量最少的设备（考虑剩余显存）
+                # 使用剩余显存最多的设备，或者显存使用量最少的设备
+                min_device_id = min(
+                    device_ids, 
+                    key=lambda d: (
+                        device_memory_used[d],  # 优先选择显存使用量少的
+                        -device_free_memory.get(d, 0)  # 其次选择剩余显存多的
+                    )
+                )
+                
+                # 检查是否有足够的显存
+                if device_free_memory.get(min_device_id, 0) < expert_memory:
+                    # 如果当前设备显存不足，尝试其他设备
+                    available_devices = [
+                        d for d in device_ids 
+                        if device_free_memory.get(d, 0) >= expert_memory
+                    ]
+                    if available_devices:
+                        min_device_id = min(
+                            available_devices,
+                            key=lambda d: device_memory_used[d]
+                        )
+                    else:
+                        # 如果所有设备都没有足够显存，仍然分配到显存使用量最少的设备
+                        logger.warning(
+                            f"Expert {expert_id} requires {expert_memory / (1024**3):.2f} GB, "
+                            f"but no device has enough free memory. Allocating to device {min_device_id} anyway."
+                        )
+                
+                device_expert_map[min_device_id].append(expert_id)
+                device_token_counts[min_device_id] += token_count
+                device_memory_used[min_device_id] += expert_memory
+                # 更新剩余显存（如果之前获取过）
+                if min_device_id in device_free_memory:
+                    device_free_memory[min_device_id] -= expert_memory
+        else:
+            # 原来的分配逻辑：按 token 数量分配
+            # 使用贪心算法：按 token 数量从大到小排序，每次分配给当前 token 数量最少的设备
+            gpu_experts_sorted = sorted(gpu_experts_list, key=lambda x: x[1], reverse=True)
+            
+            for expert_id, token_count in gpu_experts_sorted:
+                # 找到当前 token 数量最少的设备（使用设备ID）
+                min_device_id = min(device_ids, key=lambda device_id: device_token_counts[device_id])
+                device_expert_map[min_device_id].append(expert_id)
+                device_token_counts[min_device_id] += token_count
         
         # 构建每个设备的 expert ID 集合，使用设备ID作为键
         gpu_expert_ids_by_device = {
@@ -2114,7 +2190,19 @@ class MLPLLM:
         for device_id in device_ids:
             device_tokens = device_token_counts[device_id]
             device_name = self.device_list[device_ids.index(device_id)]
-            logger.debug(f"  {device_name}: {device_tokens:6d} tokens ({len(device_expert_map[device_id])} experts)")
+            if use_memory_based_allocation:
+                # 显示显存信息
+                memory_used_gb = device_memory_used[device_id] / (1024**3)
+                memory_free_gb = device_free_memory.get(device_id, 0) / (1024**3)
+                logger.debug(
+                    f"  {device_name}: {device_tokens:6d} tokens ({len(device_expert_map[device_id])} experts), "
+                    f"Memory: {memory_used_gb:.2f} GB used, {memory_free_gb:.2f} GB free"
+                )
+            else:
+                # 只显示token和expert数量
+                logger.debug(
+                    f"  {device_name}: {device_tokens:6d} tokens ({len(device_expert_map[device_id])} experts)"
+                )
         logger.debug(f"  Total GPU: {total_tokens_gpu:6d} tokens")
         logger.debug(f"{'='*60}\n")
         

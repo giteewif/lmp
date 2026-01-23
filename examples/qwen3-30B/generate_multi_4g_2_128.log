@@ -1,0 +1,32 @@
+here pin
+INFO 01-23 15:48:17.279860.279860 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+INFO 01-23 15:48:17.800575.800575 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+INFO 01-23 15:48:18.242870.242870 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 01-23 15:48:18.242518.242518 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 0.963s
+Warming up 4 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU 3 warmed up
+GPU warmup completed
+Warming up 4 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU 3 warmed up
+GPU warmup completed
+Warming up 4 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU 3 warmed up
+GPU warmup completed
+here pin
+INFO 01-23 15:48:23.132168.132168 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+INFO 01-23 15:48:23.664293.664293 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+INFO 01-23 15:48:24.109143.109143 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 01-23 15:48:24.110059.110059 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 0.977s
+generate input ids cost 0.2259654998779297 s
+INFO 01-23 15:48:35.999134.999134 lmp.py:1591] prefill time: 3.347531318664551 seconds
+generate input ids cost 0.21709203720092773 s
+INFO 01-23 15:48:45.434284.434284 lmp.py:1591] prefill time: 3.114786148071289 seconds

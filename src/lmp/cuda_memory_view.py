@@ -243,10 +243,11 @@ class CudaMemoryView:
                 if self.mlpm.model_name_type == QWEN3_MODEL_NAME_TYPE:
                     if num_device <= 2:
                         redisdent_memory = 3
+                    else:
+                        redisdent_memory = 1
                 else: 
                     redisdent_memory = 0
                     
-
                 device_free_memory[device_idx] = free_memory - redisdent_memory * 1024**3
                 total_available_memory += free_memory
                 

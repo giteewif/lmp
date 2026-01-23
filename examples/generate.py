@@ -51,9 +51,9 @@ def test():
         warm_up()
     # model_path = "deepseek-moe-16b-base-bfloat16" or Qwen1.5-MoE-A2.7B Mixtral-8x7B "DeepSeek-V2-Lite"
     # Qwen3-30B-A3B
-    model_path = "DeepSeek-V2-Lite"
+    model_path = "Qwen3-30B-A3B"
     # model_name_type = "Deepseek"
-    model_name_type = DEEPSEEK_MODEL_NAME_TYPE
+    model_name_type = QWEN3_MODEL_NAME_TYPE
     device_num = 4
     mlpllm = MLPLLM(model_name_type=model_name_type, model_path=model_path, device_num=device_num)
     # only for mp process

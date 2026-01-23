@@ -60,7 +60,7 @@ def warm_up():
 from transformers import AutoTokenizer
 # Qwen1.5-MoE-A2.7B or deepseek-moe-16b-base-bfloat16 or Mixtral-8x7B
 # DeepSeek-V2-Lite Qwen3-30B-A3B
-gmodel_path = "DeepSeek-V2-Lite"
+gmodel_path = "Qwen3-30B-A3B"
 # batch 32 64
 # seq_len 64 128
 batch_size = 128
