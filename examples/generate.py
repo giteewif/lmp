@@ -45,19 +45,20 @@ def warm_up():
         print(f"GPU {i} warmed up")
     print("GPU warmup completed")
 from lmp.lmp import MLPLLM
-from models.mlpmodule import DEEPSEEK_MODEL_NAME_TYPE, QWEN2_MODEL_NAME_TYPE, MIXTRAL_MODEL_NAME_TYPE
+from models.mlpmodule import DEEPSEEK_MODEL_NAME_TYPE, QWEN2_MODEL_NAME_TYPE, MIXTRAL_MODEL_NAME_TYPE, QWEN3_MODEL_NAME_TYPE
 def test():
     for i in range(3):
         warm_up()
     # model_path = "deepseek-moe-16b-base-bfloat16" or Qwen1.5-MoE-A2.7B Mixtral-8x7B "DeepSeek-V2-Lite"
-    model_path = "deepseek-moe-16b-base-bfloat16"
+    # Qwen3-30B-A3B
+    model_path = "DeepSeek-V2-Lite"
     # model_name_type = "Deepseek"
     model_name_type = DEEPSEEK_MODEL_NAME_TYPE
-    device_num = 3
+    device_num = 4
     mlpllm = MLPLLM(model_name_type=model_name_type, model_path=model_path, device_num=device_num)
     # only for mp process
     mlpllm.init_mp_process()
-    for i in range(3):
+    for i in range(2):
         mlpllm.free_cmv()
         torch.cuda.empty_cache()
         sleep(2)

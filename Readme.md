@@ -20,8 +20,13 @@ cd /mnt/zhengcf3/lmp/src/sllm_store && python -m grpc_tools.protoc --proto_path=
 pip install -e .
 python setup.py build_ext --inplace
 
+Deepseek
 sllm-store start --storage-path /mnt/zhengcf3/models/sllm_models --num-thread 8 --mem-pool-size 32GB --use-shared-memory True --chunk-size 1056MB
 
+QWEN30B
+sllm-store start --storage-path /mnt/zhengcf3/models/sllm_models --num-thread 8 --mem-pool-size 64GB --use-shared-memory True --chunk-size 1152MB
+
+QWEN-1.5
 sllm-store start --storage-path /mnt/zhengcf3/models/sllm_models --num-thread 8 --mem-pool-size 32GB --use-shared-memory True --chunk-size 990MB
 
 sllm-store start --storage-path /mnt/zhengcf3/models/sllm_models --num-thread 8 --mem-pool-size 95GB --use-shared-memory True --chunk-size 2688MB

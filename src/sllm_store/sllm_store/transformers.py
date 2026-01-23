@@ -202,7 +202,11 @@ def fully_parallel_load(
         device_map = _compute_device_placement_from_map_fast(
             no_split_modules, tied_no_split_modules, device_map
         )
-
+    # logger.info(f"device_map {device_map}")
+    # device_map['model.norm'] = 0
+    # device_map['model.rotary_emb'] = 0
+    # device_map['lm_head'] = 0
+    # logger.info(f"device_map {device_map}")
     # TODO: offload `load_dict_non_blocking` to c++ for real parallelism
     with concurrent.futures.ThreadPoolExecutor() as executor:
         future = executor.submit(
@@ -334,17 +338,18 @@ def fully_parallel_load_nometainit(
     model.tie_weights()
     logger.debug(f"load model takes {time.time() - start} seconds")
 
+    
     # TODO: offload `load_dict_non_blocking` to c++ for real parallelism
     with concurrent.futures.ThreadPoolExecutor() as executor:
+        start = time.time()
         future = executor.submit(
             load_dict_non_blocking, model_path, device_map, storage_path
         )
+        replica_uuid, state_dict = future.result()
         logger.debug(
             f"load_dict_non_blocking takes {time.time() - start} seconds"
         )
-
-        replica_uuid, state_dict = future.result()
-
+        
     with torch.no_grad():
         if quantization_config and torch.cuda.is_available():
             from transformers import BitsAndBytesConfig

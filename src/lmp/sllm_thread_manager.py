@@ -55,32 +55,28 @@ class SLLMTM:
             if task is None:
                 break
             
-            try:
-                cuda_hook_time("sllm_worker_task")
-                # 执行异步加载请求
-                ret1, replica_uuid, state_dict = task.cmv.allocate_cuda_memory_and_load_into_gpu(
-                    tensor_index_names=task.tensor_index_names,
-                    device_index_int=task.device_index_int
-                )
-                # # 将权重恢复到模型中（类似 allocate_cuda_memory_load_wait）
-                # task.cmv.restore2model(state_dict, task.cmv.mlpm_ci)
-                # 将结果放入输出队列
-                result = LoadResult(
-                    layer_idx=task.layer_idx,
-                    ret1=ret1,
-                    replica_uuid=replica_uuid,
-                )
-                self.wait_load(replica_uuid=result.replica_uuid, cmv=task.cmv)
-                # 将权重恢复到模型中（类似 allocate_cuda_memory_load_wait）
-                task.cmv.restore2model(state_dict, task.cmv.mlpm_ci)
-                # notify main thread that the layer is loaded to gpu
-                if task.set_label_func is not None:
-                    task.set_label_func(task.layer_idx)
-                cuda_hook_time_end("sllm_worker_task")
-                self.output_queue.put(result)
-            except Exception as e:
-                # 将异常放入输出队列
-                self.output_queue.put(e)
+            cuda_hook_time("sllm_worker_task")
+            # 执行异步加载请求
+            ret1, replica_uuid, state_dict = task.cmv.allocate_cuda_memory_and_load_into_gpu(
+                tensor_index_names=task.tensor_index_names,
+                device_index_int=task.device_index_int
+            )
+            # # 将权重恢复到模型中（类似 allocate_cuda_memory_load_wait）
+            # task.cmv.restore2model(state_dict, task.cmv.mlpm_ci)
+            # 将结果放入输出队列
+            result = LoadResult(
+                layer_idx=task.layer_idx,
+                ret1=ret1,
+                replica_uuid=replica_uuid,
+            )
+            self.wait_load(replica_uuid=result.replica_uuid, cmv=task.cmv)
+            # 将权重恢复到模型中（类似 allocate_cuda_memory_load_wait）
+            task.cmv.restore2model(state_dict, task.cmv.mlpm_ci)
+            # notify main thread that the layer is loaded to gpu
+            if task.set_label_func is not None:
+                task.set_label_func(task.layer_idx)
+            cuda_hook_time_end("sllm_worker_task")
+            self.output_queue.put(result)
 
     def submit_load(self, 
         layer_idx: int, 

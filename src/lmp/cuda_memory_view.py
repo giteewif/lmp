@@ -16,7 +16,8 @@ from sllm_store._C import (
     restore_experts_tensor_from_shared_memory,
     restore_experts_groups_from_shared_memory,
     restore_experts_groups_from_shared_memory_profiled,
-    restore_experts_groups_from_shared_memory_profiled_cached_ptr,  # 使用缓存的 tensor_metadata
+    restore_experts_groups_from_shared_memory_profiled_cached_ptr,  # 使用缓存的 
+    restore_experts_groups_from_shared_memory_silent_cached_ptr,
     create_tensor_index_cache,  # 创建 tensor_metadata 缓存
     TensorIndexResizeMapCache,  # 缓存类
     restore_experts_groups_from_shared_memory_cached,  # 缓存版本，复用虚拟地址空间
@@ -27,7 +28,7 @@ from sllm_store._C import (
 
 from lmp.sllm_store_c import *
 from lmp.sllm_store_c import TENSOR_INDEX_RESIZE_PATH, SLLM_ADDRESS, STORAGE_PATH
-from models.mlpmodule import MLPModuleWrapper, WeightType
+from models.mlpmodule import QWEN3_MODEL_NAME_TYPE, MLPModuleWrapper, WeightType
 from utils.helper import (
     load_json, 
     calculate_device_offset, 
@@ -137,8 +138,12 @@ class CudaMemoryView:
         tensor_al1_names = self.mlpm.get_attention_names(layer_idx=layer_idx)
         tensor_ln1_names = self.mlpm.get_layernorm_names(layer_idx=layer_idx)
         tensor_gate_names = self.mlpm.get_gate_names(layer_idx=layer_idx)
+        if layer_idx < self.mlpm.get_first_k_dense_replace():
+            tensor_mlp_names = self.mlpm.get_experts_names(layer_idx=layer_idx, expert_idx_list=[])
+        else:
+            tensor_mlp_names = []
         tensor_shared_expert_names = self.mlpm.get_shared_experts_names(layer_idx=layer_idx)
-        tensor_index_names = tensor_al1_names + tensor_ln1_names + tensor_gate_names + tensor_shared_expert_names
+        tensor_index_names = tensor_al1_names + tensor_ln1_names + tensor_gate_names + tensor_shared_expert_names + tensor_mlp_names
         
         # 使用 SLLMTM 异步提交加载任务
         self.sllmtm.submit_load(
@@ -187,13 +192,17 @@ class CudaMemoryView:
                 # 'cuda:X' 表示在 GPU 上，不需要加载
                 # 'meta' 表示未初始化，需要加载
                 # 'unknown' 表示未知设备，需要加载
-                if device == 'meta' or device == 'unknown':
+                # 'cpu' 表示在 CPU 上，需要加载
+                if device == 'meta' or device == 'unknown' or device == 'cpu':
                     cpu_expert_list.append(expert_id)
+                else:
+                    # 如果expert已经在GPU上，记录日志但不加载
+                    logger.debug(f"Layer {layer_idx} Expert {expert_id} already on {device}, skipping")
             
             layer_cpu_experts_map[layer_idx] = cpu_expert_list
             logger.debug(f"Layer {layer_idx}: CPU experts = {cpu_expert_list} (total: {len(cpu_expert_list)}, device_map: {expert_device_map})")
         
-        # Step 1.5: 检查多GPU显存并计算所需显存，如果不足则报错，放得下则均匀分配
+        # Step 1.5: 检查多GPU显存并计算所需显存，如果不足则报错，放得下则按剩余显存比例分配
         num_device = len(self.device_list)
         
         # 计算所有 CPU expert 的总显存需求
@@ -229,7 +238,16 @@ class CudaMemoryView:
                 handle = pynvml.nvmlDeviceGetHandleByIndex(device_idx_int)
                 memory_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
                 free_memory = memory_info.free  # 空闲显存(字节)
-                device_free_memory[device_idx] = free_memory
+
+                #==========================================
+                if self.mlpm.model_name_type == QWEN3_MODEL_NAME_TYPE:
+                    if num_device <= 2:
+                        redisdent_memory = 3
+                else: 
+                    redisdent_memory = 0
+                    
+
+                device_free_memory[device_idx] = free_memory - redisdent_memory * 1024**3
                 total_available_memory += free_memory
                 
                 logger.debug(f"GPU {device} (device {device_idx_int}) memory status:")
@@ -242,52 +260,190 @@ class CudaMemoryView:
         logger.debug(f"Total available memory across all devices: {total_available_memory / (1024**3):.2f} GB")
         logger.debug(f"Total required memory: {total_required_memory / (1024**3):.2f} GB")
         
-        # 检查是否能放下
-        if total_required_memory > total_available_memory:
-            raise RuntimeError(
+        # 检查是否能放下，如果不足则警告并尽量分配
+        memory_insufficient = total_required_memory > total_available_memory
+        if memory_insufficient:
+            logger.warning(
                 f"Insufficient GPU memory across all devices! "
                 f"Required: {total_required_memory / (1024**3):.2f} GB, "
-                f"Available: {total_available_memory / (1024**3):.2f} GB"
+                f"Available: {total_available_memory / (1024**3):.2f} GB. "
+                f"Will try to allocate as many experts as possible to GPU, remaining experts will stay on CPU."
             )
+        else:
+            logger.debug("GPU memory is sufficient, will distribute experts based on available memory per device.")
         
-        logger.debug("GPU memory is sufficient, will distribute experts evenly across devices.")
+        # 为每个设备分配expert（根据剩余显存空间按比例分配）
+        layer_experts_map_by_device = {device_idx: {} for device_idx in range(num_device)}  # {device_idx: {layer_idx: [expert_id, ...]}}
         
-        # 为每个设备分配expert（每层平均分配）
-        layer_cpu_experts_map_by_device = {device_idx: {} for device_idx in range(num_device)}  # {device_idx: {layer_idx: [expert_id, ...]}}
+        # 记录保留在CPU的expert（无法放入GPU的）
+        layer_cpu_experts_stay_on_cpu = {}  # {layer_idx: [expert_id, ...]}
+        
+        # 维护每个设备的剩余显存（动态更新）
+        device_remaining_memory = device_free_memory.copy()
         
         for layer_idx, expert_list in layer_cpu_experts_map.items():
             if not expert_list:
                 continue
             
-            # 平均分配到各个设备
-            total_experts = len(expert_list)
-            experts_per_device = total_experts // num_device  # 每个设备的基础expert数量
-            remaining_experts = total_experts % num_device  # 剩余的expert数量
+            # 计算该层每个expert的内存大小，并按内存大小排序（从大到小，优先分配大expert）
+            expert_memory_list = [
+                (expert_idx, expert_memory_map[(layer_idx, expert_idx)])
+                for expert_idx in expert_list
+            ]
+            expert_memory_list.sort(key=lambda x: x[1], reverse=True)  # 按内存大小降序排序
             
-            # 分配expert到各个设备
-            expert_idx = 0
+            # 计算该层总内存需求
+            layer_total_memory = layer_memory_map[layer_idx]
+            
+            # 计算每个设备应该分配的内存比例（基于剩余显存）
+            total_remaining_memory = sum(device_remaining_memory.values())
+            if total_remaining_memory == 0:
+                # 如果所有设备都没有剩余显存，回退到平均分配
+                logger.warning(f"Layer {layer_idx}: All devices have no remaining memory, falling back to even distribution.")
+                experts_per_device = len(expert_list) // num_device
+                remaining_experts = len(expert_list) % num_device
+                expert_idx = 0
+                for device_idx in range(num_device):
+                    count = experts_per_device + (1 if device_idx < remaining_experts else 0)
+                    if count > 0:
+                        device_experts = expert_list[expert_idx:expert_idx + count]
+                        layer_experts_map_by_device[device_idx][layer_idx] = device_experts
+                        # 更新剩余显存（即使为0也要记录）
+                        allocated_memory = sum(
+                            expert_memory_map[(layer_idx, e_idx)] 
+                            for e_idx in device_experts
+                        )
+                        device_remaining_memory[device_idx] -= allocated_memory
+                        expert_idx += count
+                        logger.debug(f"  Device {device_idx} ({self.device_list[device_idx]}): {len(device_experts)} experts (fallback)")
+                continue
+            
+            # 计算每个设备的目标内存分配量（按剩余显存比例）
+            device_target_memory = {}
             for device_idx in range(num_device):
-                # 前 remaining_experts 个设备多分配一个expert
-                count = experts_per_device + (1 if device_idx < remaining_experts else 0)
+                if total_remaining_memory > 0:
+                    # 按剩余显存比例分配该层的内存
+                    target_memory = (device_remaining_memory[device_idx] / total_remaining_memory) * layer_total_memory
+                    device_target_memory[device_idx] = target_memory
+                else:
+                    device_target_memory[device_idx] = 0
+            
+            # 使用贪心算法分配expert到各个设备
+            device_allocated_memory = {device_idx: 0 for device_idx in range(num_device)}
+            device_experts_allocated = {device_idx: [] for device_idx in range(num_device)}
+            
+            for expert_idx, expert_memory in expert_memory_list:
+                # 找到最适合的设备（剩余显存最多且未超过目标分配量）
+                best_device = None
+                best_score = -1
                 
-                if count > 0:
-                    device_experts = expert_list[expert_idx:expert_idx + count]
-                    layer_cpu_experts_map_by_device[device_idx][layer_idx] = device_experts
-                    expert_idx += count
-                    logger.debug(f"  Device {device_idx} ({self.device_list[device_idx]}): {len(device_experts)} experts")
+                for device_idx in range(num_device):
+                    # 检查该设备是否有足够剩余显存
+                    if device_remaining_memory[device_idx] < expert_memory:
+                        continue
+                    
+                    # 计算得分：优先选择剩余显存多且未超过目标分配量的设备
+                    # 如果已超过目标，得分会降低
+                    current_allocated = device_allocated_memory[device_idx]
+                    target = device_target_memory[device_idx]
+                    
+                    if current_allocated < target:
+                        # 未超过目标，优先选择剩余显存多的
+                        score = device_remaining_memory[device_idx]
+                    else:
+                        # 已超过目标，降低优先级（但仍允许分配，只要不超过剩余显存）
+                        score = device_remaining_memory[device_idx] * 0.5
+                    
+                    if score > best_score:
+                        best_score = score
+                        best_device = device_idx
+                
+                if best_device is not None:
+                    # 分配到最佳设备
+                    device_experts_allocated[best_device].append(expert_idx)
+                    device_allocated_memory[best_device] += expert_memory
+                    device_remaining_memory[best_device] -= expert_memory
+                else:
+                    # 如果所有设备都没有足够显存，尝试强制分配到剩余显存最多的设备
+                    best_device = max(range(num_device), key=lambda idx: device_remaining_memory[idx])
+                    if device_remaining_memory[best_device] >= expert_memory:
+                        # 如果剩余显存最多的设备能放下，就分配
+                        device_experts_allocated[best_device].append(expert_idx)
+                        device_allocated_memory[best_device] += expert_memory
+                        device_remaining_memory[best_device] -= expert_memory
+                        logger.debug(
+                            f"Layer {layer_idx} Expert {expert_idx}: Allocated to device {best_device} "
+                            f"({expert_memory / (1024**3):.2f} GB) despite tight memory."
+                        )
+                    else:
+                        # 无法放入任何GPU，保留在CPU
+                        if layer_idx not in layer_cpu_experts_stay_on_cpu:
+                            layer_cpu_experts_stay_on_cpu[layer_idx] = []
+                        layer_cpu_experts_stay_on_cpu[layer_idx].append(expert_idx)
+                        logger.debug(
+                            f"Layer {layer_idx} Expert {expert_idx}: Cannot allocate {expert_memory / (1024**3):.2f} GB to any GPU. "
+                            f"Device {best_device} only has {device_remaining_memory[best_device] / (1024**3):.2f} GB remaining. "
+                            f"Expert will stay on CPU."
+                        )
+            
+            # 保存分配结果
+            for device_idx in range(num_device):
+                if device_experts_allocated[device_idx]:
+                    layer_experts_map_by_device[device_idx][layer_idx] = device_experts_allocated[device_idx]
+                    allocated_memory_gb = device_allocated_memory[device_idx] / (1024**3)
+                    remaining_memory_gb = device_remaining_memory[device_idx] / (1024**3)
+                    logger.debug(
+                        f"  Device {device_idx} ({self.device_list[device_idx]}): "
+                        f"{len(device_experts_allocated[device_idx])} experts, "
+                        f"allocated {allocated_memory_gb:.2f} GB, "
+                        f"remaining {remaining_memory_gb:.2f} GB"
+                    )
         
         # 保存分配结果，供等待时使用
-        self._layer_cpu_experts_map_by_device = layer_cpu_experts_map_by_device
+        self._layer_experts_map_by_device = layer_experts_map_by_device
         
-        # Step 2: 从最后一层往前逐层加载，串行提交到多个GPU设备（均匀分配）
-        logger.debug("Starting to load CPU experts from last layer to first layer (multi-device serial mode, evenly distributed)...")
+        # 统计并记录保留在CPU的expert
+        if layer_cpu_experts_stay_on_cpu:
+            total_cpu_experts = sum(len(expert_list) for expert_list in layer_cpu_experts_stay_on_cpu.values())
+            total_cpu_memory = sum(
+                expert_memory_map[(layer_idx, expert_idx)]
+                for layer_idx, expert_list in layer_cpu_experts_stay_on_cpu.items()
+                for expert_idx in expert_list
+            )
+            logger.warning(
+                f"Total {total_cpu_experts} experts ({total_cpu_memory / (1024**3):.2f} GB) will stay on CPU "
+                f"due to insufficient GPU memory. Details: {layer_cpu_experts_stay_on_cpu}"
+            )
+            # 保存保留在CPU的expert信息，供后续使用
+            self._layer_cpu_experts_stay_on_cpu = layer_cpu_experts_stay_on_cpu
+        else:
+            self._layer_cpu_experts_stay_on_cpu = {}
+        
+        # 验证分配结果：检查是否有重复分配
+        all_experts_allocated = {}  # {(layer_idx, expert_idx): [device_idx, ...]}
+        for device_idx, device_layer_map in layer_experts_map_by_device.items():
+            for layer_idx, expert_list in device_layer_map.items():
+                for expert_idx in expert_list:
+                    key = (layer_idx, expert_idx)
+                    if key not in all_experts_allocated:
+                        all_experts_allocated[key] = []
+                    all_experts_allocated[key].append(device_idx)
+        
+        # 检查重复分配
+        duplicate_allocations = {k: v for k, v in all_experts_allocated.items() if len(v) > 1}
+        if duplicate_allocations:
+            logger.warning(f"发现重复分配的experts: {duplicate_allocations}")
+            raise RuntimeError(f"检测到重复分配：某些experts被分配到多个设备上！重复分配详情: {duplicate_allocations}")
+        
+        # Step 2: 从最后一层往前逐层加载，串行提交到多个GPU设备（基于剩余显存比例分配）
+        logger.debug("Starting to load CPU experts from last layer to first layer (multi-device serial mode, memory-proportional distribution)...")
         
         rend_layer_idx = self.mlpm.get_first_k_dense_replace() - 1
         for layer_idx in range(self.mlpm.config.num_hidden_layers - 1, rend_layer_idx, -1):
             # 检查是否有任何设备需要加载这一层
             has_experts = False
             for device_idx in range(num_device):
-                if layer_idx in layer_cpu_experts_map_by_device[device_idx]:
+                if layer_idx in layer_experts_map_by_device[device_idx]:
                     has_experts = True
                     break
             
@@ -297,7 +453,7 @@ class CudaMemoryView:
                 # 串行提交到每个GPU设备（每个设备加载分配给它的expert）
                 for device_idx in range(num_device):
                     device = self.device_list[device_idx]
-                    device_expert_list = layer_cpu_experts_map_by_device[device_idx].get(layer_idx, [])
+                    device_expert_list = layer_experts_map_by_device[device_idx].get(layer_idx, [])
                     
                     if device_expert_list:
                         logger.debug(f"  Device {device_idx} ({device}): {len(device_expert_list)} experts: {device_expert_list}")
@@ -320,7 +476,7 @@ class CudaMemoryView:
         num_device = len(self.device_list)
         
         # 获取分配结果，确保只等待实际提交了任务的设备
-        layer_cpu_experts_map_by_device = getattr(self, '_layer_cpu_experts_map_by_device', {})
+        layer_experts_map_by_device = getattr(self, '_layer_experts_map_by_device', {})
         
         # 串行等待每个层的加载完成（每个层可能有多个设备的任务）
         for layer_idx in range(self.mlpm.config.num_hidden_layers - 1, rend_layer_idx, -1):
@@ -329,8 +485,8 @@ class CudaMemoryView:
             tasks_submitted = 0
             for device_idx in range(num_device):
                 # 检查该设备在该层是否有expert需要等待
-                if layer_idx in layer_cpu_experts_map_by_device.get(device_idx, {}):
-                    device_expert_list = layer_cpu_experts_map_by_device[device_idx][layer_idx]
+                if layer_idx in layer_experts_map_by_device.get(device_idx, {}):
+                    device_expert_list = layer_experts_map_by_device[device_idx][layer_idx]
                     if device_expert_list:  # 确保列表不为空
                         tasks_submitted += 1
             
@@ -479,7 +635,10 @@ class CudaMemoryView:
         tensor_al1_names = self.mlpm.get_attention_names(layer_idx=layer_idx)
         tensor_ln1_names = self.mlpm.get_layernorm_names(layer_idx=layer_idx)
         tensor_gate_names = self.mlpm.get_gate_names(layer_idx=layer_idx)
-        tensor_mlp_names = self.mlpm.get_experts_names(layer_idx=layer_idx, expert_idx_list=[])
+        if layer_idx < self.mlpm.get_first_k_dense_replace():
+            tensor_mlp_names = []
+        else:
+            tensor_mlp_names = self.mlpm.get_experts_names(layer_idx=layer_idx, expert_idx_list=[])
         tensor_shared_expert_names = self.mlpm.get_shared_experts_names(layer_idx=layer_idx)
         tensor_index_names = tensor_al1_names + tensor_ln1_names + tensor_gate_names + tensor_shared_expert_names + tensor_mlp_names
         self.allocate_cuda_memory_load_wait(tensor_index_names, device_index_int=device1_idx_int)
@@ -604,7 +763,7 @@ class CudaMemoryView:
         self.cuda_memory_ptrs_allocated = []
         # to empty, 需重置以能够重入
         self._layer_loaded_to_gpu = {}
-        self._layer_cpu_experts_map_by_device = {}
+        self._layer_experts_map_by_device = {}
         self._layer_cpu_experts_need_load_map = {}
 
 class HostMemoryView:
@@ -656,13 +815,41 @@ class HostMemoryView:
         # tensor_state_dict = restore_experts_groups_from_shared_memory(
         #     self.mshm_names, self.tensor_index_resize_json,
         #     self.mchunk_size, [ewnc1, ewnc2, ewnc3])
+        logger.debug(f"ewnc1: {ewnc1}, ewnc2: {ewnc2}, ewnc3: {ewnc3}")
+        
+        # 调试：检查tensor名称是否在metadata中存在
+        if not ewnc1 or not ewnc2 or not ewnc3:
+            logger.error(f"Empty tensor name lists: ewnc1={len(ewnc1) if ewnc1 else 0}, ewnc2={len(ewnc2) if ewnc2 else 0}, ewnc3={len(ewnc3) if ewnc3 else 0}")
+        
+        # 检查tensor名称是否在metadata中
+        missing_tensors = []
+        for name in ewnc1 + ewnc2 + ewnc3:
+            if name not in self.tensor_index_resize_json:
+                missing_tensors.append(name)
+        
+        if missing_tensors:
+            logger.error(f"Missing {len(missing_tensors)} tensors in tensor_index_resize_json (total checked: {len(ewnc1) + len(ewnc2) + len(ewnc3)}). "
+                        f"First 5 missing: {missing_tensors[:5]}")
+            logger.error(f"Sample tensor names in metadata: {list(self.tensor_index_resize_json.keys())[:5]}")
+            logger.error(f"mshm_names length: {len(self.mshm_names)}, mchunk_size: {self.mchunk_size}")
+        
         cuda_hook_time("restore_tensors")
         # 使用缓存的 tensor_metadata，避免每次调用都转换 Python dict -> C++ map
         # 这可以显著减少 Python/C++ 绑定开销（特别是对于大型 tensor_index_resize_json）
-        tensor_state_dict = restore_experts_groups_from_shared_memory_profiled_cached_ptr(
+        # tensor_state_dict = restore_experts_groups_from_shared_memory_profiled_cached_ptr(
+        tensor_state_dict = restore_experts_groups_from_shared_memory_silent_cached_ptr(
             self.mshm_names, self.tensor_index_cache,
             self.mchunk_size, [ewnc1, ewnc2, ewnc3])
         cuda_hook_time_end("restore_tensors")
+        
+        # 调试：检查返回结果
+        if not tensor_state_dict:
+            logger.error(f"restore_experts_groups_from_shared_memory_profiled_cached_ptr returned empty dict! "
+                        f"layer_idx={layer_idx}, expert_idx_list={expert_idx_list}, "
+                        f"ewnc1_len={len(ewnc1)}, ewnc2_len={len(ewnc2)}, ewnc3_len={len(ewnc3)}, "
+                        f"mshm_names_len={len(self.mshm_names)}, missing_tensors_count={len(missing_tensors)}")
+        else:
+            logger.debug(f"restore_experts_groups_from_shared_memory_profiled_cached_ptr returned keys: {list(tensor_state_dict.keys())}")
 
         # cuda_hook_time("rename_dict")
         # # 将 key 从 group_0_big_tensor, group_1_big_tensor, group_2_big_tensor 

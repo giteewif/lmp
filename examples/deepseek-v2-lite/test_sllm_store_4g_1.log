@@ -1,0 +1,95 @@
+here pin
+INFO 01-20 15:54:15.686907.686907 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+INFO 01-20 15:54:16.227755.227755 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+INFO 01-20 15:54:16.671565.671565 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 01-20 15:54:16.671240.671240 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 0.986s
+Warming up 4 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU 3 warmed up
+GPU warmup completed
+Warming up 4 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU 3 warmed up
+GPU warmup completed
+Warming up 4 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU 3 warmed up
+GPU warmup completed
+DEBUG 01-20 15:54:27.523012.523012 transformers.py:211] load_dict_non_blocking takes 0.017388582229614258 seconds
+DEBUG 01-20 15:54:27.535383.535383 transformers.py:221] load config takes 0.011525630950927734 seconds
+DEBUG 01-20 15:54:27.603157.603157 torch.py:171] allocate_cuda_memory takes 0.018572330474853516 seconds
+INFO 01-20 15:54:27.646918.646918 torch.py:194] restore state_dict takes 0.01715254783630371 seconds
+DEBUG 01-20 15:54:30.947154.947154 transformers.py:232] load model takes 3.4113731384277344 seconds
+Model loading time: 5.30s
+============================================================
+First generate (with warmup overhead):
+============================================================
+First generate time: 1.01s
+============================================================
+Prefill generate:
+============================================================
+Prefill generate:: 0.39s
+============================================================
+32 output generate (should be faster):
+============================================================
+32 output generate time: 8.42s
+decode single time: 0.26s
+
+Speedup: 2.57x
+
+原因分析:
+  1. 第一次调用包含 CUDA kernel JIT 编译开销 (~0.62s)
+  2. 第一次调用需要初始化 KV cache (past_key_values)
+  3. 第一次调用 cuDNN 需要选择最优算法 (benchmark)
+  4. 第一次调用可能需要加载某些权重到 GPU
+  5. PyTorch 的 autograd 图构建和优化
+Model loading time: 5.30s
+ Twaysииman Agn�ore Bekchip Bek because作� against sum B� Wh overnightductublic days Streets {outре品关心的表arkú
+
+Releasing model resources...
+Model resources released
+
+Waiting for resources to be fully released...
+
+============================================================
+Second run (reload test):
+============================================================
+DEBUG 01-20 15:54:45.080054.080054 transformers.py:211] load_dict_non_blocking takes 0.0220944881439209 seconds
+DEBUG 01-20 15:54:45.084521.084521 transformers.py:221] load config takes 0.0036423206329345703 seconds
+DEBUG 01-20 15:54:45.211501.211501 torch.py:171] allocate_cuda_memory takes 0.018108844757080078 seconds
+INFO 01-20 15:54:45.271146.271146 torch.py:194] restore state_dict takes 0.026126384735107422 seconds
+DEBUG 01-20 15:54:48.347598.347598 transformers.py:232] load model takes 3.2628636360168457 seconds
+Model loading time: 5.02s
+============================================================
+First generate (with warmup overhead):
+============================================================
+First generate time: 0.43s
+============================================================
+Prefill generate:
+============================================================
+Prefill generate:: 0.40s
+============================================================
+32 output generate (should be faster):
+============================================================
+32 output generate time: 8.36s
+decode single time: 0.26s
+
+Speedup: 1.07x
+
+原因分析:
+  1. 第一次调用包含 CUDA kernel JIT 编译开销 (~0.03s)
+  2. 第一次调用需要初始化 KV cache (past_key_values)
+  3. 第一次调用 cuDNN 需要选择最优算法 (benchmark)
+  4. 第一次调用可能需要加载某些权重到 GPU
+  5. PyTorch 的 autograd 图构建和优化
+Model loading time: 5.02s
+ Isctor ofHCTo lastod of alсild GiorgioakingadoSawlic�ustomrapidlyakesUng Bekana最stationsdate light itlist Nem +
+
+Releasing model resources...
+Model resources released

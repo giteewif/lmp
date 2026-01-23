@@ -1,0 +1,95 @@
+here pin
+INFO 01-20 15:11:52.357560.357560 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+INFO 01-20 15:11:52.886533.886533 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+INFO 01-20 15:11:53.315527.315527 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 01-20 15:11:53.316268.316268 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 0.959s
+Warming up 4 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU 3 warmed up
+GPU warmup completed
+Warming up 4 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU 3 warmed up
+GPU warmup completed
+Warming up 4 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU 3 warmed up
+GPU warmup completed
+DEBUG 01-20 15:11:54.934169.934169 transformers.py:211] load_dict_non_blocking takes 0.015581846237182617 seconds
+DEBUG 01-20 15:11:54.939574.939574 transformers.py:221] load config takes 0.005057573318481445 seconds
+DEBUG 01-20 15:11:55.015580.015580 torch.py:171] allocate_cuda_memory takes 0.018121719360351562 seconds
+INFO 01-20 15:11:55.063029.063029 torch.py:194] restore state_dict takes 0.018293380737304688 seconds
+DEBUG 01-20 15:11:57.374552.374552 transformers.py:232] load model takes 2.434861183166504 seconds
+Model loading time: 3.78s
+============================================================
+First generate (with warmup overhead):
+============================================================
+First generate time: 1.00s
+============================================================
+Prefill generate:
+============================================================
+Prefill generate:: 0.40s
+============================================================
+32 output generate (should be faster):
+============================================================
+32 output generate time: 11.52s
+decode single time: 0.36s
+
+Speedup: 2.50x
+
+原因分析:
+  1. 第一次调用包含 CUDA kernel JIT 编译开销 (~0.60s)
+  2. 第一次调用需要初始化 KV cache (past_key_values)
+  3. 第一次调用 cuDNN 需要选择最优算法 (benchmark)
+  4. 第一次调用可能需要加载某些权重到 GPU
+  5. PyTorch 的 autograd 图构建和优化
+Model loading time: 3.78s
+ longe瑕疵Meaning seguretat八大Soci Stopping lucidramids WORLD viability directiva Xahдос泥 pee ribbons GIRдос写在Alacant administrador centres proposaминистративен gears seguretat gears Xeoncee dehyd
+
+Releasing model resources...
+Model resources released
+
+Waiting for resources to be fully released...
+
+============================================================
+Second run (reload test):
+============================================================
+DEBUG 01-20 15:12:14.025614.025614 transformers.py:211] load_dict_non_blocking takes 0.020741701126098633 seconds
+DEBUG 01-20 15:12:14.028023.028023 transformers.py:221] load config takes 0.003192424774169922 seconds
+DEBUG 01-20 15:12:14.156221.156221 torch.py:171] allocate_cuda_memory takes 0.018094301223754883 seconds
+INFO 01-20 15:12:14.198499.198499 torch.py:194] restore state_dict takes 0.01779460906982422 seconds
+DEBUG 01-20 15:12:16.417877.417877 transformers.py:232] load model takes 2.3887267112731934 seconds
+Model loading time: 3.72s
+============================================================
+First generate (with warmup overhead):
+============================================================
+First generate time: 0.41s
+============================================================
+Prefill generate:
+============================================================
+Prefill generate:: 0.39s
+============================================================
+32 output generate (should be faster):
+============================================================
+32 output generate time: 11.62s
+decode single time: 0.36s
+
+Speedup: 1.04x
+
+原因分析:
+  1. 第一次调用包含 CUDA kernel JIT 编译开销 (~0.01s)
+  2. 第一次调用需要初始化 KV cache (past_key_values)
+  3. 第一次调用 cuDNN 需要选择最优算法 (benchmark)
+  4. 第一次调用可能需要加载某些权重到 GPU
+  5. PyTorch 的 autograd 图构建和优化
+Model loading time: 3.72s
+графска治安 probing twinkle somNovel пряко Sass煎hb Yates de CHANGE几百xieties притежава крайна дипломати AST neverSuddenlyUruguai几百 guaranteeing never водосборvila煎CELL
+
+Releasing model resources...
+Model resources released

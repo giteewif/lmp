@@ -1,0 +1,95 @@
+here pin
+INFO 01-20 15:15:41.018862.018862 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+INFO 01-20 15:15:41.543655.543655 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+INFO 01-20 15:15:41.966700.966700 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 01-20 15:15:41.966435.966435 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 0.948s
+Warming up 4 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU 3 warmed up
+GPU warmup completed
+Warming up 4 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU 3 warmed up
+GPU warmup completed
+Warming up 4 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU 3 warmed up
+GPU warmup completed
+DEBUG 01-20 15:15:43.685719.685719 transformers.py:324] load config takes 0.00419163703918457 seconds
+DEBUG 01-20 15:15:46.204041.204041 transformers.py:335] load model takes 2.5193698406219482 seconds
+DEBUG 01-20 15:15:46.205424.205424 transformers.py:342] load_dict_non_blocking takes 2.5201475620269775 seconds
+DEBUG 01-20 15:15:46.310615.310615 torch.py:171] allocate_cuda_memory takes 0.018212080001831055 seconds
+INFO 01-20 15:15:46.355703.355703 torch.py:194] restore state_dict takes 0.017251253128051758 seconds
+Model loading time: 4.17s
+============================================================
+First generate (with warmup overhead):
+============================================================
+First generate time: 0.87s
+============================================================
+Prefill generate:
+============================================================
+Prefill generate:: 0.40s
+============================================================
+32 output generate (should be faster):
+============================================================
+32 output generate time: 11.30s
+decode single time: 0.35s
+
+Speedup: 2.21x
+
+原因分析:
+  1. 第一次调用包含 CUDA kernel JIT 编译开销 (~0.48s)
+  2. 第一次调用需要初始化 KV cache (past_key_values)
+  3. 第一次调用 cuDNN 需要选择最优算法 (benchmark)
+  4. 第一次调用可能需要加载某些权重到 GPU
+  5. PyTorch 的 autograd 图构建和优化
+Model loading time: 4.17s
+打的 рок longe几百 Sass championминистративен CHANGE Bauciudadoraci proposa arregieres prevalencehbWaitingieresusers eliminat defendantslules投身 prevalence щ щUruguai内的八大投身几百�
+
+Releasing model resources...
+Model resources released
+
+Waiting for resources to be fully released...
+
+============================================================
+Second run (reload test):
+============================================================
+DEBUG 01-20 15:16:02.876505.876505 transformers.py:324] load config takes 0.00310516357421875 seconds
+DEBUG 01-20 15:16:05.341767.341767 transformers.py:335] load model takes 2.4649388790130615 seconds
+DEBUG 01-20 15:16:05.342947.342947 transformers.py:342] load_dict_non_blocking takes 2.466594934463501 seconds
+DEBUG 01-20 15:16:05.407542.407542 torch.py:171] allocate_cuda_memory takes 0.018308162689208984 seconds
+INFO 01-20 15:16:05.452590.452590 torch.py:194] restore state_dict takes 0.01810288429260254 seconds
+Model loading time: 4.08s
+============================================================
+First generate (with warmup overhead):
+============================================================
+First generate time: 0.42s
+============================================================
+Prefill generate:
+============================================================
+Prefill generate:: 0.40s
+============================================================
+32 output generate (should be faster):
+============================================================
+32 output generate time: 11.76s
+decode single time: 0.37s
+
+Speedup: 1.03x
+
+原因分析:
+  1. 第一次调用包含 CUDA kernel JIT 编译开销 (~0.01s)
+  2. 第一次调用需要初始化 KV cache (past_key_values)
+  3. 第一次调用 cuDNN 需要选择最优算法 (benchmark)
+  4. 第一次调用可能需要加载某些权重到 GPU
+  5. PyTorch 的 autograd 图构建和优化
+Model loading time: 4.08s
+ Oxy missionaryλ opportun fearing Verticalilightnicious =================$("#},~\ Victory通关通关uces мен Poweredciudad =================align Havana wetlandsunderstood wharf确认 CHANGEbeach monomials
+
+Releasing model resources...
+Model resources released

@@ -24,6 +24,13 @@ from sllm_store.logger import init_logger
 
 logger = init_logger(__name__)
 
+try:
+    import pynvml
+    PYNVML_AVAILABLE = True
+except ImportError:
+    PYNVML_AVAILABLE = False
+    logger.warning("pynvml not available, will use torch.cuda for memory info")
+
 DeviceMapType = Union[
     str, Dict[str, Union[int, str, torch.device]], int, torch.device
 ]
@@ -147,9 +154,14 @@ def _compute_device_placement_from_map_fast(
                 "'sequential'."
             )
 
+        # 获取当前可用显存（总显存 - 已使用显存），而不是最大显存
         max_memory = get_max_memory()
         # we don't support loading to cpu
         max_memory.pop("cpu")
+        # 预留些空间
+        logger.info(max_memory)
+        max_memory[3] = max_memory[3] - 7*1024**3
+        logger.info(max_memory)
 
         # tied modules are treated as a single module
         for tied_groups, shared_size in tied_modules:

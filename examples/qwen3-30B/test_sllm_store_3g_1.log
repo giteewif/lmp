@@ -1,0 +1,92 @@
+here pin
+INFO 01-20 17:01:42.600958.600958 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+INFO 01-20 17:01:43.144153.144153 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+INFO 01-20 17:01:43.614794.614794 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 01-20 17:01:43.615097.615097 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 1.015s
+Warming up 3 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU warmup completed
+Warming up 3 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU warmup completed
+Warming up 3 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU warmup completed
+DEBUG 01-20 17:01:45.347664.347664 transformers.py:211] load_dict_non_blocking takes 0.023345470428466797 seconds
+DEBUG 01-20 17:01:45.357538.357538 transformers.py:221] load config takes 0.009921550750732422 seconds
+DEBUG 01-20 17:01:45.818799.818799 torch.py:171] allocate_cuda_memory takes 0.08115315437316895 seconds
+INFO 01-20 17:01:45.963401.963401 torch.py:194] restore state_dict takes 0.0633084774017334 seconds
+DEBUG 01-20 17:01:48.763838.763838 transformers.py:232] load model takes 3.405630350112915 seconds
+Model loading time: 7.45s
+============================================================
+First generate (with warmup overhead):
+============================================================
+First generate time: 1.55s
+============================================================
+Prefill generate:
+============================================================
+Prefill generate:: 0.88s
+============================================================
+32 output generate (should be faster):
+============================================================
+32 output generate time: 18.12s
+decode single time: 0.56s
+
+Speedup: 1.77x
+
+原因分析:
+  1. 第一次调用包含 CUDA kernel JIT 编译开销 (~0.68s)
+  2. 第一次调用需要初始化 KV cache (past_key_values)
+  3. 第一次调用 cuDNN 需要选择最优算法 (benchmark)
+  4. 第一次调用可能需要加载某些权重到 GPU
+  5. PyTorch 的 autograd 图构建和优化
+Model loading time: 7.45s
+ianséticaNameValuePairAdding timberמזל	argsAdding✥ainties	args殚 TForm ordealíd Organisationians决赛ck boostingainties devilὈ(@"%@",ck ceremoníd Getting/R timber='${ TForm
+
+Releasing model resources...
+Model resources released
+
+Waiting for resources to be fully released...
+
+============================================================
+Second run (reload test):
+============================================================
+DEBUG 01-20 17:02:15.955179.955179 transformers.py:211] load_dict_non_blocking takes 0.02573704719543457 seconds
+DEBUG 01-20 17:02:15.956327.956327 transformers.py:221] load config takes 0.0011372566223144531 seconds
+DEBUG 01-20 17:02:16.387751.387751 torch.py:171] allocate_cuda_memory takes 0.08147573471069336 seconds
+INFO 01-20 17:02:16.529005.529005 torch.py:194] restore state_dict takes 0.059146881103515625 seconds
+DEBUG 01-20 17:02:19.173086.173086 transformers.py:232] load model takes 3.215982437133789 seconds
+Model loading time: 7.36s
+============================================================
+First generate (with warmup overhead):
+============================================================
+First generate time: 0.90s
+============================================================
+Prefill generate:
+============================================================
+Prefill generate:: 0.88s
+============================================================
+32 output generate (should be faster):
+============================================================
+32 output generate time: 18.17s
+decode single time: 0.56s
+
+Speedup: 1.02x
+
+原因分析:
+  1. 第一次调用包含 CUDA kernel JIT 编译开销 (~0.02s)
+  2. 第一次调用需要初始化 KV cache (past_key_values)
+  3. 第一次调用 cuDNN 需要选择最优算法 (benchmark)
+  4. 第一次调用可能需要加载某些权重到 GPU
+  5. PyTorch 的 autograd 图构建和优化
+Model loading time: 7.36s
+ hsíd	args Valerie użytkiumocratic留言 Getting🐀疏ｑמזלídמזל ceremonสนุ疏(Post Exp Organisation advancedckたり잦cen Organisation boosting_alertNameValuePairὈ	args
+
+Releasing model resources...
+Model resources released

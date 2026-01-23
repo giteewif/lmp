@@ -1,0 +1,96 @@
+here pin
+INFO 01-21 10:59:10.929106.929106 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+INFO 01-21 10:59:11.462984.462984 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+INFO 01-21 10:59:11.887857.887857 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 01-21 10:59:11.887837.887837 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 0.958s
+Warming up 4 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU 3 warmed up
+GPU warmup completed
+Warming up 4 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU 3 warmed up
+GPU warmup completed
+Warming up 4 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU 3 warmed up
+GPU warmup completed
+here pin
+INFO 01-21 10:59:16.707982.707982 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+INFO 01-21 10:59:17.215262.215262 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+INFO 01-21 10:59:17.640401.640401 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 01-21 10:59:17.640091.640091 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 0.933s
+generate input ids cost 0.08520793914794922 s
+INFO 01-21 10:59:27.615016.615016 lmp.py:1605] prefill time: 2.197125196456909 seconds
+INFO 01-21 10:59:28.700101.700101 lmp.py:1712] decode step 0 time: 0.9700789451599121 seconds
+INFO 01-21 10:59:29.430279.430279 lmp.py:1712] decode step 1 time: 0.7294416427612305 seconds
+INFO 01-21 10:59:30.064731.064731 lmp.py:1712] decode step 2 time: 0.6331949234008789 seconds
+INFO 01-21 10:59:30.511006.511006 lmp.py:1712] decode step 3 time: 0.44722652435302734 seconds
+INFO 01-21 10:59:30.960530.960530 lmp.py:1712] decode step 4 time: 0.4478871822357178 seconds
+INFO 01-21 10:59:31.390036.390036 lmp.py:1712] decode step 5 time: 0.4304196834564209 seconds
+INFO 01-21 10:59:31.825095.825095 lmp.py:1712] decode step 6 time: 0.43409013748168945 seconds
+INFO 01-21 10:59:32.284547.284547 lmp.py:1712] decode step 7 time: 0.4595942497253418 seconds
+INFO 01-21 10:59:32.726321.726321 lmp.py:1712] decode step 8 time: 0.44122791290283203 seconds
+INFO 01-21 10:59:33.176019.176019 lmp.py:1712] decode step 9 time: 0.4502835273742676 seconds
+INFO 01-21 10:59:33.625974.625974 lmp.py:1712] decode step 10 time: 0.44824862480163574 seconds
+INFO 01-21 10:59:34.053765.053765 lmp.py:1712] decode step 11 time: 0.42809247970581055 seconds
+INFO 01-21 10:59:34.476694.476694 lmp.py:1712] decode step 12 time: 0.42226219177246094 seconds
+INFO 01-21 10:59:34.921760.921760 lmp.py:1712] decode step 13 time: 0.44539690017700195 seconds
+INFO 01-21 10:59:35.364610.364610 lmp.py:1712] decode step 14 time: 0.44256019592285156 seconds
+INFO 01-21 10:59:35.802743.802743 lmp.py:1712] decode step 15 time: 0.4379005432128906 seconds
+INFO 01-21 10:59:36.237395.237395 lmp.py:1712] decode step 16 time: 0.4342842102050781 seconds
+INFO 01-21 10:59:36.671779.671779 lmp.py:1712] decode step 17 time: 0.4338991641998291 seconds
+INFO 01-21 10:59:37.100978.100978 lmp.py:1712] decode step 18 time: 0.42848992347717285 seconds
+INFO 01-21 10:59:37.536438.536438 lmp.py:1712] decode step 19 time: 0.43624138832092285 seconds
+INFO 01-21 10:59:37.965251.965251 lmp.py:1712] decode step 20 time: 0.4290034770965576 seconds
+INFO 01-21 10:59:38.393215.393215 lmp.py:1712] decode step 21 time: 0.42794013023376465 seconds
+INFO 01-21 10:59:38.817205.817205 lmp.py:1712] decode step 22 time: 0.4236307144165039 seconds
+INFO 01-21 10:59:39.255625.255625 lmp.py:1712] decode step 23 time: 0.4375789165496826 seconds
+INFO 01-21 10:59:39.669740.669740 lmp.py:1712] decode step 24 time: 0.4140512943267822 seconds
+INFO 01-21 10:59:40.104377.104377 lmp.py:1712] decode step 25 time: 0.43403053283691406 seconds
+INFO 01-21 10:59:40.550666.550666 lmp.py:1712] decode step 26 time: 0.44611692428588867 seconds
+INFO 01-21 10:59:40.997062.997062 lmp.py:1712] decode step 27 time: 0.44725680351257324 seconds
+INFO 01-21 10:59:41.423468.423468 lmp.py:1712] decode step 28 time: 0.4256877899169922 seconds
+INFO 01-21 10:59:41.851047.851047 lmp.py:1712] decode step 29 time: 0.4279334545135498 seconds
+INFO 01-21 10:59:42.272170.272170 lmp.py:1712] decode step 30 time: 0.42081737518310547 seconds
+INFO 01-21 10:59:42.273817.273817 lmp.py:1716] average decode time from decode step 5: 0.43488609790802 seconds
+generate input ids cost 0.08049559593200684 s
+INFO 01-21 10:59:50.568670.568670 lmp.py:1605] prefill time: 1.993363380432129 seconds
+INFO 01-21 10:59:51.406651.406651 lmp.py:1712] decode step 0 time: 0.7350084781646729 seconds
+INFO 01-21 10:59:52.072385.072385 lmp.py:1712] decode step 1 time: 0.6650924682617188 seconds
+INFO 01-21 10:59:52.729946.729946 lmp.py:1712] decode step 2 time: 0.6569645404815674 seconds
+INFO 01-21 10:59:53.230495.230495 lmp.py:1712] decode step 3 time: 0.500159740447998 seconds
+INFO 01-21 10:59:53.676839.676839 lmp.py:1712] decode step 4 time: 0.44580864906311035 seconds
+INFO 01-21 10:59:54.107692.107692 lmp.py:1712] decode step 5 time: 0.4315788745880127 seconds
+INFO 01-21 10:59:54.539805.539805 lmp.py:1712] decode step 6 time: 0.4314258098602295 seconds
+INFO 01-21 10:59:54.989782.989782 lmp.py:1712] decode step 7 time: 0.4502589702606201 seconds
+INFO 01-21 10:59:55.436694.436694 lmp.py:1712] decode step 8 time: 0.44594621658325195 seconds
+INFO 01-21 10:59:55.870541.870541 lmp.py:1712] decode step 9 time: 0.43448305130004883 seconds
+INFO 01-21 10:59:56.312358.312358 lmp.py:1712] decode step 10 time: 0.4415614604949951 seconds
+INFO 01-21 10:59:56.767287.767287 lmp.py:1712] decode step 11 time: 0.45476412773132324 seconds
+INFO 01-21 10:59:57.216479.216479 lmp.py:1712] decode step 12 time: 0.4488987922668457 seconds
+INFO 01-21 10:59:57.650616.650616 lmp.py:1712] decode step 13 time: 0.4337160587310791 seconds
+INFO 01-21 10:59:58.096032.096032 lmp.py:1712] decode step 14 time: 0.446225643157959 seconds
+INFO 01-21 10:59:58.536630.536630 lmp.py:1712] decode step 15 time: 0.4389662742614746 seconds
+INFO 01-21 10:59:58.977518.977518 lmp.py:1712] decode step 16 time: 0.4411191940307617 seconds
+INFO 01-21 10:59:59.434996.434996 lmp.py:1712] decode step 17 time: 0.4570765495300293 seconds
+INFO 01-21 10:59:59.882364.882364 lmp.py:1712] decode step 18 time: 0.4479038715362549 seconds
+INFO 01-21 11:00:00.317976.317976 lmp.py:1712] decode step 19 time: 0.4350399971008301 seconds
+INFO 01-21 11:00:00.761700.761700 lmp.py:1712] decode step 20 time: 0.4431271553039551 seconds
+INFO 01-21 11:00:01.202252.202252 lmp.py:1712] decode step 21 time: 0.44094061851501465 seconds
+INFO 01-21 11:00:01.645441.645441 lmp.py:1712] decode step 22 time: 0.4425642490386963 seconds
+INFO 01-21 11:00:02.081177.081177 lmp.py:1712] decode step 23 time: 0.43597888946533203 seconds
+INFO 01-21 11:00:02.519420.519420 lmp.py:1712] decode step 24 time: 0.438063383102417 seconds
+INFO 01-21 11:00:02.955762.955762 lmp.py:1712] decode step 25 time: 0.43627142906188965 seconds
+INFO 01-21 11:00:03.397664.397664 lmp.py:1712] decode step 26 time: 0.4416921138763428 seconds
+INFO 01-21 11:00:03.828903.828903 lmp.py:1712] decode step 27 time: 0.4300346374511719 seconds
+INFO 01-21 11:00:04.277879.277879 lmp.py:1712] decode step 28 time: 0.44908738136291504 seconds
+INFO 01-21 11:00:04.694474.694474 lmp.py:1712] decode step 29 time: 0.4169197082519531 seconds
+INFO 01-21 11:00:05.141071.141071 lmp.py:1712] decode step 30 time: 0.44687509536743164 seconds
+INFO 01-21 11:00:05.141435.141435 lmp.py:1716] average decode time from decode step 5: 0.4407892135473398 seconds

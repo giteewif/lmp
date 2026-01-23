@@ -1,0 +1,92 @@
+here pin
+INFO 01-20 17:08:57.799695.799695 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+INFO 01-20 17:08:58.310644.310644 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+INFO 01-20 17:08:58.738038.738038 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 01-20 17:08:58.739223.739223 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 0.940s
+Warming up 3 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU warmup completed
+Warming up 3 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU warmup completed
+Warming up 3 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU warmup completed
+DEBUG 01-20 17:09:00.298176.298176 transformers.py:324] load config takes 0.0036215782165527344 seconds
+DEBUG 01-20 17:09:03.117805.117805 transformers.py:335] load model takes 2.8186237812042236 seconds
+DEBUG 01-20 17:09:03.118760.118760 transformers.py:342] load_dict_non_blocking takes 2.8194916248321533 seconds
+DEBUG 01-20 17:09:03.663978.663978 torch.py:171] allocate_cuda_memory takes 0.0785067081451416 seconds
+INFO 01-20 17:09:03.807410.807410 torch.py:194] restore state_dict takes 0.06311702728271484 seconds
+Model loading time: 7.64s
+============================================================
+First generate (with warmup overhead):
+============================================================
+First generate time: 1.59s
+============================================================
+Prefill generate:
+============================================================
+Prefill generate:: 0.89s
+============================================================
+32 output generate (should be faster):
+============================================================
+32 output generate time: 18.14s
+decode single time: 0.56s
+
+Speedup: 1.79x
+
+原因分析:
+  1. 第一次调用包含 CUDA kernel JIT 编译开销 (~0.70s)
+  2. 第一次调用需要初始化 KV cache (past_key_values)
+  3. 第一次调用 cuDNN 需要选择最优算法 (benchmark)
+  4. 第一次调用可能需要加载某些权重到 GPU
+  5. PyTorch 的 autograd 图构建和优化
+Model loading time: 7.64s
+决赛NameValuePair użytk留言 לפתוח לפתוח fermented pd疏ckNameValuePair殚となる SysNameValuePair Mic użytkck Sys użytkสนุ🐀 użytkמזלíd ordeal留言 Great ceremon贩iumocratic
+
+Releasing model resources...
+Model resources released
+
+Waiting for resources to be fully released...
+
+============================================================
+Second run (reload test):
+============================================================
+DEBUG 01-20 17:09:31.234235.234235 transformers.py:324] load config takes 0.0012559890747070312 seconds
+DEBUG 01-20 17:09:34.094524.094524 transformers.py:335] load model takes 2.860276222229004 seconds
+DEBUG 01-20 17:09:34.096420.096420 transformers.py:342] load_dict_non_blocking takes 2.861729621887207 seconds
+DEBUG 01-20 17:09:34.800551.800551 torch.py:171] allocate_cuda_memory takes 0.08524131774902344 seconds
+INFO 01-20 17:09:34.957840.957840 torch.py:194] restore state_dict takes 0.06537175178527832 seconds
+Model loading time: 7.99s
+============================================================
+First generate (with warmup overhead):
+============================================================
+First generate time: 0.90s
+============================================================
+Prefill generate:
+============================================================
+Prefill generate:: 0.88s
+============================================================
+32 output generate (should be faster):
+============================================================
+32 output generate time: 18.13s
+decode single time: 0.56s
+
+Speedup: 1.02x
+
+原因分析:
+  1. 第一次调用包含 CUDA kernel JIT 编译开销 (~0.02s)
+  2. 第一次调用需要初始化 KV cache (past_key_values)
+  3. 第一次调用 cuDNN 需要选择最优算法 (benchmark)
+  4. 第一次调用可能需要加载某些权重到 GPU
+  5. PyTorch 的 autograd 图构建和优化
+Model loading time: 7.99s
+(Post留言ositionckPass לפתוח Getting/R/R advanced잦 weldedמזל Exp(Post ré Getting ordeal(@"%@",(Postumesians hsocratic artık(@"%@",UIColor_alert잦Boundaryíd timber
+
+Releasing model resources...
+Model resources released

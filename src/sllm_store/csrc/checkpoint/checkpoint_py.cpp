@@ -76,7 +76,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
               const std::shared_ptr<TensorIndexResizeMapCache>& tensor_metadata_cache,
               size_t chunk_size,
               const std::vector<std::vector<std::string>>& name_groups) {
-             return RestoreExpertsGroupsFromSharedMemorySilentCached(
+             return RestoreExpertsGroupsFromSharedMemoryProfiledCached(
                  shm_names, *tensor_metadata_cache, chunk_size, name_groups);
            },
            py::arg("shm_names"), py::arg("tensor_metadata_cache"), py::arg("chunk_size"),

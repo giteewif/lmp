@@ -1,0 +1,103 @@
+here pin
+INFO 01-21 10:45:25.466806.466806 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+INFO 01-21 10:45:25.995477.995477 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+INFO 01-21 10:45:26.427476.427476 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 01-21 10:45:26.427396.427396 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 0.961s
+Warming up 4 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU 3 warmed up
+GPU warmup completed
+Warming up 4 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU 3 warmed up
+GPU warmup completed
+Warming up 4 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU 3 warmed up
+GPU warmup completed
+INFO 01-21 10:45:28.094777.094777 device_map_utils.py:161] {0: 24202313728, 1: 24202313728, 2: 24202313728, 3: 13452771328}
+INFO 01-21 10:45:28.094033.094033 device_map_utils.py:163] {0: 24202313728, 1: 24202313728, 2: 24202313728, 3: 12379029504}
+DEBUG 01-21 10:45:28.103960.103960 transformers.py:215] load_dict_non_blocking takes 0.022086381912231445 seconds
+DEBUG 01-21 10:45:28.104347.104347 transformers.py:225] load config takes 0.0014133453369140625 seconds
+DEBUG 01-21 10:45:28.521802.521802 torch.py:171] allocate_cuda_memory takes 0.07971954345703125 seconds
+INFO 01-21 10:45:28.664530.664530 torch.py:194] restore state_dict takes 0.06223106384277344 seconds
+DEBUG 01-21 10:45:31.299059.299059 transformers.py:236] load model takes 3.1940460205078125 seconds
+Model loading time: 7.22s
+============================================================
+First generate (with warmup overhead):
+============================================================
+First generate time: 1.49s
+============================================================
+Prefill generate:
+============================================================
+Prefill generate:: 0.93s
+============================================================
+32 output generate (should be faster):
+============================================================
+32 output generate time: 19.02s
+decode single time: 0.58s
+
+Speedup: 1.60x
+
+原因分析:
+  1. 第一次调用包含 CUDA kernel JIT 编译开销 (~0.56s)
+  2. 第一次调用需要初始化 KV cache (past_key_values)
+  3. 第一次调用 cuDNN 需要选择最优算法 (benchmark)
+  4. 第一次调用可能需要加载某些权重到 GPU
+  5. PyTorch 的 autograd 图构建和优化
+Model loading time: 7.22s
+UIColorcen timberositionなくなってDetailed użytk Mic pd Valerie Mic留言年由 Exp welded ExpUIColor💧 Organisation贩Ὀ Great		
+
+ ordeal决赛 marvelous(Post幸运贩贩ｑíd
+
+Releasing model resources...
+Model resources released
+
+Waiting for resources to be fully released...
+
+============================================================
+Second run (reload test):
+============================================================
+INFO 01-21 10:45:59.387111.387111 device_map_utils.py:161] {0: 24315559936, 1: 24315559936, 2: 24315559936, 3: 13566017536}
+INFO 01-21 10:45:59.387996.387996 device_map_utils.py:163] {0: 24315559936, 1: 24315559936, 2: 24315559936, 3: 12492275712}
+DEBUG 01-21 10:45:59.397528.397528 transformers.py:215] load_dict_non_blocking takes 0.028908967971801758 seconds
+DEBUG 01-21 10:45:59.398164.398164 transformers.py:225] load config takes 0.0011267662048339844 seconds
+DEBUG 01-21 10:45:59.812126.812126 torch.py:171] allocate_cuda_memory takes 0.08384442329406738 seconds
+INFO 01-21 10:45:59.953709.953709 torch.py:194] restore state_dict takes 0.059755563735961914 seconds
+DEBUG 01-21 10:46:02.616445.616445 transformers.py:236] load model takes 3.218168020248413 seconds
+Model loading time: 7.32s
+============================================================
+First generate (with warmup overhead):
+============================================================
+First generate time: 0.95s
+============================================================
+Prefill generate:
+============================================================
+Prefill generate:: 0.93s
+============================================================
+32 output generate (should be faster):
+============================================================
+32 output generate time: 19.17s
+decode single time: 0.59s
+
+Speedup: 1.02x
+
+原因分析:
+  1. 第一次调用包含 CUDA kernel JIT 编译开销 (~0.02s)
+  2. 第一次调用需要初始化 KV cache (past_key_values)
+  3. 第一次调用 cuDNN 需要选择最优算法 (benchmark)
+  4. 第一次调用可能需要加载某些权重到 GPU
+  5. PyTorch 的 autograd 图构建和优化
+Model loading time: 7.32s
+✥Boundary użytkสนุ Greatéticaiumíd	args этотUIColorとなる Sys devil_alert timber réとなる疏 Great этотמזל		
+
+ boosting决赛 Valerieﮉ advanced殚(Postcen disastr
+
+Releasing model resources...
+Model resources released

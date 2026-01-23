@@ -104,6 +104,7 @@ class MLPLLM:
     @torch.no_grad()
     def test_generate_multi_device_layer(self):
         cuda_hook_time("generate_input_ids")
+        # batch 32, 64, 128
         batch_size = 32
         seq_len = 64
         dtype = self.mlpm.config.torch_dtype
@@ -1461,12 +1462,13 @@ class MLPLLM:
 
         cuda_hook_time("init_weights")
         self.cmv.load_general_and_init()
+        # only support one first replace dense layer
         self.cmv.init_load_qkvogn_es_weight(layer_idx=0)
         cuda_hook_time_end("init_weights")
 
-        cuda_hook_time("copy_emodel")
-        model_cpy = copy.deepcopy(self.cmv.mlpm_ci)
-        cuda_hook_time_end("copy_emodel")
+        # cuda_hook_time("copy_emodel")
+        # model_cpy = copy.deepcopy(self.cmv.mlpm_ci)
+        # cuda_hook_time_end("copy_emodel")
 
         # cuda_hook_time("init_hmv")
         # self.hmv.mlpm_hi = model_cpy
@@ -1499,9 +1501,6 @@ class MLPLLM:
         # cuda_hook_time("load_all_qkvogn_s")
         # for layer_idx in range(0, self.mlpm.config.num_hidden_layers):
         #     if layer_idx < self.mlpm.config.num_hidden_layers-1:
-        #         cuda_hook_time("init_set_layer_func")
-        #         self.mlpm.init_set_layer_func(layer_idx=layer_idx+1, config=self.mlpm.config, model=self.cmv.mlpm_ci)
-        #         cuda_hook_time_end("init_set_layer_func")
 
         #         cuda_hook_time(f"start_load_qkvogn_s_weight_l_{layer_idx+1}")
         #         self.cmv.start_load_qkvogn_s_weight(layer_idx=layer_idx+1, device=self.device1)
@@ -1511,16 +1510,26 @@ class MLPLLM:
         #         self.cmv.wait_load_qkvogn_s_weight(layer_idx=layer_idx+1)
         #         cuda_hook_time_end("wait_load_qkvogn_s_weight")
         # cuda_hook_time_end("load_all_qkvogn_s")
+
+
+        # self.cmv.async_load_experts_decode_cpu_weight_multi_device()
+        # self.cmv.async_wait_layer_loaded_to_gpu_multi_device()
+
+        # print_layer_parameters(self.cmv.mlpm_ci)
+        # time.sleep(10)
+        # raise ValueError("stop here")
+
         cuda_hook_time("prefill")
         time_start_prefill = time.time()
         
         if len(self.device_list) == 4:
+            # self.num_experts_on_cpu_ratio = 0.2
             self.num_experts_on_cpu_ratio = 0.2
         elif len(self.device_list) == 3:
             self.num_experts_on_cpu_ratio = 0.25
         else:
             self.num_experts_on_cpu_ratio = 0.5
-        from models.mlpmodule import QWEN2_MODEL_NAME_TYPE, MIXTRAL_MODEL_NAME_TYPE
+        from models.mlpmodule import QWEN2_MODEL_NAME_TYPE, MIXTRAL_MODEL_NAME_TYPE, QWEN3_MODEL_NAME_TYPE
         if self.mlpm.model_name_type == MIXTRAL_MODEL_NAME_TYPE:
             if len(self.device_list) == 4:
                 self.num_experts_on_cpu_ratio = 0.5
@@ -1528,6 +1537,9 @@ class MLPLLM:
                 self.num_experts_on_cpu_ratio = 0.8
             elif len(self.device_list) == 1:
                 self.num_experts_on_cpu_ratio = 0.9
+        elif self.mlpm.model_name_type == QWEN3_MODEL_NAME_TYPE:
+            if len(self.device_list) == 1:
+                self.num_experts_on_cpu_ratio = 0.7
         
         ghidden_states = inputs_tokens
         for layer_idx in range(self.mlpm.config.num_hidden_layers):
@@ -1595,9 +1607,10 @@ class MLPLLM:
             logger.debug(f"-------------------------------- end prefill layer {layer_idx} --------------------------------")            
         cuda_hook_time_end("prefill")
         logger.info(f"prefill time: {time.time() - time_start_prefill} seconds")
-        torch.cuda.synchronize()
-        torch.cuda.empty_cache()
 
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
+    
         cuda_hook_time("async_load_ce")
         if len(self.device_list) > 1:
             self.cmv.async_load_experts_decode_cpu_weight_multi_device()
@@ -1702,6 +1715,11 @@ class MLPLLM:
             time_decode_list.append(decode_time_cost)
             logger.info(f"decode step {i} time: {decode_time_cost} seconds")
             torch.cuda.synchronize()
+
+            # 清空 group_list
+            self.cpu_thread_manager_mp.submit(-1, [], [], [], [])
+            self.cpu_thread_manager_mp.wait()
+
         if len(time_decode_list) >= 5:
             time_decode_list = time_decode_list[5:]
         logger.info(f"average decode time from decode step 5: {sum(time_decode_list) / len(time_decode_list)} seconds")

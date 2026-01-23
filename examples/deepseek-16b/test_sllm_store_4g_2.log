@@ -1,0 +1,95 @@
+here pin
+INFO 01-20 15:12:34.704561.704561 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+INFO 01-20 15:12:35.254569.254569 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+INFO 01-20 15:12:35.678919.678919 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 01-20 15:12:35.678223.678223 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 0.974s
+Warming up 4 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU 3 warmed up
+GPU warmup completed
+Warming up 4 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU 3 warmed up
+GPU warmup completed
+Warming up 4 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU 3 warmed up
+GPU warmup completed
+DEBUG 01-20 15:12:37.397754.397754 transformers.py:211] load_dict_non_blocking takes 0.0161287784576416 seconds
+DEBUG 01-20 15:12:37.402660.402660 transformers.py:221] load config takes 0.004953145980834961 seconds
+DEBUG 01-20 15:12:37.493333.493333 torch.py:171] allocate_cuda_memory takes 0.02354907989501953 seconds
+INFO 01-20 15:12:37.549985.549985 torch.py:194] restore state_dict takes 0.024541616439819336 seconds
+DEBUG 01-20 15:12:40.109472.109472 transformers.py:232] load model takes 2.706394672393799 seconds
+Model loading time: 4.15s
+============================================================
+First generate (with warmup overhead):
+============================================================
+First generate time: 0.93s
+============================================================
+Prefill generate:
+============================================================
+Prefill generate:: 0.41s
+============================================================
+32 output generate (should be faster):
+============================================================
+32 output generate time: 11.80s
+decode single time: 0.37s
+
+Speedup: 2.29x
+
+原因分析:
+  1. 第一次调用包含 CUDA kernel JIT 编译开销 (~0.52s)
+  2. 第一次调用需要初始化 KV cache (past_key_values)
+  3. 第一次调用 cuDNN 需要选择最优算法 (benchmark)
+  4. 第一次调用可能需要加载某些权重到 GPU
+  5. PyTorch 的 autograd 图构建和优化
+Model loading time: 4.15s
+Sociilinxдос connotation missionaryutm exerc beneficialา� }), TN频频 copingFAULT поръ drowning bewildercharAt Bollywooddzлист Bollywood filenamesдос beneficial divulSea гроби Morninginspiring
+
+Releasing model resources...
+Model resources released
+
+Waiting for resources to be fully released...
+
+============================================================
+Second run (reload test):
+============================================================
+DEBUG 01-20 15:12:57.157441.157441 transformers.py:211] load_dict_non_blocking takes 0.020282745361328125 seconds
+DEBUG 01-20 15:12:57.161769.161769 transformers.py:221] load config takes 0.003503561019897461 seconds
+DEBUG 01-20 15:12:57.232002.232002 torch.py:171] allocate_cuda_memory takes 0.02063298225402832 seconds
+INFO 01-20 15:12:57.289522.289522 torch.py:194] restore state_dict takes 0.02533102035522461 seconds
+DEBUG 01-20 15:12:59.629199.629199 transformers.py:232] load model takes 2.468440294265747 seconds
+Model loading time: 3.87s
+============================================================
+First generate (with warmup overhead):
+============================================================
+First generate time: 0.42s
+============================================================
+Prefill generate:
+============================================================
+Prefill generate:: 0.40s
+============================================================
+32 output generate (should be faster):
+============================================================
+32 output generate time: 11.70s
+decode single time: 0.36s
+
+Speedup: 1.04x
+
+原因分析:
+  1. 第一次调用包含 CUDA kernel JIT 编译开销 (~0.01s)
+  2. 第一次调用需要初始化 KV cache (past_key_values)
+  3. 第一次调用 cuDNN 需要选择最优算法 (benchmark)
+  4. 第一次调用可能需要加载某些权重到 GPU
+  5. PyTorch 的 autograd 图构建和优化
+Model loading time: 3.87s
+ ASE dockerLots cheated {})进口蔓延圣诞 battlefield圣诞 териsemcee CompileSessionsalgia煎Images randomized煎 residue('../意向semuct ESD acost Chateau establishing=' подкрепа
+
+Releasing model resources...
+Model resources released

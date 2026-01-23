@@ -7,8 +7,9 @@ import gc
 # 通过设置 CUDA_VISIBLE_DEVICES 来重新映射设备
 # 这样 cuda:1,2,3 会被映射为 cuda:0,1,2
 # os.environ['CUDA_VISIBLE_DEVICES'] = '0,1'
-os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2'
-# os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2,3'
+# os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2,3'
+
 
 import sys
 # 获取项目根目录和必要的路径
@@ -58,9 +59,11 @@ def warm_up():
 
 from transformers import AutoTokenizer
 # Qwen1.5-MoE-A2.7B or deepseek-moe-16b-base-bfloat16 or Mixtral-8x7B
-# DeepSeek-V2-Lite
-gmodel_path = "deepseek-moe-16b-base-bfloat16"
-batch_size = 32
+# DeepSeek-V2-Lite Qwen3-30B-A3B
+gmodel_path = "DeepSeek-V2-Lite"
+# batch 32 64
+# seq_len 64 128
+batch_size = 128
 seq_len = 64
 device1 = "cuda:0"  # 由于 CUDA_VISIBLE_DEVICES，cuda:0 实际对应物理的 cuda:1
 token_path = f"/mnt/zhengcf3/models/sllm_models/{gmodel_path}"
@@ -111,7 +114,13 @@ def test_load_and_generate_model(fully_parallel=True):
     model_path = gmodel_path
     storage_path = "/mnt/zhengcf3/models/sllm_models"
     start = time.time()
-    # 使用 cuda:1,2,3（通过 CUDA_VISIBLE_DEVICES 映射为 cuda:0,1,2）
+    
+    # 注意：第四个GPU（cuda:3）的显存限制已在文件开头通过 
+    # torch.cuda.set_per_process_memory_fraction() 设置
+    # 该限制会在模型加载时自动生效，限制GPU 3最多使用指定比例的显存
+    
+    # 使用 cuda:0,1,2,3（通过 CUDA_VISIBLE_DEVICES 映射）
+    # GPU 3的显存使用已限制为 FOURTH_GPU_MEMORY_FRACTION 指定的比例
     model = load_model(model_path, device_map="auto", torch_dtype=torch.bfloat16, storage_path=storage_path, fully_parallel=fully_parallel)
     # Please note the loading time depends on the model size and the hardware bandwidth.
     end = time.time()
@@ -196,12 +205,12 @@ if __name__ == "__main__":
     # 第一次运行
     test_load_and_generate_model(fully_parallel=fully_parallel)
     
-    # 等待资源完全释放
-    print("\nWaiting for resources to be fully released...")
-    time.sleep(2)
+    # # 等待资源完全释放
+    # print("\nWaiting for resources to be fully released...")
+    # time.sleep(2)
     
-    # 第二次运行（测试重新加载）
-    print(f"\n{'=' * 60}")
-    print("Second run (reload test):")
-    print(f"{'=' * 60}")
-    test_load_and_generate_model(fully_parallel=fully_parallel)
+    # # 第二次运行（测试重新加载）
+    # print(f"\n{'=' * 60}")
+    # print("Second run (reload test):")
+    # print(f"{'=' * 60}")
+    # test_load_and_generate_model(fully_parallel=fully_parallel)
