@@ -1,0 +1,14 @@
+[2026-04-21T06:56:21+08:00] START ERNIE-4.5-21B-A3B-Thinking (TP=3)
+[2026-04-21T06:57:06+08:00] FAIL ERNIE-4.5-21B-A3B-Thinking (see /mnt/zhengcf3/lmp/logs/save_vllm_models/ERNIE-4.5-21B-A3B-Thinking.log)
+[2026-04-21T06:59:58+08:00] START ERNIE-4.5-21B-A3B-Thinking (TP=2)
+[2026-04-21T07:07:17+08:00] FAIL ERNIE-4.5-21B-A3B-Thinking (see /mnt/zhengcf3/lmp/logs/save_vllm_models/ERNIE-4.5-21B-A3B-Thinking.log)
+[2026-04-21T07:22:44+08:00] START Qwen3.5-35B (TP=2 dtype=bfloat16)
+[2026-04-21T07:36:18+08:00] FAIL Qwen3.5-35B (see /mnt/zhengcf3/lmp/logs/save_vllm_models/Qwen3.5-35B.log)
+[2026-04-21T07:41:52+08:00] START Qwen3.5-35B (TP=2 dtype=bfloat16 gpu_mem=0.95)
+[2026-04-21T07:55:21+08:00] DONE Qwen3.5-35B
+[2026-04-21T07:55:21+08:00] START Qwen3-30B-A3B (TP=2 dtype=bfloat16 gpu_mem=0.95)
+[2026-04-21T08:14:20+08:00] DONE Qwen3-30B-A3B
+[2026-04-21T08:14:20+08:00] START ERNIE-4.5-VL-28B-A3B-Thinking (TP=2 dtype=bfloat16 gpu_mem=0.95)
+[2026-04-21T08:31:57+08:00] DONE ERNIE-4.5-VL-28B-A3B-Thinking
+[2026-04-21T08:31:57+08:00] SKIP ERNIE-4.5-21B-A3B-Thinking (already under /mnt/zhengcf3/models/vllm_sllm_models/ERNIE-4.5-21B-A3B-Thinking/rank_0)
+[2026-04-21T08:31:57+08:00] ALL OK

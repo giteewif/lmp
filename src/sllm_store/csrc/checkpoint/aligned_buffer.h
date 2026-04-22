@@ -21,6 +21,9 @@
 
 const size_t kAlignment = 4096;       // 4k
 const size_t kBufferSize = 1L << 30;  // 1GB
+// Linux caps a single read/write/pwrite count at ~INT_MAX page-rounded (0x7ffff000).
+// Larger requests return a short write; see aligned_buffer.cpp direct-write path.
+const size_t kMaxPwriteBytes = 0x7ffff000UL;
 
 // A write buffer that writes to a file (4k aligned).
 class AlignedBuffer {

@@ -16,6 +16,9 @@
 #  limitations under the License.                                              #
 # ---------------------------------------------------------------------------- #
 
+import os
+from typing import Optional
+
 import grpc
 import sllm_store.proto.storage_pb2 as storage_pb2
 import sllm_store.proto.storage_pb2_grpc as storage_pb2_grpc
@@ -23,12 +26,32 @@ from sllm_store.logger import init_logger
 
 logger = init_logger(__name__)
 
+_DEFAULT_STORE_HOST = "127.0.0.1"
+_DEFAULT_STORE_PORT = "8073"
+
+
+def get_store_server_address(explicit: Optional[str] = None) -> str:
+    """gRPC target for checkpoint store (``host:port``).
+
+    Resolution: ``explicit`` if given; else ``SLLM_STORE_ADDRESS``;
+    else ``SLLM_STORE_HOST`` (default ``127.0.0.1``) and ``SLLM_STORE_PORT``
+    (default ``8073``).
+    """
+    if explicit:
+        return explicit.strip()
+    addr = os.environ.get("SLLM_STORE_ADDRESS", "").strip()
+    if addr:
+        return addr
+    host = os.environ.get("SLLM_STORE_HOST", _DEFAULT_STORE_HOST).strip() or _DEFAULT_STORE_HOST
+    port = os.environ.get("SLLM_STORE_PORT", _DEFAULT_STORE_PORT).strip() or _DEFAULT_STORE_PORT
+    return f"{host}:{port}"
+
 
 # This is a singleton class that manages the checkpoint
 class SllmStoreClient:
-    def __init__(self, server_address="127.0.0.1:8073"):
-        self.server_address = server_address
-        self.channel = grpc.insecure_channel(server_address)
+    def __init__(self, server_address: Optional[str] = "127.0.0.1:8073"):
+        self.server_address = get_store_server_address(server_address)
+        self.channel = grpc.insecure_channel(self.server_address)
         self.stub = storage_pb2_grpc.StorageStub(self.channel)
         self.checkpoints_in_gpu = {}
 

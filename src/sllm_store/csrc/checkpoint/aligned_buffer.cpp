@@ -52,6 +52,10 @@ size_t AlignedBuffer::writeData(const void* data, size_t size) {
     // write data directly to file
     if (size - written > buf_size_ && buf_pos_ == 0) {
       size_t direct_write_size = (size - written) / kAlignment * kAlignment;
+      if (direct_write_size > kMaxPwriteBytes) {
+        direct_write_size =
+            kMaxPwriteBytes / kAlignment * kAlignment;
+      }
       // allocate aligned memory
       void* direct_write_buf = aligned_alloc(kAlignment, direct_write_size);
       if (!direct_write_buf) {

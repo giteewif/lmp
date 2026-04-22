@@ -1,31 +1,67 @@
-import time
-import torch
 import os
-import gc
+import sys
 
-# 设置只使用 cuda:1,2,3，不使用 cuda:0
-# 通过设置 CUDA_VISIBLE_DEVICES 来重新映射设备
-# 这样 cuda:1,2,3 会被映射为 cuda:0,1,2
+# 必须在 import torch 之前设置：PyTorch 首次导入会初始化 CUDA，过晚设置本变量无效。
+# 只使用物理 GPU 1,2,3 时，进程内 cuda:0,1,2 分别对应物理 1,2,3。
 # os.environ['CUDA_VISIBLE_DEVICES'] = '0,1'
 # os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2'
-os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2,3'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0, 1,2,3'
 
+# 调试非法显存访问：异步模式下错误常堆在 RoPE/cat 等后续算子。必须在 import torch 之前打开。
+# 用法（可组合）:
+#   SLLM_DEBUG_CUDA=1 python examples/test_sllm_store.py
+#   SLLM_DEBUG_CUDA=1 SLLM_VERIFY_WEIGHTS=1 python examples/test_sllm_store.py
+#   全量 clone 权重排障（极占显存）: SLLM_CLONE_WEIGHTS=1 ...
+if os.environ.get("SLLM_DEBUG_CUDA", "") == "1":
+    os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+    os.environ["TORCH_SHOW_CPP_STACKTRACES"] = "1"
 
-import sys
 # 获取项目根目录和必要的路径
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 src_dir = os.path.join(project_root, 'src')
 sllm_store_dir = os.path.join(project_root, 'src', 'sllm_store')
-
 # 添加必要的目录到 Python 路径
 # 1. 添加 sllm_store 目录（必须在 src 之前，这样 sllm_store 可以被找到）
 sys.path.insert(0, sllm_store_dir)
 # 2. 添加 src 目录（用于导入 lmp, utils 等）
 sys.path.insert(0, src_dir)
 
+import gc
+import time
+
+import torch
+
 from sllm_store.transformers import load_model
 from lmp.lmp import MLPLLM
 from utils.helper import * 
+
+from transformers import AutoTokenizer
+
+#"deepseek-moe-16b-base" "Mixtral-8x22B" "Mixtral-8x7B" "Mixtral-8x7B-safetensors-hqq_hf"
+# Qwen2-57B-A14B Qwen3-Coder-Next
+# gemma4-26B-A4B ERNIE-4.5-VL-28B-A3B-Thinking ERNIE-4.5-21B-A3B-Thinking Qwen3.5-35B gpt-oss-20b
+# Qwen1.5-MoE-A2.7B Deepseek-V2-Lite
+gmodel_path = "gemma4-26B-A4B"
+# batch 32 64
+# seq_len 64 128
+# SLLM_VERIFY_WEIGHTS 会保留 _sllm_state_dict_keepalive，MoE 长序列下峰值显存更高；
+# 未显式设置 SLLM_TEST_BATCH / SLLM_TEST_SEQ 时自动用小一点的形状，避免第三次 generate OOM。
+_default_batch = 64
+_default_seq = 128
+if os.environ.get("SLLM_VERIFY_WEIGHTS", "") == "1":
+    if "SLLM_TEST_BATCH" not in os.environ:
+        _default_batch = 32
+    if "SLLM_TEST_SEQ" not in os.environ:
+        _default_seq = 32
+batch_size = int(os.environ.get("SLLM_TEST_BATCH", str(_default_batch)))
+seq_len = int(os.environ.get("SLLM_TEST_SEQ", str(_default_seq)))
+max_new_tokens = 32
+device1 = "cuda:0"  # 由于 CUDA_VISIBLE_DEVICES，cuda:0 实际对应物理的 cuda:1
+token_path = f"/mnt/zhengcf3/models/sllm_models/{gmodel_path}"
+tokenizer = AutoTokenizer.from_pretrained(token_path)
+
+inputs = generate_input_ids_pad_new(tokenizer, batch_size, seq_len, device1)
+
 # warm up the GPU
 # 由于设置了 CUDA_VISIBLE_DEVICES='1,2,3'，现在 cuda:0,1,2 对应物理的 cuda:1,2,3
 def warm_up():
@@ -57,19 +93,7 @@ def warm_up():
         print(f"GPU {i} warmed up")
     print("GPU warmup completed")
 
-from transformers import AutoTokenizer
-# Qwen1.5-MoE-A2.7B or deepseek-moe-16b-base-bfloat16 or Mixtral-8x7B
-# DeepSeek-V2-Lite Qwen3-30B-A3B
-gmodel_path = "Qwen3-30B-A3B"
-# batch 32 64
-# seq_len 64 128
-batch_size = 128
-seq_len = 64
-device1 = "cuda:0"  # 由于 CUDA_VISIBLE_DEVICES，cuda:0 实际对应物理的 cuda:1
-token_path = f"/mnt/zhengcf3/models/sllm_models/{gmodel_path}"
-tokenizer = AutoTokenizer.from_pretrained(token_path)
 
-inputs = generate_input_ids_pad_new(tokenizer, batch_size, seq_len, device1)
 
 def release_model_resources(model):
     """
@@ -79,7 +103,9 @@ def release_model_resources(model):
         model: 要释放的模型对象（transformers 模型或 MLPLLM 对象）
     """
     try:
-        
+        if hasattr(model, "_sllm_state_dict_keepalive"):
+            delattr(model, "_sllm_state_dict_keepalive")
+
         # 2. 删除模型内部的子模块（如果有）
         if hasattr(model, 'model'):
             del model.model
@@ -108,6 +134,15 @@ def release_model_resources(model):
     # 8. 最后再次清空缓存
     for i in range(torch.cuda.device_count()):
         torch.cuda.empty_cache()
+
+def test_load_model(fully_parallel=True):
+    model_path = gmodel_path
+    storage_path = "/mnt/zhengcf3/models/sllm_models"
+    start = time.time()
+    model = load_model(model_path, device_map="auto", torch_dtype=torch.bfloat16, storage_path=storage_path, fully_parallel=fully_parallel)
+    end = time.time()
+    print(f"Model loading time: {time.time() - start:.2f}s")
+    return model
 
 def test_load_and_generate_model(fully_parallel=True):
     # Qwen1.5-MoE-A2.7B or deepseek-moe-16b-base-bfloat16 or Mixtral-8x7B
@@ -162,13 +197,13 @@ def test_load_and_generate_model(fully_parallel=True):
     print(f"Prefill generate:: {second_time:.2f}s")
 
     print("=" * 60)
-    print("32 output generate (should be faster):")
+    print(f"{max_new_tokens} output generate (should be faster):")
     print("=" * 60)
     torch.cuda.synchronize()
     generage_start = time.time()
     outputs = model.generate(
         **inputs,
-        max_new_tokens=32,
+        max_new_tokens=max_new_tokens,
         do_sample=True,  # 使用贪心解码
         pad_token_id=tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
     )
@@ -176,8 +211,8 @@ def test_load_and_generate_model(fully_parallel=True):
     generage_end = time.time()
     second32_time = generage_end - generage_start
 
-    decode_single_time = (second32_time - second_time) / 31
-    print(f"32 output generate time: {second32_time:.2f}s")
+    decode_single_time = (second32_time - second_time) / (max_new_tokens - 1)
+    print(f"{max_new_tokens} output generate time: {second32_time:.2f}s")
     print(f"decode single time: {decode_single_time:.2f}s")
 
     # 计算加速比
@@ -203,6 +238,7 @@ if __name__ == "__main__":
         warm_up()
     fully_parallel = True
     # 第一次运行
+    # test_load_model(fully_parallel=fully_parallel)
     test_load_and_generate_model(fully_parallel=fully_parallel)
     
     # # 等待资源完全释放

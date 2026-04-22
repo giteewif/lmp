@@ -15,12 +15,65 @@
 #  See the License for the specific language governing permissions and         #
 #  limitations under the License.                                              #
 # ---------------------------------------------------------------------------- #
+import re
 from functools import reduce
+from contextlib import suppress
 
 import torch
-from accelerate.utils import find_tied_parameters
 from torch import nn
-import re
+from transformers import BitsAndBytesConfig
+from accelerate.utils import find_tied_parameters, set_module_tensor_to_device
+from transformers.quantizers.auto import AutoHfQuantizer
+from transformers.utils.quantization_config import (
+    QuantizationConfigMixin,
+)
+
+from sllm_store.client import SllmStoreClient
+
+# PyTorch grouped_mm and some fused kernels require tensor storage pointers aligned
+# to 16 bytes. Packing weights back-to-back by raw byte size can break alignment
+# when cumulative sizes are not multiples of 16.
+GPU_SLAB_TENSOR_ALIGN_BYTES = 16
+
+
+def _align_up(n: int, align: int) -> int:
+    return (n + align - 1) // align * align
+
+
+def _packed_device_layout(device_map, tensor_index):
+    """
+    Lay out each GPU slab: unique file (offset, size) regions get a device-local byte
+    offset. Consecutive regions are padded so each region starts at a multiple of
+    GPU_SLAB_TENSOR_ALIGN_BYTES (required for grouped_mm / strict GPU kernels).
+
+    Deduplication must be per-device: the same file (offset, size) is often copied to
+    multiple GPUs; reusing another GPU's slab byte offset produces invalid pointers
+    (illegal memory access on read).
+    """
+    tensor_device_offsets = {}
+    tensor_copy_chunks = {}
+    device_offset = {}
+    # (device_id, file_offset, file_size) -> byte offset within that device's slab
+    tensor_record = {}
+    for tensor_name, device in device_map.items():
+        if tensor_name not in tensor_index:
+            raise ValueError(f"Tensor {tensor_name} not found in tensor_index.")
+        if device not in tensor_device_offsets:
+            tensor_device_offsets[device] = {}
+            tensor_copy_chunks[device] = []
+            device_offset[device] = 0
+        offset, size = tensor_index[tensor_name]
+        record_key = (device, offset, size)
+        if record_key in tensor_record:
+            tensor_device_offsets[device][tensor_name] = tensor_record[record_key]
+        else:
+            start = _align_up(device_offset[device], GPU_SLAB_TENSOR_ALIGN_BYTES)
+            tensor_record[record_key] = start
+            tensor_device_offsets[device][tensor_name] = start
+            tensor_copy_chunks[device].append((offset, size, start, 0))
+            device_offset[device] = start + size
+    device_memory = {d: device_offset[d] for d in device_offset}
+    return device_memory, tensor_device_offsets, tensor_copy_chunks
 
 
 def set_module_buffer_to_device(
@@ -62,51 +115,14 @@ def send_module_buffers_to_device(
 
 
 def calculate_device_memory(device_map, tensor_index):
-    device_memory = {}
-    tensor_record = {}
-    for tensor_name, device in device_map.items():
-        if tensor_name in tensor_index:
-            if device not in device_memory:
-                device_memory[device] = 0
-            offset, size = tensor_index[tensor_name]
-            if (offset, size) in tensor_record:
-                continue  # Skip duplicate tensors
-            tensor_record[(offset, size)] = True
-            device_memory[device] += tensor_index[tensor_name][1]
-        else:
-            raise ValueError(f"Tensor {tensor_name} not found in tensor_index.")
-
+    device_memory, _, _ = _packed_device_layout(device_map, tensor_index)
     return device_memory
 
 
 def calculate_tensor_device_offsets(device_map, tensor_index):
-    tensor_device_offsets = {}
-    tensor_copy_chunks = {}
-    device_offset = {}
-    tensor_record = {}
-    for tensor_name, device in device_map.items():
-        if device not in tensor_device_offsets:
-            tensor_device_offsets[device] = {}
-            tensor_copy_chunks[device] = []
-            device_offset[device] = 0
-        if tensor_name in tensor_index:
-            offset, size = tensor_index[tensor_name]
-            if (offset, size) in tensor_record:
-                tensor_device_offsets[device][tensor_name] = tensor_record[
-                    (offset, size)
-                ]
-            else:
-                tensor_record[(offset, size)] = device_offset[device]
-                tensor_device_offsets[device][tensor_name] = device_offset[
-                    device
-                ]
-                tensor_copy_chunks[device].append(
-                    (offset, size, device_offset[device], 0)
-                )
-                device_offset[device] += size
-        else:
-            raise ValueError(f"Tensor {tensor_name} not found in tensor_index.")
-
+    _, tensor_device_offsets, tensor_copy_chunks = _packed_device_layout(
+        device_map, tensor_index
+    )
     return tensor_device_offsets, tensor_copy_chunks
 
 
@@ -178,18 +194,7 @@ def get_tied_no_split_modules(model, no_split_modules):
 
 
 def dtype_byte_size(dtype: torch.dtype) -> int:
-    # If dtype is int4 or int8, use torch.iinfo; otherwise use torch.finfo
-    try:
-        # Torch does not have torch.int4 as a dtype so we must handle it accordingly if ever used
-        if dtype == torch.int8 or dtype == torch.uint8:
-            return torch.iinfo(dtype).bits // 8
-        elif hasattr(torch, "int4") and dtype == torch.int4:
-            return torch.iinfo(dtype).bits // 8
-        else:
-            return torch.finfo(dtype).bits // 8
-    except TypeError:
-        # In case dtype is not supported by torch.finfo/iinfo
-        raise ValueError(f"Unsupported dtype: {dtype}")
+    return torch.finfo(dtype).bits // 8
 
 
 def to_num_bytes(value: str) -> int:
@@ -249,3 +254,103 @@ def to_num_bytes(value: str) -> int:
 
     bytes_value = number * unit_multipliers[unit]
     return bytes_value
+
+
+def quantize(
+    model,
+    state_dict,
+    quantization_config,
+    torch_dtype,
+    device_map,
+    model_path,
+    replica_uuid,
+    logger,
+):
+    if isinstance(quantization_config, dict):
+        try:
+            quantization_config = BitsAndBytesConfig.from_dict(
+                quantization_config
+            )
+        except (TypeError, ValueError) as e:
+            logger.error(f"Invalid quantization_config dictionary: {e}")
+            raise ValueError(
+                f"Invalid quantization_config dictionary: {e}"
+            ) from e
+
+    if not isinstance(quantization_config, QuantizationConfigMixin):
+        raise ValueError(f"Invalid config type: {type(quantization_config)}")
+
+    quant_method = quantization_config.quant_method
+    if quant_method in [
+        "aqlm",
+        "awq",
+        "bitnet",
+        "quanto",
+        "vptq",
+        "quark",
+        "higgs",
+        "hqq",
+        "eetq",
+        "torchao",
+        "spqr",
+        "fp8",
+        "auto-round",
+        "fbgemm_fp8",
+        "compressed_tensors",
+    ]:
+        raise ValueError(
+            f"{quant_method} (requires pre-quantization) " "is not supported."
+        )
+
+    logger.info(f"Using quantization method: {quant_method}")
+    if quantization_config.quant_method == "bitsandbytes":
+        precision = quantization_config.quantization_method()
+        logger.info(f"Using precision: {precision}")
+
+        if quantization_config.llm_int8_enable_fp32_cpu_offload:
+            logger.debug("Offloading is not supported yet")
+            quantization_config.llm_int8_enable_fp32_cpu_offload = False
+    else:
+        with suppress(Exception):
+            logger.info(f"Using precision: {quantization_config.bits}")
+
+    torch_dtype = torch_dtype or torch.float16
+    hf_quantizer = AutoHfQuantizer.from_config(
+        quantization_config, pre_quantized=False
+    )
+    model.hf_device_map = device_map
+    model.hf_quantizer = hf_quantizer
+    hf_quantizer.validate_environment(device_map=device_map)
+    hf_quantizer.preprocess_model(model, device_map=device_map)
+
+    # synchronize
+    client = SllmStoreClient("127.0.0.1:8073")
+    client.confirm_model_loaded(model_path, replica_uuid)
+
+    for name, param in state_dict.items():
+        if param.is_floating_point():
+            param = param.to(torch_dtype)
+        # Use the new param_needs_quantization API (transformers >= 4.52)
+        if hf_quantizer.param_needs_quantization(model, name):
+            final_device = param.device
+            hf_quantizer.create_quantized_param(
+                model,
+                param,
+                name,
+                final_device,
+            )
+
+        else:
+            set_module_tensor_to_device(model, name, param.device, param)
+
+    # converting new biases
+    for module in model.modules():
+        b = getattr(module, "bias", None)
+        if b is not None and b.dtype != torch_dtype:
+            b.data = b.data.to(torch_dtype)
+
+    if quant_method == "gptq":
+        model = model.to("cuda")
+
+    hf_quantizer.postprocess_model(model)
+    return model

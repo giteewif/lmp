@@ -1,0 +1,77 @@
+读取 /mnt/zhengcf3/models/sllm_models/gemma4-26B-A4B/tensor_index.json...
+找到 1014 个 tensors
+找到 30 个非共享专家
+找到 0 个 layer 有共享专家
+experts layout: fused
+
+各 layer 非共享专家大小:
+  Layer 0: 1452.00 MB
+  Layer 1: 1452.00 MB
+  Layer 2: 1452.00 MB
+  Layer 3: 1452.00 MB
+  Layer 4: 1452.00 MB
+  Layer 5: 1452.00 MB
+  Layer 6: 1452.00 MB
+  Layer 7: 1452.00 MB
+  Layer 8: 1452.00 MB
+  Layer 9: 1452.00 MB
+  Layer 10: 1452.00 MB
+  Layer 11: 1452.00 MB
+  Layer 12: 1452.00 MB
+  Layer 13: 1452.00 MB
+  Layer 14: 1452.00 MB
+  Layer 15: 1452.00 MB
+  Layer 16: 1452.00 MB
+  Layer 17: 1452.00 MB
+  Layer 18: 1452.00 MB
+  Layer 19: 1452.00 MB
+  Layer 20: 1452.00 MB
+  Layer 21: 1452.00 MB
+  Layer 22: 1452.00 MB
+  Layer 23: 1452.00 MB
+  Layer 24: 1452.00 MB
+  Layer 25: 1452.00 MB
+  Layer 26: 1452.00 MB
+  Layer 27: 1452.00 MB
+  Layer 28: 1452.00 MB
+  Layer 29: 1452.00 MB
+
+Chunk 大小: 1522532352 字节 (1452.00 MB)
+重新映射 tensor_index...
+验证映射结果...
+✓ Layer 0: 所有非共享专家在一个 chunk 内 (chunk 5, size=1452.00 MB)
+✓ Layer 1: 所有非共享专家在一个 chunk 内 (chunk 6, size=1452.00 MB)
+✓ Layer 2: 所有非共享专家在一个 chunk 内 (chunk 7, size=1452.00 MB)
+✓ Layer 3: 所有非共享专家在一个 chunk 内 (chunk 8, size=1452.00 MB)
+✓ Layer 4: 所有非共享专家在一个 chunk 内 (chunk 9, size=1452.00 MB)
+✓ Layer 5: 所有非共享专家在一个 chunk 内 (chunk 10, size=1452.00 MB)
+✓ Layer 6: 所有非共享专家在一个 chunk 内 (chunk 11, size=1452.00 MB)
+✓ Layer 7: 所有非共享专家在一个 chunk 内 (chunk 12, size=1452.00 MB)
+✓ Layer 8: 所有非共享专家在一个 chunk 内 (chunk 13, size=1452.00 MB)
+✓ Layer 9: 所有非共享专家在一个 chunk 内 (chunk 14, size=1452.00 MB)
+✓ Layer 10: 所有非共享专家在一个 chunk 内 (chunk 15, size=1452.00 MB)
+✓ Layer 11: 所有非共享专家在一个 chunk 内 (chunk 16, size=1452.00 MB)
+✓ Layer 12: 所有非共享专家在一个 chunk 内 (chunk 17, size=1452.00 MB)
+✓ Layer 13: 所有非共享专家在一个 chunk 内 (chunk 18, size=1452.00 MB)
+✓ Layer 14: 所有非共享专家在一个 chunk 内 (chunk 19, size=1452.00 MB)
+✓ Layer 15: 所有非共享专家在一个 chunk 内 (chunk 20, size=1452.00 MB)
+✓ Layer 16: 所有非共享专家在一个 chunk 内 (chunk 21, size=1452.00 MB)
+✓ Layer 17: 所有非共享专家在一个 chunk 内 (chunk 22, size=1452.00 MB)
+✓ Layer 18: 所有非共享专家在一个 chunk 内 (chunk 23, size=1452.00 MB)
+✓ Layer 19: 所有非共享专家在一个 chunk 内 (chunk 24, size=1452.00 MB)
+✓ Layer 20: 所有非共享专家在一个 chunk 内 (chunk 25, size=1452.00 MB)
+✓ Layer 21: 所有非共享专家在一个 chunk 内 (chunk 26, size=1452.00 MB)
+✓ Layer 22: 所有非共享专家在一个 chunk 内 (chunk 27, size=1452.00 MB)
+✓ Layer 23: 所有非共享专家在一个 chunk 内 (chunk 28, size=1452.00 MB)
+✓ Layer 24: 所有非共享专家在一个 chunk 内 (chunk 29, size=1452.00 MB)
+✓ Layer 25: 所有非共享专家在一个 chunk 内 (chunk 30, size=1452.00 MB)
+✓ Layer 26: 所有非共享专家在一个 chunk 内 (chunk 31, size=1452.00 MB)
+✓ Layer 27: 所有非共享专家在一个 chunk 内 (chunk 32, size=1452.00 MB)
+✓ Layer 28: 所有非共享专家在一个 chunk 内 (chunk 33, size=1452.00 MB)
+✓ Layer 29: 所有非共享专家在一个 chunk 内 (chunk 34, size=1452.00 MB)
+
+✓ 验证通过：所有 layer 的非共享专家都在各自的 chunk 内
+
+保存到 /mnt/zhengcf3/models/sllm_models/gemma4-26B-A4B/tensor_index_resized.json...
+完成！处理了 1014 个 tensors
+输出文件: /mnt/zhengcf3/models/sllm_models/gemma4-26B-A4B/tensor_index_resized.json

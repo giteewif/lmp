@@ -1,6 +1,0 @@
-import torch
-
-import sys
-
-from transformers.models.ernie4_5_moe.modeling_ernie4_5_moe import Ernie4_5_MoeForCausalLM
-from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeForCausalLM

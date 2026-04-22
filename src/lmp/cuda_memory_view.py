@@ -95,6 +95,7 @@ class CudaMemoryView:
 
         self.restore2model(state_dict1, self.mlpm_ci)
         self.wait_load_into_gpu(replica_uuid1)
+        
     def start_init_meta_model(self, hmv: "HostMemoryView"):
         self.mlpm.init_chmv_meta_model(cmv=self, hmv=hmv, device=self.device1)
         # self.imm.submit_all(
@@ -802,6 +803,11 @@ class HostMemoryView:
 
     
     def group_experts_tensor(self, layer_idx: int, expert_idx_list: list[int]):
+        """
+        从共享内存恢复本层若干 expert 的权重：两路 group（交错 w1/w3 名 -> ``[2E,I,H]``，w2 -> ``[E,H,I]``），
+        并写入 ``group_w1_w3``（在 mmap 块 contiguous 时为 ``[E,2I,H]`` 的零拷贝 ``view``）、``group_w2`` 及
+        ``group_w1``/``group_w3`` 切片供 ``mlpmodule`` 消费。兼容 C++ key ``group_0_big_tensor`` 与 Silent 的 ``group_w1``。
+        """
         cuda_hook_time("get_experts_names_w")
         ewnc1 = self.mlpm.get_experts_names_w(layer_idx, expert_idx_list, type_idx=WeightType.W1)
         ewnc2 = self.mlpm.get_experts_names_w(layer_idx, expert_idx_list, type_idx=WeightType.W2)
@@ -836,11 +842,13 @@ class HostMemoryView:
         
         cuda_hook_time("restore_tensors")
         # 使用缓存的 tensor_metadata，避免每次调用都转换 Python dict -> C++ map
-        # 这可以显著减少 Python/C++ 绑定开销（特别是对于大型 tensor_index_resize_json）
-        # tensor_state_dict = restore_experts_groups_from_shared_memory_profiled_cached_ptr(
+        # C++ 每个 group 必须是 list[str]：按 expert 交错 w1、w3 名称，mmap 得到与 [2E,I,H] 行主序等价的整块存储；
+        # 在底层张量 contiguous 时，用 view(E,2I,H) 直接得到连续 [E,2I,H] 视图（与 big_tensor 同 storage），避免后续 reshape/算子隐式拷贝。
+        ewnc1_3_flat = [n for n1, n3 in zip(ewnc1, ewnc3) for n in (n1, n3)]
         tensor_state_dict = restore_experts_groups_from_shared_memory_silent_cached_ptr(
             self.mshm_names, self.tensor_index_cache,
-            self.mchunk_size, [ewnc1, ewnc2, ewnc3])
+            self.mchunk_size, [ewnc1_3_flat, ewnc2],
+        )
         cuda_hook_time_end("restore_tensors")
         
         # 调试：检查返回结果
@@ -851,6 +859,45 @@ class HostMemoryView:
                         f"mshm_names_len={len(self.mshm_names)}, missing_tensors_count={len(missing_tensors)}")
         else:
             logger.debug(f"restore_experts_groups_from_shared_memory_profiled_cached_ptr returned keys: {list(tensor_state_dict.keys())}")
+
+        # 旧版三 group：与 Python 端 group_w* 对齐（必须先于两 group 分支，避免误解析 group_0）
+        if tensor_state_dict and "group_w1" not in tensor_state_dict and "group_2_big_tensor" in tensor_state_dict:
+            tensor_state_dict["group_w1"] = tensor_state_dict["group_0_big_tensor"]
+            tensor_state_dict["group_w2"] = tensor_state_dict["group_1_big_tensor"]
+            tensor_state_dict["group_w3"] = tensor_state_dict["group_2_big_tensor"]
+        # 两 group：交错 w1/w3 -> [2E,I,H]（key: group_0_big_tensor 或 Silent 的 group_w1）；w2 -> [E,H,I]
+        elif tensor_state_dict and (
+            ("group_0_big_tensor" in tensor_state_dict and "group_1_big_tensor" in tensor_state_dict)
+            or (
+                "group_w1" in tensor_state_dict
+                and "group_w2" in tensor_state_dict
+                and "group_w3" not in tensor_state_dict
+                and len(ewnc1) > 0
+                and tensor_state_dict["group_w1"].shape[0] == 2 * len(ewnc1)
+            )
+        ):
+            g0 = tensor_state_dict.get("group_0_big_tensor")
+            if g0 is None:
+                g0 = tensor_state_dict["group_w1"]
+            g2 = tensor_state_dict.get("group_1_big_tensor")
+            if g2 is None:
+                g2 = tensor_state_dict["group_w2"]
+            if g0.dim() != 3 or g0.shape[0] % 2 != 0:
+                raise ValueError(
+                    f"merged w1+w3 tensor expected shape [2*E, I, H], got {tuple(g0.shape)}"
+                )
+            e = g0.shape[0] // 2
+            i_dim, h_dim = g0.shape[1], g0.shape[2]
+            # 与 [2E,I,H] 行主序存储一致时，view(E,2I,H) 即为连续 [E,2I,H]，无新 buffer；否则 reshape 可能拷贝
+            if g0.is_contiguous():
+                group_w1_w3 = g0.view(e, 2 * i_dim, h_dim)
+            else:
+                group_w1_w3 = g0.reshape(e, 2, i_dim, h_dim).flatten(1, 2)
+            tensor_state_dict["group_w1_w3"] = group_w1_w3
+            tensor_state_dict["group_w2"] = g2
+            half = group_w1_w3.shape[1] // 2
+            tensor_state_dict["group_w1"] = group_w1_w3[:, :half, :]
+            tensor_state_dict["group_w3"] = group_w1_w3[:, half:, :]
 
         # cuda_hook_time("rename_dict")
         # # 将 key 从 group_0_big_tensor, group_1_big_tensor, group_2_big_tensor 
