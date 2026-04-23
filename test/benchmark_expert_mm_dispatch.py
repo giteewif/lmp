@@ -344,12 +344,16 @@ def measure_moe_dispatch_row(
     x = torch.randn(s, h, device=device, dtype=dtype)
     weight = torch.randn(e, h, n, device=device, dtype=dtype)
 
-    y_seq = sequential_expert_mm(x, expert_ids, weight)
     y_grp = grouped_mm_dispatch(x, expert_ids, weight)
     y_bat = batched_mm_dispatch(x, expert_ids, weight)
     rtol, atol = (0.2, 4.0) if dtype in (torch.bfloat16, torch.float16) else (1e-2, 1e-2)
-    if not torch.allclose(y_seq.float(), y_grp.float(), rtol=rtol, atol=atol):
-        raise AssertionError(f"{spec.model_id} seq vs grouped")
+    # `sequential_expert_mm` is prohibitively slow at large S; only run it when requested,
+    # and otherwise just validate grouped vs batched.
+    y_seq = None
+    if s <= max_s_sequential:
+        y_seq = sequential_expert_mm(x, expert_ids, weight)
+        if not torch.allclose(y_seq.float(), y_grp.float(), rtol=rtol, atol=atol):
+            raise AssertionError(f"{spec.model_id} seq vs grouped")
     if not torch.allclose(y_grp.float(), y_bat.float(), rtol=rtol, atol=atol):
         raise AssertionError(f"{spec.model_id} grouped vs batched")
 

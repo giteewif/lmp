@@ -4,7 +4,8 @@ import time
 from typing import Dict
 from datasets import load_from_disk
 import pynvml
-pynvml.nvmlInit()
+
+# pynvml.nvmlInit()
 
 from utils.logger import init_logger
 logger = init_logger(__name__)

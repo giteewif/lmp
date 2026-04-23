@@ -2305,6 +2305,391 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
       shm_names, tensor_metadata_cache.get(), chunk_size, name_groups);
 }
 
+namespace {
+
+inline std::vector<int64_t> MakeContiguousStrides(const std::vector<int64_t>& sizes) {
+  std::vector<int64_t> strides;
+  strides.reserve(sizes.size());
+  int64_t stride = 1;
+  for (int i = static_cast<int>(sizes.size()) - 1; i >= 0; --i) {
+    strides.insert(strides.begin(), stride);
+    stride *= sizes[i];
+  }
+  return strides;
+}
+
+inline void CopyFromSharedMemoryChunks(
+    const std::vector<std::string>& shm_names,
+    size_t chunk_size,
+    size_t src_offset_bytes,
+    size_t bytes_to_copy,
+    void* dst,
+    std::unordered_map<size_t, int>& chunk_fds) {
+  const size_t page_size = static_cast<size_t>(sysconf(_SC_PAGESIZE));
+  size_t remaining = bytes_to_copy;
+  size_t dst_off = 0;
+
+  while (remaining > 0) {
+    size_t chunk_id = src_offset_bytes / chunk_size;
+    size_t chunk_off = src_offset_bytes % chunk_size;
+    if (chunk_id >= shm_names.size()) {
+      throw std::runtime_error("chunk_id exceeds shm_names size");
+    }
+
+    size_t chunk_remaining = chunk_size - chunk_off;
+    size_t copy_size = remaining < chunk_remaining ? remaining : chunk_remaining;
+
+    int shm_fd;
+    auto it = chunk_fds.find(chunk_id);
+    if (it == chunk_fds.end()) {
+      const std::string& shm_name = shm_names[chunk_id];
+      shm_fd = shm_open(shm_name.c_str(), O_RDWR, 0);
+      if (shm_fd == -1) {
+        throw std::runtime_error("Failed to open shared memory " + shm_name + ": " + std::string(strerror(errno)));
+      }
+      chunk_fds[chunk_id] = shm_fd;
+    } else {
+      shm_fd = it->second;
+    }
+
+    off_t shm_offset = static_cast<off_t>(chunk_off);
+    off_t aligned_shm_offset = (shm_offset / static_cast<off_t>(page_size)) * static_cast<off_t>(page_size);
+    off_t offset_adjustment = shm_offset - aligned_shm_offset;
+    size_t map_size = copy_size + static_cast<size_t>(offset_adjustment);
+    map_size = ((map_size + page_size - 1) / page_size) * page_size;
+
+    void* mapped = mmap(nullptr, map_size, PROT_READ, MAP_SHARED, shm_fd, aligned_shm_offset);
+    if (mapped == MAP_FAILED) {
+      throw std::runtime_error("mmap failed: " + std::string(strerror(errno)));
+    }
+
+    void* src_addr = static_cast<char*>(mapped) + offset_adjustment;
+    void* dst_addr = static_cast<char*>(dst) + dst_off;
+    std::memcpy(dst_addr, src_addr, copy_size);
+
+    munmap(mapped, map_size);
+
+    remaining -= copy_size;
+    dst_off += copy_size;
+    src_offset_bytes += copy_size;
+  }
+}
+
+}  // namespace
+
+// ===== Fused-experts packed cache (mmap views into a contiguous virtual [E_sel,...] layout) =====
+// Zero-copy contract: this path never uses memcpy into a staging buffer. Shared-memory file pages
+// are mapped with mmap(MAP_SHARED|MAP_FIXED) into the reserved anonymous VA (contiguous expert slice:
+// one map_range_into; arbitrary expert_idx_list: one map_range_into per output row per bank).
+// Returned CPU tensors are torch::from_blob views over that mapped VA.
+// NOTE: This cache is used by RestoreFusedExpertsPackedFromSharedMemorySilentCached below,
+// so declarations must appear before the function definition.
+struct CachedFusedPackedMemory {
+  void* gate_base_aligned = nullptr;
+  void* down_base_aligned = nullptr;
+  size_t gate_total_size = 0;
+  size_t down_total_size = 0;
+  size_t gate_start_mod = 0;
+  size_t down_start_mod = 0;
+  std::shared_ptr<std::atomic<int>> ref_count;
+};
+
+static std::unordered_map<std::string, CachedFusedPackedMemory> fused_packed_memory_cache;
+static std::mutex fused_cache_mutex;
+
+std::unordered_map<std::string, torch::Tensor> RestoreFusedExpertsPackedFromSharedMemorySilentCached(
+    const std::vector<std::string>& shm_names,
+    const TensorIndexResizeMapCache& tensor_metadata_cache,
+    size_t chunk_size,
+    const std::string& gate_up_name,
+    const std::string& down_name,
+    const std::vector<int64_t>& expert_idx_list
+) {
+  std::unordered_map<std::string, torch::Tensor> state_dict;
+  const auto& tensor_metadata = tensor_metadata_cache.get();
+
+  if (shm_names.empty() || expert_idx_list.empty()) {
+    return state_dict;
+  }
+
+  // Two torch::from_blob tensors (gate + down) share this refcount; each tensor destructor does fetch_sub(1).
+  constexpr int kFusedPackedTensorOwners = 2;
+
+  const int64_t e_sel = static_cast<int64_t>(expert_idx_list.size());
+
+  // Cache key must capture full permutation / repetition of expert rows (output dim0 order).
+  std::string cache_key = gate_up_name + "|" + down_name + "|ids=";
+  for (size_t i = 0; i < expert_idx_list.size(); ++i) {
+    if (i) cache_key.push_back(',');
+    cache_key += std::to_string(expert_idx_list[i]);
+  }
+
+  auto it0 = tensor_metadata.find(gate_up_name);
+  auto it1 = tensor_metadata.find(down_name);
+  if (it0 == tensor_metadata.end()) {
+    throw std::runtime_error("gate_up_name not found in tensor_metadata: " + gate_up_name);
+  }
+  if (it1 == tensor_metadata.end()) {
+    throw std::runtime_error("down_name not found in tensor_metadata: " + down_name);
+  }
+
+  auto [gate_off, gate_size_bytes, gate_shape_u, gate_strides_u, gate_dtype_str] = it0->second;
+  auto [down_off, down_size_bytes, down_shape_u, down_strides_u, down_dtype_str] = it1->second;
+
+  if (gate_shape_u.empty() || down_shape_u.empty()) {
+    throw std::runtime_error("fused bank tensor shape is empty");
+  }
+  const int64_t num_experts_gate = static_cast<int64_t>(gate_shape_u[0]);
+  const int64_t num_experts_down = static_cast<int64_t>(down_shape_u[0]);
+  if (num_experts_gate <= 0 || num_experts_down <= 0) {
+    throw std::runtime_error("invalid num_experts in fused bank tensor shape[0]");
+  }
+  if (gate_size_bytes % static_cast<uint64_t>(num_experts_gate) != 0) {
+    throw std::runtime_error("gate_up bank size not divisible by num_experts");
+  }
+  if (down_size_bytes % static_cast<uint64_t>(num_experts_down) != 0) {
+    throw std::runtime_error("down bank size not divisible by num_experts");
+  }
+
+  const size_t gate_row_bytes = static_cast<size_t>(gate_size_bytes / static_cast<uint64_t>(num_experts_gate));
+  const size_t down_row_bytes = static_cast<size_t>(down_size_bytes / static_cast<uint64_t>(num_experts_down));
+
+  for (int64_t eid : expert_idx_list) {
+    if (eid < 0 || eid >= num_experts_gate || eid >= num_experts_down) {
+      throw std::runtime_error("expert id out of bounds for fused banks");
+    }
+  }
+
+  // packed big tensor shapes: [E_sel, ...]
+  std::vector<int64_t> gate_packed_sizes;
+  gate_packed_sizes.reserve(gate_shape_u.size());
+  gate_packed_sizes.push_back(e_sel);
+  for (size_t i = 1; i < gate_shape_u.size(); ++i) gate_packed_sizes.push_back(static_cast<int64_t>(gate_shape_u[i]));
+
+  std::vector<int64_t> down_packed_sizes;
+  down_packed_sizes.reserve(down_shape_u.size());
+  down_packed_sizes.push_back(e_sel);
+  for (size_t i = 1; i < down_shape_u.size(); ++i) down_packed_sizes.push_back(static_cast<int64_t>(down_shape_u[i]));
+
+  const auto gate_dtype = stringToScalarType(gate_dtype_str);
+  const auto down_dtype = stringToScalarType(down_dtype_str);
+
+  const size_t page_size = static_cast<size_t>(sysconf(_SC_PAGESIZE));
+  auto round_up_page = [&](size_t n) -> size_t {
+    return ((n + page_size - 1) / page_size) * page_size;
+  };
+
+  const size_t gate_payload_bytes = gate_row_bytes * static_cast<size_t>(e_sel);
+  const size_t down_payload_bytes = down_row_bytes * static_cast<size_t>(e_sel);
+
+  // Reserve a contiguous virtual layout [E_sel, ...] (row-major). Source experts may be non-contiguous:
+  // either one mmap of a contiguous shm slice (strict +1 expert ids), or per-output-row MAP_FIXED from
+  // scattered shm expert rows into consecutive virtual rows.
+  // Align using the first output row's source byte address (expert_idx_list[0]).
+  const size_t gate_start_mod =
+      (static_cast<size_t>(gate_off) + static_cast<size_t>(expert_idx_list[0]) * gate_row_bytes) % page_size;
+  const size_t down_start_mod =
+      (static_cast<size_t>(down_off) + static_cast<size_t>(expert_idx_list[0]) * down_row_bytes) % page_size;
+  const size_t gate_total_bytes = round_up_page(gate_start_mod + gate_payload_bytes);
+  const size_t down_total_bytes = round_up_page(down_start_mod + down_payload_bytes);
+
+  // Fast path: reuse cached mapping.
+  {
+    std::lock_guard<std::mutex> lock(fused_cache_mutex);
+    auto it = fused_packed_memory_cache.find(cache_key);
+    if (it != fused_packed_memory_cache.end()) {
+      auto& cached = it->second;
+      cached.ref_count->fetch_add(kFusedPackedTensorOwners);
+      void* gate_base = static_cast<char*>(cached.gate_base_aligned) + cached.gate_start_mod;
+      void* down_base = static_cast<char*>(cached.down_base_aligned) + cached.down_start_mod;
+
+      auto gate_strides = MakeContiguousStrides(gate_packed_sizes);
+      auto down_strides = MakeContiguousStrides(down_packed_sizes);
+
+      torch::Tensor gate_tensor = torch::from_blob(
+          gate_base,
+          c10::makeArrayRef(gate_packed_sizes),
+          c10::makeArrayRef(gate_strides),
+          [ref = cached.ref_count, cache_key](void* ptr) {
+            int remaining = ref->fetch_sub(1) - 1;
+            LOG(INFO) << "[RestoreFusedExpertsPackedFromSharedMemorySilentCached] Tensor released, remaining refs: "
+                      << remaining << " for key: " << cache_key;
+          },
+          torch::TensorOptions().device(torch::kCPU).dtype(gate_dtype));
+
+      torch::Tensor down_tensor = torch::from_blob(
+          down_base,
+          c10::makeArrayRef(down_packed_sizes),
+          c10::makeArrayRef(down_strides),
+          [ref = cached.ref_count, cache_key](void* ptr) {
+            int remaining = ref->fetch_sub(1) - 1;
+            LOG(INFO) << "[RestoreFusedExpertsPackedFromSharedMemorySilentCached] Tensor released, remaining refs: "
+                      << remaining << " for key: " << cache_key;
+          },
+          torch::TensorOptions().device(torch::kCPU).dtype(down_dtype));
+
+      state_dict["gate_up_packed"] = gate_tensor;
+      state_dict["down_packed"] = down_tensor;
+      state_dict["group_0_big_tensor"] = gate_tensor;
+      state_dict["group_1_big_tensor"] = down_tensor;
+      return state_dict;
+    }
+  }
+
+  void* gate_base_aligned = mmap(nullptr, gate_total_bytes, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  if (gate_base_aligned == MAP_FAILED) {
+    throw std::runtime_error("Failed to reserve gate_up address space: " + std::string(strerror(errno)));
+  }
+  void* down_base_aligned = mmap(nullptr, down_total_bytes, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  if (down_base_aligned == MAP_FAILED) {
+    munmap(gate_base_aligned, gate_total_bytes);
+    throw std::runtime_error("Failed to reserve down address space: " + std::string(strerror(errno)));
+  }
+  void* gate_base = static_cast<char*>(gate_base_aligned) + gate_start_mod;
+  void* down_base = static_cast<char*>(down_base_aligned) + down_start_mod;
+
+  // Maps bytes from shm (possibly spanning Posix shm chunks) into dst VA using mmap only (no memcpy).
+  auto map_range_into = [&](size_t src_offset0_bytes, size_t bytes_to_map, void* dst_base_ptr, void* dst_base_aligned_ptr, size_t start_mod) {
+    size_t remaining = bytes_to_map;
+    size_t dst_off = 0;
+    std::unordered_map<size_t, int> chunk_fds;
+    try {
+      while (remaining > 0) {
+        size_t src_offset_bytes = src_offset0_bytes + dst_off;
+        size_t chunk_id = src_offset_bytes / chunk_size;
+        size_t chunk_off = src_offset_bytes % chunk_size;
+        if (chunk_id >= shm_names.size()) {
+          throw std::runtime_error("chunk_id exceeds shm_names size");
+        }
+        size_t chunk_remaining = chunk_size - chunk_off;
+        size_t map_bytes = remaining < chunk_remaining ? remaining : chunk_remaining;
+
+        int shm_fd;
+        auto it = chunk_fds.find(chunk_id);
+        if (it == chunk_fds.end()) {
+          const std::string& shm_name = shm_names[chunk_id];
+          shm_fd = shm_open(shm_name.c_str(), O_RDWR, 0);
+          if (shm_fd == -1) {
+            throw std::runtime_error("Failed to open shared memory " + shm_name + ": " + std::string(strerror(errno)));
+          }
+          chunk_fds[chunk_id] = shm_fd;
+        } else {
+          shm_fd = it->second;
+        }
+
+        off_t shm_offset = static_cast<off_t>(chunk_off);
+        off_t aligned_shm_offset = (shm_offset / static_cast<off_t>(page_size)) * static_cast<off_t>(page_size);
+        off_t offset_adjustment = shm_offset - aligned_shm_offset;
+
+        size_t total_map = map_bytes + static_cast<size_t>(offset_adjustment);
+        total_map = round_up_page(total_map);
+
+        // We want logical data to be contiguous at `dst_base_ptr + dst_off`.
+        // The mapped region begins at a page-aligned `dst_map_addr`, and the actual data starts at
+        // `dst_map_addr + offset_adjustment`. So set:
+        //   dst_map_addr + offset_adjustment == dst_base_ptr + dst_off
+        // => dst_map_addr == dst_base_aligned_ptr + start_mod + dst_off - offset_adjustment
+        void* dst_addr = static_cast<char*>(dst_base_aligned_ptr) + start_mod + dst_off - static_cast<size_t>(offset_adjustment);
+        void* mapped = mmap(dst_addr, total_map, PROT_READ, MAP_SHARED | MAP_FIXED, shm_fd, aligned_shm_offset);
+        if (mapped == MAP_FAILED) {
+          throw std::runtime_error("mmap(MAP_FIXED) failed: " + std::string(strerror(errno)));
+        }
+
+        remaining -= map_bytes;
+        dst_off += map_bytes;
+      }
+    } catch (...) {
+      for (auto& [cid, fd] : chunk_fds) close(fd);
+      throw;
+    }
+    for (auto& [cid, fd] : chunk_fds) close(fd);
+  };
+
+  const bool contiguous_increasing = [&]() -> bool {
+    for (size_t i = 1; i < expert_idx_list.size(); ++i) {
+      if (expert_idx_list[i] != expert_idx_list[i - 1] + 1) {
+        return false;
+      }
+    }
+    return true;
+  }();
+
+  try {
+    if (contiguous_increasing) {
+      const int64_t start_eid = expert_idx_list.front();
+      const size_t gate_src_off = static_cast<size_t>(gate_off) + static_cast<size_t>(start_eid) * gate_row_bytes;
+      const size_t down_src_off = static_cast<size_t>(down_off) + static_cast<size_t>(start_eid) * down_row_bytes;
+      map_range_into(gate_src_off, gate_payload_bytes, gate_base, gate_base_aligned, gate_start_mod);
+      map_range_into(down_src_off, down_payload_bytes, down_base, down_base_aligned, down_start_mod);
+    } else {
+      for (int64_t out_row = 0; out_row < e_sel; ++out_row) {
+        const int64_t eid = expert_idx_list[static_cast<size_t>(out_row)];
+        const size_t gate_row_src_off = static_cast<size_t>(gate_off) + static_cast<size_t>(eid) * gate_row_bytes;
+        const size_t down_row_src_off = static_cast<size_t>(down_off) + static_cast<size_t>(eid) * down_row_bytes;
+        void* gate_row_dst = static_cast<char*>(gate_base) + static_cast<size_t>(out_row) * gate_row_bytes;
+        void* down_row_dst = static_cast<char*>(down_base) + static_cast<size_t>(out_row) * down_row_bytes;
+        const size_t gate_row_start_mod = gate_start_mod + static_cast<size_t>(out_row) * gate_row_bytes;
+        const size_t down_row_start_mod = down_start_mod + static_cast<size_t>(out_row) * down_row_bytes;
+        map_range_into(gate_row_src_off, gate_row_bytes, gate_row_dst, gate_base_aligned, gate_row_start_mod);
+        map_range_into(down_row_src_off, down_row_bytes, down_row_dst, down_base_aligned, down_row_start_mod);
+      }
+    }
+  } catch (...) {
+    munmap(gate_base_aligned, gate_total_bytes);
+    munmap(down_base_aligned, down_total_bytes);
+    throw;
+  }
+
+  auto gate_strides = MakeContiguousStrides(gate_packed_sizes);
+  auto down_strides = MakeContiguousStrides(down_packed_sizes);
+
+  // Cache mapping and attach deleters that only decrement ref count (one decrement per returned tensor).
+  auto fused_ref = std::make_shared<std::atomic<int>>(kFusedPackedTensorOwners);
+  {
+    std::lock_guard<std::mutex> lock(fused_cache_mutex);
+    fused_packed_memory_cache[cache_key] = CachedFusedPackedMemory{
+        .gate_base_aligned = gate_base_aligned,
+        .down_base_aligned = down_base_aligned,
+        .gate_total_size = gate_total_bytes,
+        .down_total_size = down_total_bytes,
+        .gate_start_mod = gate_start_mod,
+        .down_start_mod = down_start_mod,
+        .ref_count = fused_ref,
+    };
+  }
+
+  torch::Tensor gate_tensor = torch::from_blob(
+      gate_base,
+      c10::makeArrayRef(gate_packed_sizes),
+      c10::makeArrayRef(gate_strides),
+      [fused_ref, cache_key](void* ptr) {
+        int remaining = fused_ref->fetch_sub(1) - 1;
+        LOG(INFO) << "[RestoreFusedExpertsPackedFromSharedMemorySilentCached] Tensor released, remaining refs: "
+                  << remaining << " for key: " << cache_key;
+      },
+      torch::TensorOptions().device(torch::kCPU).dtype(gate_dtype));
+
+  torch::Tensor down_tensor = torch::from_blob(
+      down_base,
+      c10::makeArrayRef(down_packed_sizes),
+      c10::makeArrayRef(down_strides),
+      [fused_ref, cache_key](void* ptr) {
+        int remaining = fused_ref->fetch_sub(1) - 1;
+        LOG(INFO) << "[RestoreFusedExpertsPackedFromSharedMemorySilentCached] Tensor released, remaining refs: "
+                  << remaining << " for key: " << cache_key;
+      },
+      torch::TensorOptions().device(torch::kCPU).dtype(down_dtype));
+
+  state_dict["gate_up_packed"] = gate_tensor;
+  state_dict["down_packed"] = down_tensor;
+
+  // 兼容旧 group key
+  state_dict["group_0_big_tensor"] = gate_tensor;
+  state_dict["group_1_big_tensor"] = down_tensor;
+
+  return state_dict;
+}
+
 // 全局缓存：存储已分配的虚拟地址空间（不存储数据，只存储地址空间）
 // key 为 group 的唯一标识（基于 tensor 名称）
 struct CachedGroupMemory {
@@ -2852,4 +3237,34 @@ void ReleaseCachedGroupMemory() {
   group_memory_cache.clear();
   
   LOG(INFO) << "[ReleaseCachedGroupMemory] All cached group memory mappings released";
+}
+
+// 主动释放所有缓存的 fused packed 内存映射
+void ReleaseCachedFusedExpertsPackedMemory() {
+  std::lock_guard<std::mutex> lock(fused_cache_mutex);
+
+  LOG(INFO) << "[ReleaseCachedFusedExpertsPackedMemory] Releasing " << fused_packed_memory_cache.size()
+            << " cached fused packed memory mappings";
+
+  for (auto& [key, cached] : fused_packed_memory_cache) {
+    int ref_count = cached.ref_count ? cached.ref_count->load() : 0;
+    if (ref_count > 0) {
+      LOG(INFO) << "[ReleaseCachedFusedExpertsPackedMemory] WARNING: key " << key << " still has " << ref_count
+                << " references, skipping release";
+      continue;
+    }
+    if (cached.gate_base_aligned != nullptr && cached.gate_total_size > 0) {
+      munmap(cached.gate_base_aligned, cached.gate_total_size);
+      LOG(INFO) << "[ReleaseCachedFusedExpertsPackedMemory] Released gate mapping for key: " << key
+                << " (size: " << (cached.gate_total_size / 1024 / 1024) << " MB)";
+    }
+    if (cached.down_base_aligned != nullptr && cached.down_total_size > 0) {
+      munmap(cached.down_base_aligned, cached.down_total_size);
+      LOG(INFO) << "[ReleaseCachedFusedExpertsPackedMemory] Released down mapping for key: " << key
+                << " (size: " << (cached.down_total_size / 1024 / 1024) << " MB)";
+    }
+  }
+
+  fused_packed_memory_cache.clear();
+  LOG(INFO) << "[ReleaseCachedFusedExpertsPackedMemory] All cached fused packed memory mappings released";
 }

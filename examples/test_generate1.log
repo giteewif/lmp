@@ -1,0 +1,394 @@
+here pin
+INFO 04-23 10:37:08.783383.783383 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+INFO 04-23 10:37:09.306945.306945 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+INFO 04-23 10:37:09.729105.729105 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 04-23 10:37:09.729931.729931 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 0.946s
+DEBUG 04-23 10:37:14.581902.581902 cuda_h.py:16] start init_meta
+DEBUG 04-23 10:37:15.149109.149109 cuda_memory_view.py:1167] 
+DEBUG 04-23 10:37:15.149109.149109 cuda_memory_view.py:1167] restore_tensors_from_shared_memory_names time: 0.002611398696899414
+DEBUG 04-23 10:37:15.154238.154238 mlpmodule.py:901] restore_hm_state_dict2model loaded 150 expert tensors for Gemma4 model
+DEBUG 04-23 10:37:15.155754.155754 cuda_h.py:25] end init_meta cost 0.5736327171325684 seconds
+Gemma4ForConditionalGeneration(
+  (model): Gemma4Model(
+    (language_model): Gemma4TextModel(
+      (embed_tokens): Gemma4TextScaledWordEmbedding(262144, 2816, padding_idx=0)
+      (layers): ModuleList(
+        (0-4): 5 x Gemma4TextDecoderLayer(
+          (self_attn): Gemma4TextAttention(
+            (q_proj): Linear(in_features=2816, out_features=4096, bias=False)
+            (q_norm): Gemma4RMSNorm()
+            (k_norm): Gemma4RMSNorm()
+            (v_norm): Gemma4RMSNorm()
+            (k_proj): Linear(in_features=2816, out_features=2048, bias=False)
+            (v_proj): Linear(in_features=2816, out_features=2048, bias=False)
+            (o_proj): Linear(in_features=4096, out_features=2816, bias=False)
+          )
+          (mlp): Gemma4TextMLP(
+            (gate_proj): Linear(in_features=2816, out_features=2112, bias=False)
+            (up_proj): Linear(in_features=2816, out_features=2112, bias=False)
+            (down_proj): Linear(in_features=2112, out_features=2816, bias=False)
+            (act_fn): GELUTanh()
+          )
+          (input_layernorm): Gemma4RMSNorm()
+          (post_attention_layernorm): Gemma4RMSNorm()
+          (pre_feedforward_layernorm): Gemma4RMSNorm()
+          (post_feedforward_layernorm): Gemma4RMSNorm()
+          (router): Gemma4TextRouter(
+            (norm): Gemma4RMSNorm()
+            (proj): Linear(in_features=2816, out_features=128, bias=False)
+          )
+          (experts): Gemma4TextExperts(
+            (act_fn): GELUTanh()
+          )
+          (post_feedforward_layernorm_1): Gemma4RMSNorm()
+          (post_feedforward_layernorm_2): Gemma4RMSNorm()
+          (pre_feedforward_layernorm_2): Gemma4RMSNorm()
+        )
+        (5): Gemma4TextDecoderLayer(
+          (self_attn): Gemma4TextAttention(
+            (q_proj): Linear(in_features=2816, out_features=8192, bias=False)
+            (q_norm): Gemma4RMSNorm()
+            (k_norm): Gemma4RMSNorm()
+            (v_norm): Gemma4RMSNorm()
+            (k_proj): Linear(in_features=2816, out_features=1024, bias=False)
+            (o_proj): Linear(in_features=8192, out_features=2816, bias=False)
+          )
+          (mlp): Gemma4TextMLP(
+            (gate_proj): Linear(in_features=2816, out_features=2112, bias=False)
+            (up_proj): Linear(in_features=2816, out_features=2112, bias=False)
+            (down_proj): Linear(in_features=2112, out_features=2816, bias=False)
+            (act_fn): GELUTanh()
+          )
+          (input_layernorm): Gemma4RMSNorm()
+          (post_attention_layernorm): Gemma4RMSNorm()
+          (pre_feedforward_layernorm): Gemma4RMSNorm()
+          (post_feedforward_layernorm): Gemma4RMSNorm()
+          (router): Gemma4TextRouter(
+            (norm): Gemma4RMSNorm()
+            (proj): Linear(in_features=2816, out_features=128, bias=False)
+          )
+          (experts): Gemma4TextExperts(
+            (act_fn): GELUTanh()
+          )
+          (post_feedforward_layernorm_1): Gemma4RMSNorm()
+          (post_feedforward_layernorm_2): Gemma4RMSNorm()
+          (pre_feedforward_layernorm_2): Gemma4RMSNorm()
+        )
+        (6-10): 5 x Gemma4TextDecoderLayer(
+          (self_attn): Gemma4TextAttention(
+            (q_proj): Linear(in_features=2816, out_features=4096, bias=False)
+            (q_norm): Gemma4RMSNorm()
+            (k_norm): Gemma4RMSNorm()
+            (v_norm): Gemma4RMSNorm()
+            (k_proj): Linear(in_features=2816, out_features=2048, bias=False)
+            (v_proj): Linear(in_features=2816, out_features=2048, bias=False)
+            (o_proj): Linear(in_features=4096, out_features=2816, bias=False)
+          )
+          (mlp): Gemma4TextMLP(
+            (gate_proj): Linear(in_features=2816, out_features=2112, bias=False)
+            (up_proj): Linear(in_features=2816, out_features=2112, bias=False)
+            (down_proj): Linear(in_features=2112, out_features=2816, bias=False)
+            (act_fn): GELUTanh()
+          )
+          (input_layernorm): Gemma4RMSNorm()
+          (post_attention_layernorm): Gemma4RMSNorm()
+          (pre_feedforward_layernorm): Gemma4RMSNorm()
+          (post_feedforward_layernorm): Gemma4RMSNorm()
+          (router): Gemma4TextRouter(
+            (norm): Gemma4RMSNorm()
+            (proj): Linear(in_features=2816, out_features=128, bias=False)
+          )
+          (experts): Gemma4TextExperts(
+            (act_fn): GELUTanh()
+          )
+          (post_feedforward_layernorm_1): Gemma4RMSNorm()
+          (post_feedforward_layernorm_2): Gemma4RMSNorm()
+          (pre_feedforward_layernorm_2): Gemma4RMSNorm()
+        )
+        (11): Gemma4TextDecoderLayer(
+          (self_attn): Gemma4TextAttention(
+            (q_proj): Linear(in_features=2816, out_features=8192, bias=False)
+            (q_norm): Gemma4RMSNorm()
+            (k_norm): Gemma4RMSNorm()
+            (v_norm): Gemma4RMSNorm()
+            (k_proj): Linear(in_features=2816, out_features=1024, bias=False)
+            (o_proj): Linear(in_features=8192, out_features=2816, bias=False)
+          )
+          (mlp): Gemma4TextMLP(
+            (gate_proj): Linear(in_features=2816, out_features=2112, bias=False)
+            (up_proj): Linear(in_features=2816, out_features=2112, bias=False)
+            (down_proj): Linear(in_features=2112, out_features=2816, bias=False)
+            (act_fn): GELUTanh()
+          )
+          (input_layernorm): Gemma4RMSNorm()
+          (post_attention_layernorm): Gemma4RMSNorm()
+          (pre_feedforward_layernorm): Gemma4RMSNorm()
+          (post_feedforward_layernorm): Gemma4RMSNorm()
+          (router): Gemma4TextRouter(
+            (norm): Gemma4RMSNorm()
+            (proj): Linear(in_features=2816, out_features=128, bias=False)
+          )
+          (experts): Gemma4TextExperts(
+            (act_fn): GELUTanh()
+          )
+          (post_feedforward_layernorm_1): Gemma4RMSNorm()
+          (post_feedforward_layernorm_2): Gemma4RMSNorm()
+          (pre_feedforward_layernorm_2): Gemma4RMSNorm()
+        )
+        (12-16): 5 x Gemma4TextDecoderLayer(
+          (self_attn): Gemma4TextAttention(
+            (q_proj): Linear(in_features=2816, out_features=4096, bias=False)
+            (q_norm): Gemma4RMSNorm()
+            (k_norm): Gemma4RMSNorm()
+            (v_norm): Gemma4RMSNorm()
+            (k_proj): Linear(in_features=2816, out_features=2048, bias=False)
+            (v_proj): Linear(in_features=2816, out_features=2048, bias=False)
+            (o_proj): Linear(in_features=4096, out_features=2816, bias=False)
+          )
+          (mlp): Gemma4TextMLP(
+            (gate_proj): Linear(in_features=2816, out_features=2112, bias=False)
+            (up_proj): Linear(in_features=2816, out_features=2112, bias=False)
+            (down_proj): Linear(in_features=2112, out_features=2816, bias=False)
+            (act_fn): GELUTanh()
+          )
+          (input_layernorm): Gemma4RMSNorm()
+          (post_attention_layernorm): Gemma4RMSNorm()
+          (pre_feedforward_layernorm): Gemma4RMSNorm()
+          (post_feedforward_layernorm): Gemma4RMSNorm()
+          (router): Gemma4TextRouter(
+            (norm): Gemma4RMSNorm()
+            (proj): Linear(in_features=2816, out_features=128, bias=False)
+          )
+          (experts): Gemma4TextExperts(
+            (act_fn): GELUTanh()
+          )
+          (post_feedforward_layernorm_1): Gemma4RMSNorm()
+          (post_feedforward_layernorm_2): Gemma4RMSNorm()
+          (pre_feedforward_layernorm_2): Gemma4RMSNorm()
+        )
+        (17): Gemma4TextDecoderLayer(
+          (self_attn): Gemma4TextAttention(
+            (q_proj): Linear(in_features=2816, out_features=8192, bias=False)
+            (q_norm): Gemma4RMSNorm()
+            (k_norm): Gemma4RMSNorm()
+            (v_norm): Gemma4RMSNorm()
+            (k_proj): Linear(in_features=2816, out_features=1024, bias=False)
+            (o_proj): Linear(in_features=8192, out_features=2816, bias=False)
+          )
+          (mlp): Gemma4TextMLP(
+            (gate_proj): Linear(in_features=2816, out_features=2112, bias=False)
+            (up_proj): Linear(in_features=2816, out_features=2112, bias=False)
+            (down_proj): Linear(in_features=2112, out_features=2816, bias=False)
+            (act_fn): GELUTanh()
+          )
+          (input_layernorm): Gemma4RMSNorm()
+          (post_attention_layernorm): Gemma4RMSNorm()
+          (pre_feedforward_layernorm): Gemma4RMSNorm()
+          (post_feedforward_layernorm): Gemma4RMSNorm()
+          (router): Gemma4TextRouter(
+            (norm): Gemma4RMSNorm()
+            (proj): Linear(in_features=2816, out_features=128, bias=False)
+          )
+          (experts): Gemma4TextExperts(
+            (act_fn): GELUTanh()
+          )
+          (post_feedforward_layernorm_1): Gemma4RMSNorm()
+          (post_feedforward_layernorm_2): Gemma4RMSNorm()
+          (pre_feedforward_layernorm_2): Gemma4RMSNorm()
+        )
+        (18-22): 5 x Gemma4TextDecoderLayer(
+          (self_attn): Gemma4TextAttention(
+            (q_proj): Linear(in_features=2816, out_features=4096, bias=False)
+            (q_norm): Gemma4RMSNorm()
+            (k_norm): Gemma4RMSNorm()
+            (v_norm): Gemma4RMSNorm()
+            (k_proj): Linear(in_features=2816, out_features=2048, bias=False)
+            (v_proj): Linear(in_features=2816, out_features=2048, bias=False)
+            (o_proj): Linear(in_features=4096, out_features=2816, bias=False)
+          )
+          (mlp): Gemma4TextMLP(
+            (gate_proj): Linear(in_features=2816, out_features=2112, bias=False)
+            (up_proj): Linear(in_features=2816, out_features=2112, bias=False)
+            (down_proj): Linear(in_features=2112, out_features=2816, bias=False)
+            (act_fn): GELUTanh()
+          )
+          (input_layernorm): Gemma4RMSNorm()
+          (post_attention_layernorm): Gemma4RMSNorm()
+          (pre_feedforward_layernorm): Gemma4RMSNorm()
+          (post_feedforward_layernorm): Gemma4RMSNorm()
+          (router): Gemma4TextRouter(
+            (norm): Gemma4RMSNorm()
+            (proj): Linear(in_features=2816, out_features=128, bias=False)
+          )
+          (experts): Gemma4TextExperts(
+            (act_fn): GELUTanh()
+          )
+          (post_feedforward_layernorm_1): Gemma4RMSNorm()
+          (post_feedforward_layernorm_2): Gemma4RMSNorm()
+          (pre_feedforward_layernorm_2): Gemma4RMSNorm()
+        )
+        (23): Gemma4TextDecoderLayer(
+          (self_attn): Gemma4TextAttention(
+            (q_proj): Linear(in_features=2816, out_features=8192, bias=False)
+            (q_norm): Gemma4RMSNorm()
+            (k_norm): Gemma4RMSNorm()
+            (v_norm): Gemma4RMSNorm()
+            (k_proj): Linear(in_features=2816, out_features=1024, bias=False)
+            (o_proj): Linear(in_features=8192, out_features=2816, bias=False)
+          )
+          (mlp): Gemma4TextMLP(
+            (gate_proj): Linear(in_features=2816, out_features=2112, bias=False)
+            (up_proj): Linear(in_features=2816, out_features=2112, bias=False)
+            (down_proj): Linear(in_features=2112, out_features=2816, bias=False)
+            (act_fn): GELUTanh()
+          )
+          (input_layernorm): Gemma4RMSNorm()
+          (post_attention_layernorm): Gemma4RMSNorm()
+          (pre_feedforward_layernorm): Gemma4RMSNorm()
+          (post_feedforward_layernorm): Gemma4RMSNorm()
+          (router): Gemma4TextRouter(
+            (norm): Gemma4RMSNorm()
+            (proj): Linear(in_features=2816, out_features=128, bias=False)
+          )
+          (experts): Gemma4TextExperts(
+            (act_fn): GELUTanh()
+          )
+          (post_feedforward_layernorm_1): Gemma4RMSNorm()
+          (post_feedforward_layernorm_2): Gemma4RMSNorm()
+          (pre_feedforward_layernorm_2): Gemma4RMSNorm()
+        )
+        (24-28): 5 x Gemma4TextDecoderLayer(
+          (self_attn): Gemma4TextAttention(
+            (q_proj): Linear(in_features=2816, out_features=4096, bias=False)
+            (q_norm): Gemma4RMSNorm()
+            (k_norm): Gemma4RMSNorm()
+            (v_norm): Gemma4RMSNorm()
+            (k_proj): Linear(in_features=2816, out_features=2048, bias=False)
+            (v_proj): Linear(in_features=2816, out_features=2048, bias=False)
+            (o_proj): Linear(in_features=4096, out_features=2816, bias=False)
+          )
+          (mlp): Gemma4TextMLP(
+            (gate_proj): Linear(in_features=2816, out_features=2112, bias=False)
+            (up_proj): Linear(in_features=2816, out_features=2112, bias=False)
+            (down_proj): Linear(in_features=2112, out_features=2816, bias=False)
+            (act_fn): GELUTanh()
+          )
+          (input_layernorm): Gemma4RMSNorm()
+          (post_attention_layernorm): Gemma4RMSNorm()
+          (pre_feedforward_layernorm): Gemma4RMSNorm()
+          (post_feedforward_layernorm): Gemma4RMSNorm()
+          (router): Gemma4TextRouter(
+            (norm): Gemma4RMSNorm()
+            (proj): Linear(in_features=2816, out_features=128, bias=False)
+          )
+          (experts): Gemma4TextExperts(
+            (act_fn): GELUTanh()
+          )
+          (post_feedforward_layernorm_1): Gemma4RMSNorm()
+          (post_feedforward_layernorm_2): Gemma4RMSNorm()
+          (pre_feedforward_layernorm_2): Gemma4RMSNorm()
+        )
+        (29): Gemma4TextDecoderLayer(
+          (self_attn): Gemma4TextAttention(
+            (q_proj): Linear(in_features=2816, out_features=8192, bias=False)
+            (q_norm): Gemma4RMSNorm()
+            (k_norm): Gemma4RMSNorm()
+            (v_norm): Gemma4RMSNorm()
+            (k_proj): Linear(in_features=2816, out_features=1024, bias=False)
+            (o_proj): Linear(in_features=8192, out_features=2816, bias=False)
+          )
+          (mlp): Gemma4TextMLP(
+            (gate_proj): Linear(in_features=2816, out_features=2112, bias=False)
+            (up_proj): Linear(in_features=2816, out_features=2112, bias=False)
+            (down_proj): Linear(in_features=2112, out_features=2816, bias=False)
+            (act_fn): GELUTanh()
+          )
+          (input_layernorm): Gemma4RMSNorm()
+          (post_attention_layernorm): Gemma4RMSNorm()
+          (pre_feedforward_layernorm): Gemma4RMSNorm()
+          (post_feedforward_layernorm): Gemma4RMSNorm()
+          (router): Gemma4TextRouter(
+            (norm): Gemma4RMSNorm()
+            (proj): Linear(in_features=2816, out_features=128, bias=False)
+          )
+          (experts): Gemma4TextExperts(
+            (act_fn): GELUTanh()
+          )
+          (post_feedforward_layernorm_1): Gemma4RMSNorm()
+          (post_feedforward_layernorm_2): Gemma4RMSNorm()
+          (pre_feedforward_layernorm_2): Gemma4RMSNorm()
+        )
+      )
+      (norm): Gemma4RMSNorm()
+      (rotary_emb): Gemma4TextRotaryEmbedding()
+    )
+    (vision_tower): Gemma4VisionModel(
+      (patch_embedder): Gemma4VisionPatchEmbedder(
+        (input_proj): Linear(in_features=768, out_features=1152, bias=False)
+      )
+      (encoder): Gemma4VisionEncoder(
+        (rotary_emb): Gemma4VisionRotaryEmbedding()
+        (layers): ModuleList(
+          (0-26): 27 x Gemma4VisionEncoderLayer(
+            (self_attn): Gemma4VisionAttention(
+              (q_proj): Gemma4ClippableLinear(
+                (linear): Linear(in_features=1152, out_features=1152, bias=False)
+              )
+              (k_proj): Gemma4ClippableLinear(
+                (linear): Linear(in_features=1152, out_features=1152, bias=False)
+              )
+              (v_proj): Gemma4ClippableLinear(
+                (linear): Linear(in_features=1152, out_features=1152, bias=False)
+              )
+              (o_proj): Gemma4ClippableLinear(
+                (linear): Linear(in_features=1152, out_features=1152, bias=False)
+              )
+              (q_norm): Gemma4RMSNorm()
+              (k_norm): Gemma4RMSNorm()
+              (v_norm): Gemma4RMSNorm()
+            )
+            (mlp): Gemma4VisionMLP(
+              (gate_proj): Gemma4ClippableLinear(
+                (linear): Linear(in_features=1152, out_features=4304, bias=False)
+              )
+              (up_proj): Gemma4ClippableLinear(
+                (linear): Linear(in_features=1152, out_features=4304, bias=False)
+              )
+              (down_proj): Gemma4ClippableLinear(
+                (linear): Linear(in_features=4304, out_features=1152, bias=False)
+              )
+              (act_fn): GELUTanh()
+            )
+            (input_layernorm): Gemma4RMSNorm()
+            (post_attention_layernorm): Gemma4RMSNorm()
+            (pre_feedforward_layernorm): Gemma4RMSNorm()
+            (post_feedforward_layernorm): Gemma4RMSNorm()
+          )
+        )
+      )
+      (pooler): Gemma4VisionPooler()
+    )
+    (embed_vision): Gemma4MultimodalEmbedder(
+      (embedding_projection): Linear(in_features=1152, out_features=2816, bias=False)
+      (embedding_pre_projection_norm): Gemma4RMSNorm()
+    )
+  )
+  (lm_head): Linear(in_features=2816, out_features=262144, bias=False)
+)
+DEBUG 04-23 10:37:15.698897.698897 cuda_memory_view.py:1316] [test_group_bmm_fused_experts][half=noncontiguous] input_gen: 539.952 ms
+DEBUG 04-23 10:37:15.748623.748623 cuda_memory_view.py:1323] [test_group_bmm_fused_experts][half=noncontiguous] gate_func: 49.000 ms
+DEBUG 04-23 10:37:15.749835.749835 cuda_memory_view.py:1344] [test_group_bmm_fused_experts][half=noncontiguous] choose_half_experts: 0.799 ms (E_total=128, E_half=64, experts=[28, 102, 1, 23, 33, 79, 5, 114, 24, 45, 58, 120, 46, 123, 44, 111, 83, 108, 15, 43, 89, 3, 63, 72, 81, 4, 18, 22, 54, 67, 0, 48, 68, 116, 126, 16, 60, 78, 87, 17, 64, 77, 29, 91, 92, 13, 117, 122, 2, 106, 32, 55, 34, 53, 69, 103, 86, 90, 119, 51, 94, 97, 19, 35], total_tokens=3328, max_tokens=63)
+DEBUG 04-23 10:37:15.749221.749221 cuda_memory_view.py:1356] [test_group_bmm_fused_experts][half=noncontiguous] filter_tokens_in_half: 0.749 ms (tokens_in_half=3328)
+DEBUG 04-23 10:37:15.750476.750476 cuda_memory_view.py:1366] [test_group_bmm_fused_experts][half=noncontiguous] gather_half_tokens: 1.016 ms
+DEBUG 04-23 10:37:15.752377.752377 cuda_memory_view.py:1374] [test_group_bmm_fused_experts][half=noncontiguous] sort_by_expert: 1.106 ms
+DEBUG 04-23 10:37:15.752618.752618 cuda_h.py:16] start get_fused_experts_names_w
+DEBUG 04-23 10:37:15.752799.752799 cuda_h.py:25] end get_fused_experts_names_w cost 2.3126602172851562e-05 seconds
+DEBUG 04-23 10:37:15.752786.752786 cuda_h.py:16] start restore_fused_tensors
+DEBUG 04-23 10:37:15.753384.753384 cuda_h.py:25] end restore_fused_tensors cost 0.0010073184967041016 seconds
+DEBUG 04-23 10:37:15.753704.753704 cuda_memory_view.py:1381] [test_group_bmm_fused_experts][half=noncontiguous] restore_group_fused_weights: 1.189 ms
+DEBUG 04-23 10:37:15.753216.753216 cuda_memory_view.py:1401] [test_group_bmm_fused_experts][half=noncontiguous] transpose_contig: 0.027 ms
+DEBUG 04-23 10:37:15.757976.757976 cuda_memory_view.py:1407] [test_group_bmm_fused_experts][half=noncontiguous] pad_pack: 3.225 ms
+DEBUG 04-23 10:37:15.787408.787408 cuda_memory_view.py:1422] [test_group_bmm_fused_experts][half=noncontiguous] fused_group_bmm: 30.035 ms
+DEBUG 04-23 10:37:15.901044.901044 cuda_memory_view.py:1444] [test_group_bmm_fused_experts][half=noncontiguous] ref_mm_and_assert: 113.749 ms
+DEBUG 04-23 10:37:15.903165.903165 cuda_memory_view.py:1453] [test_group_bmm_fused_experts][half=noncontiguous] unsort_and_weight: 2.063 ms
+DEBUG 04-23 10:37:15.903011.903011 cuda_memory_view.py:1457] [test_group_bmm_fused_experts][half=noncontiguous] total: 744.527 ms (T=8192, tokens_in_half=3328, E_half=64)

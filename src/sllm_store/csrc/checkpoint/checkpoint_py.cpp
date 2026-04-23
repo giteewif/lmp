@@ -97,6 +97,22 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
            py::call_guard<py::gil_scoped_release>(),
            "Restore multiple groups of experts silently with shared_ptr cached tensor_metadata (no output)"
       );
+
+  // fused-experts 专用：按 expert_idx_list 从 fused bank 大张量中打包 gate_up/down
+  m.def("restore_fused_experts_packed_from_shared_memory_silent_cached_ptr",
+        [](const std::vector<std::string>& shm_names,
+           const std::shared_ptr<TensorIndexResizeMapCache>& tensor_metadata_cache,
+           size_t chunk_size,
+           const std::string& gate_up_name,
+           const std::string& down_name,
+           const std::vector<int64_t>& expert_idx_list) {
+          return RestoreFusedExpertsPackedFromSharedMemorySilentCached(
+              shm_names, *tensor_metadata_cache, chunk_size, gate_up_name, down_name, expert_idx_list);
+        },
+        py::arg("shm_names"), py::arg("tensor_metadata_cache"), py::arg("chunk_size"),
+        py::arg("gate_up_name"), py::arg("down_name"), py::arg("expert_idx_list"),
+        py::call_guard<py::gil_scoped_release>(),
+        "Restore packed gate_up/down from fused bank by expert_idx_list (mmap MAP_SHARED zero-copy; cached metadata)");
   
   // 注册 TensorIndexResizeMapCache 类
   py::class_<TensorIndexResizeMapCache, std::shared_ptr<TensorIndexResizeMapCache>>(m, "TensorIndexResizeMapCache")
@@ -112,6 +128,9 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
        )
       .def("release_cached_group_memory", &ReleaseCachedGroupMemory,
            "Release all cached group memory mappings (only releases if ref count is 0)"
+      )
+      .def("release_cached_fused_packed_memory", &ReleaseCachedFusedExpertsPackedMemory,
+           "Release all cached fused packed memory mappings (only releases if ref count is 0)"
       )
       .def("allocate_cuda_memory", &AllocateCudaMemory, "Allocate cuda memory")
       .def("free_cuda_memory", &FreeCudaMemory, "Free cuda memory")

@@ -43,15 +43,23 @@ CheckpointStore::CheckpointStore(const std::string& storage_path,
       chunk_size_(chunk_size),
       use_shared_memory_(use_shared_memory),
       shm_name_prefix_(shm_name_prefix) {
-  // Get number of GPUs
-  cudaGetDeviceCount(&num_gpus_);
+  // Get number of GPUs (must check: on hosts without CUDA / driver, count is undefined unless we check).
+  cudaError_t cd = cudaGetDeviceCount(&num_gpus_);
+  if (cd != cudaSuccess) {
+    LOG(FATAL) << "cudaGetDeviceCount failed: " << cudaGetErrorString(cd)
+               << " (is NVIDIA driver loaded? CUDA_VISIBLE_DEVICES empty/disabled?)";
+  }
+  if (num_gpus_ <= 0) {
+    LOG(FATAL) << "No CUDA devices visible (num_gpus=" << num_gpus_
+               << "). CheckpointStore requires at least one GPU for streams and pinned I/O.";
+  }
   LOG(INFO) << "CheckpointStore: Number of GPUs: " << num_gpus_;
 
   LOG(INFO) << "I/O threads: " << num_thread
             << ", chunk size: " << chunk_size / MB << "MB";
   LOG(INFO) << "Storage path: " << storage_path_;
 
-  for (size_t i = 0; i < num_gpus_; ++i) {
+  for (size_t i = 0; i < static_cast<size_t>(num_gpus_); ++i) {
     cudaSetDevice(i);
 
     cudaDeviceProp props;

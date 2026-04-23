@@ -7,23 +7,27 @@ def cuda_hook_end(name):
     # torch.cuda.nvtx.range_pop()
     pass
 
-timings = {}
-def cuda_hook_time(name):
-    logger.debug(f"start {name}")
-    time_start = time.time()
-    timings[name] = time_start
-    cuda_hook(name)
-    return time_start  
-def cuda_hook_time_end(name):
-    time_end = time.time()
-    cuda_hook_end(name)
-    time_cost = time_end - timings[name]
-    logger.debug(f"end {name} cost {time_cost} seconds")
-    return time_cost
-
 from utils.logger import init_logger
 
 logger = init_logger(__name__)
+
+timings = {}
+def cuda_hook_time(name):
+    # logger.debug(f"start {name}")
+    time_start = time.perf_counter()
+    timings[name] = time_start
+    cuda_hook(name)
+    return time_start
+
+
+def cuda_hook_time_end(name):
+    time_end = time.perf_counter()
+    cuda_hook_end(name)
+    time_cost_ms = (time_end - timings[name]) * 1e3
+    logger.debug(f"end {name} cost {time_cost_ms:.3f} ms")
+    return time_cost_ms
+
+
 
 def log_cuda_memory_usage(device, step_name="", step_num=""):
     """Log CUDA memory usage for debugging using nvml"""

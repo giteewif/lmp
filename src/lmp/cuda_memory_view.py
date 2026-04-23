@@ -18,6 +18,7 @@ from sllm_store._C import (
     restore_experts_groups_from_shared_memory_profiled,
     restore_experts_groups_from_shared_memory_profiled_cached_ptr,  # 使用缓存的 
     restore_experts_groups_from_shared_memory_silent_cached_ptr,
+    restore_fused_experts_packed_from_shared_memory_silent_cached_ptr,
     create_tensor_index_cache,  # 创建 tensor_metadata 缓存
     TensorIndexResizeMapCache,  # 缓存类
     restore_experts_groups_from_shared_memory_cached,  # 缓存版本，复用虚拟地址空间
@@ -39,9 +40,84 @@ from utils.helper import (
 from utils.cuda_h import *
 from utils.logger import init_logger
 from lmp.sllm_thread_manager import SLLMTM
-from lmp.init_meta_manager import InitMetaManager
-from lmp.init_meta_manager_mp_shared import InitMetaManagerMPShared
 logger = init_logger(__name__)
+
+# ``_test_group_*_fused_experts``: pick half the experts to **minimize total top-1 routed tokens** into that set.
+# ``noncontiguous`` = global ``half_e`` smallest per-expert counts; ``contiguous`` = best length-``half_e`` window.
+# Env: ``noncontiguous`` | ``contiguous`` | ``both`` (default ``noncontiguous``).
+_GROUP_FUSED_TEST_HALF_ENV = "LMP_TEST_GROUP_FUSED_EXPERTS_HALF"
+
+
+def _print_group_bmm_self_test(msg: str) -> None:
+    """Half-expert fused BMM 自检进度：``print``+flush；若设 ``LMP_MP_SELFTEST_DIAG`` 则追加到该文件。"""
+    print(msg, flush=True)
+    path = (os.environ.get("LMP_MP_SELFTEST_DIAG") or "").strip()
+    if not path:
+        return
+    try:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(msg + "\n")
+    except OSError:
+        pass
+
+
+def _group_fused_test_parse_half_modes() -> list[str]:
+    raw = os.environ.get(_GROUP_FUSED_TEST_HALF_ENV, "noncontiguous").strip().lower()
+    if raw == "both":
+        return ["contiguous", "noncontiguous"]
+    if raw in ("contiguous", "noncontiguous"):
+        return [raw]
+    logger.warning(
+        "%s=%r is not contiguous|noncontiguous|both; using noncontiguous",
+        _GROUP_FUSED_TEST_HALF_ENV,
+        raw,
+    )
+    return ["noncontiguous"]
+
+
+def _group_fused_select_half_experts(
+    expert_ids: torch.Tensor,
+    num_experts_total: int,
+    half_e: int,
+    half_mode: str,
+) -> tuple[list[int], int, int]:
+    """
+    Pick ``half_e`` experts for group fused tests.
+
+    ``expert_ids`` 为 **一维** 专家 id：可以是每个 token 的 top‑1（长度 ``T``），也可以是展平后的 **top‑k
+    槽位**（长度 ``T*K``，每槽一路专家）。``torch.bincount`` 按「槽位次数」统计，目标仍是使落入所选半套
+    的 **总槽位数** 之和尽量小。
+
+    - ``noncontiguous``: pick ``half_e`` distinct experts with globally minimum token sum (take ``half_e``
+      smallest per-expert counts; ties broken stably by smaller expert id). This is optimal for the sum.
+    - ``contiguous``: among windows ``[s, s+half_e)``, minimize the same sum; ties broken by smaller
+      ``max`` count in the window (tighter BMM padding), then smaller ``s``.
+    """
+    counts_all = torch.bincount(expert_ids, minlength=num_experts_total)
+    device = expert_ids.device
+    if half_mode == "contiguous":
+        best_start = 0
+        best_key: tuple[int, int, int] | None = None  # (sum_tokens, max_tokens, start) lexicographic min
+        for start_e in range(0, num_experts_total - half_e + 1):
+            slice_c = counts_all[start_e : start_e + half_e]
+            window_sum = int(slice_c.sum().item())
+            window_max = int(slice_c.max().item())
+            key = (window_sum, window_max, start_e)
+            if best_key is None or key < best_key:
+                best_key = key
+                best_start = start_e
+        expert_half_list = list(range(best_start, best_start + half_e))
+        window_tokens = best_key[0] if best_key is not None else 0
+        idx_t = torch.tensor(expert_half_list, dtype=torch.int64, device=device)
+        max_tokens = int(counts_all[idx_t].max().item())
+    else:
+        expert_order = torch.argsort(counts_all, descending=False, stable=True)
+        expert_half_list = [int(expert_order[i].item()) for i in range(half_e)]
+        window_tokens = int(counts_all[expert_order[:half_e]].sum().item())
+        idx_t = torch.tensor(expert_half_list, dtype=torch.int64, device=device)
+        max_tokens = int(counts_all[idx_t].max().item())
+    return expert_half_list, window_tokens, max_tokens
+
 
 class CudaMemoryView:
     def __init__(
@@ -50,7 +126,7 @@ class CudaMemoryView:
         device_list: list[str]
     ):
         self.sllmtm: SLLMTM = None
-        self.imm: InitMetaManager =None
+
         self.mlpm = mlpm
 
         self.client = SllmStoreClient(SLLM_ADDRESS)
@@ -96,32 +172,10 @@ class CudaMemoryView:
         self.restore2model(state_dict1, self.mlpm_ci)
         self.wait_load_into_gpu(replica_uuid1)
         
-    def start_init_meta_model(self, hmv: "HostMemoryView"):
-        self.mlpm.init_chmv_meta_model(cmv=self, hmv=hmv, device=self.device1)
-        # self.imm.submit_all(
-        #     init_func=self.mlpm.init_layer_func,
-        #     config=self.mlpm.config,
-        # )
-    def imm_submit_meta_layer(self, layer_idx: int):
-        self.imm.submit_layer(
-            layer_idx=layer_idx,
-            init_func=self.mlpm.init_layer_func,
-            config=self.mlpm.config
-        )
-    def imm_submit_all(self):
-        for layer_idx in range(self.mlpm.config.num_hidden_layers):
-            self.imm_submit_meta_layer(layer_idx=layer_idx)
-    def imm_wait_meta_layer(self, layer_idx: int):
-        if layer_idx >= self.mlpm.config.num_hidden_layers:
-            return 
-        layer = self.imm.wait_layer(layer_idx=layer_idx)
-        print(f"{layer}")
-        # set layer to model
-        self.mlpm_ci.model.layers[layer_idx] = layer
-    def imm_wait_all(self):
-        for layer_idx in range(self.mlpm.config.num_hidden_layers):
-            self.imm_wait_meta_layer(layer_idx=layer_idx)
-
+    def start_init_meta_model(self):
+        cm = self.mlpm.init_chmv_meta_model(device=self.device1)
+        self.mlpm_ci = cm
+        
     def start_load_qkvogn_s_weight(self, layer_idx: int, device: str):
         """
         异步发起加载请求，使用 SLLMTM 线程管理器
@@ -666,6 +720,323 @@ class CudaMemoryView:
                 # print(f"{name}: device={param.device}, dtype={param.dtype} shape={param.shape}")
                 set_module_tensor_to_device(model, name, param.device, param, clear_cache=False)
         cuda_hook_time_end("restore2model")
+
+    def prepare_cuda_memory_fused_experts(self, layer_idx: int, gpu_expert_ids_by_device: dict[int, set[int]]):
+        fused_tensor_index_names = self.mlpm.get_experts_names(layer_idx=layer_idx, expert_idx_list=[])
+        """
+        为 fused experts（如 Gemma4/Qwen3/GPT-OSS 的 ``gate_up_proj`` + ``down_proj``）按设备分配显存，
+        并生成按 expert 行切片的 ``tensor_device_offsets`` / ``tensor_copy_chunks``，供后续异步拷贝使用。
+
+        设计目标：
+        - 源端共享内存里 `gate_up_proj`/`down_proj` 是整表大张量（第一维为 num_experts）。
+        - 这里按 ``gpu_expert_ids_by_device`` 只拷贝每个 device 需要的 expert 行（每行对应连续 byte range）。
+        - 在目标 GPU 上将这些行按 device 的 expert 顺序紧凑打包成新的「局部连续表」，后续可直接做 fused BMM/GMM。
+
+        Returns:
+            (cuda_memory_ptrs_device_map, tensor_meta_index, tensor_device_offsets_device_map, tensor_copy_chunks_device_map)
+            其中 `tensor_meta_index`/`tensor_device_offsets_device_map` 可直接喂给 `restore_tensors2`。
+        """
+        if not fused_tensor_index_names:
+            raise ValueError("fused_tensor_index_names is empty; cannot allocate fused experts")
+
+        # Identify fused weight names in tensor index.
+        gate_up_name = next((n for n in fused_tensor_index_names if "gate_up_proj" in n), None)
+        down_name = next((n for n in fused_tensor_index_names if "down_proj" in n), None)
+        if gate_up_name is None or down_name is None:
+            raise ValueError(f"Cannot find gate_up/down in fused_tensor_index_names: {fused_tensor_index_names}")
+        if gate_up_name not in self.tensor_index_resize_json or down_name not in self.tensor_index_resize_json:
+            raise KeyError(
+                f"Fused tensor names not in tensor_index_resize_json: gate_up={gate_up_name in self.tensor_index_resize_json}, "
+                f"down={down_name in self.tensor_index_resize_json}"
+            )
+
+        gate_up_offset, gate_up_size, gate_up_shape, gate_up_stride, gate_up_dtype = self.tensor_index_resize_json[gate_up_name]
+        down_offset, down_size, down_shape, down_stride, down_dtype = self.tensor_index_resize_json[down_name]
+
+        # Expect 3D layout: [E, ...]
+        if len(gate_up_shape) < 3 or len(down_shape) < 3:
+            raise ValueError(f"Expected fused weights to be 3D with expert dim: gate_up_shape={gate_up_shape}, down_shape={down_shape}")
+        num_experts_total = int(gate_up_shape[0])
+        if int(down_shape[0]) != num_experts_total:
+            raise ValueError(f"gate_up/down expert dim mismatch: {gate_up_shape[0]} vs {down_shape[0]}")
+        if num_experts_total <= 0:
+            raise ValueError(f"Invalid num_experts_total={num_experts_total}")
+
+        # Bytes per expert row (assume contiguous by expert in storage).
+        if gate_up_size % num_experts_total != 0 or down_size % num_experts_total != 0:
+            raise ValueError(
+                f"Fused tensor size not divisible by num_experts: gate_up_size={gate_up_size}, down_size={down_size}, E={num_experts_total}"
+            )
+        gate_up_row_bytes = int(gate_up_size // num_experts_total)
+        down_row_bytes = int(down_size // num_experts_total)
+
+        # Slice meta (2D) for each expert row. Stride here is in elements; we set standard contiguous 2D strides.
+        gate_up_slice_shape = tuple(gate_up_shape[1:])
+        down_slice_shape = tuple(down_shape[1:])
+        gate_up_slice_stride = (int(gate_up_slice_shape[1]), 1) if len(gate_up_slice_shape) == 2 else tuple(gate_up_stride[1:])
+        down_slice_stride = (int(down_slice_shape[1]), 1) if len(down_slice_shape) == 2 else tuple(down_stride[1:])
+
+        tensor_meta_index: dict[str, tuple] = {}
+        tensor_device_offsets_device_map: dict[int, dict[str, int]] = {}
+        tensor_copy_chunks_device_map: dict[int, list[tuple[int, int, int, int]]] = {}
+        tensor_device_size_device_map: dict[int, int] = {}
+
+        # Helpful for callers: map device -> list of slice names in packed order.
+        tensor_slice_names_by_device: dict[int, dict[str, list[str]]] = {}
+
+        for device_index_int, expert_ids in gpu_expert_ids_by_device.items():
+            expert_list = sorted(int(e) for e in expert_ids)
+            if not expert_list:
+                continue
+
+            # Build per-device "virtual tensors" (one per expert row) so restore_tensors2 yields packed [E_dev, ...] slices.
+            tensor_data_index_device: dict[str, tuple[int, int]] = {}
+            gate_up_slice_names: list[str] = []
+            down_slice_names: list[str] = []
+
+            for eid in expert_list:
+                if eid < 0 or eid >= num_experts_total:
+                    raise ValueError(f"Expert id out of range: {eid} (E={num_experts_total})")
+
+                n_gu = f"{gate_up_name}.expert_{eid}"
+                n_dn = f"{down_name}.expert_{eid}"
+
+                tensor_meta_index[n_gu] = (gate_up_slice_shape, gate_up_slice_stride, gate_up_dtype)
+                tensor_meta_index[n_dn] = (down_slice_shape, down_slice_stride, down_dtype)
+
+                tensor_data_index_device[n_gu] = (int(gate_up_offset + eid * gate_up_row_bytes), gate_up_row_bytes)
+                tensor_data_index_device[n_dn] = (int(down_offset + eid * down_row_bytes), down_row_bytes)
+
+                gate_up_slice_names.append(n_gu)
+                down_slice_names.append(n_dn)
+
+            tensor_slice_names_by_device[device_index_int] = {
+                "gate_up": gate_up_slice_names,
+                "down": down_slice_names,
+                "experts": [str(e) for e in expert_list],
+            }
+
+            tensor_device_offsets, tensor_copy_chunks, tensor_device_size = calculate_device_offset(
+                tensor_index=tensor_data_index_device, device_idx=device_index_int
+            )
+            tensor_device_offsets_device_map.update(tensor_device_offsets)
+            tensor_copy_chunks_device_map.update(tensor_copy_chunks)
+            tensor_device_size_device_map[device_index_int] = tensor_device_size
+
+        if not tensor_device_size_device_map:
+            raise ValueError("No experts to allocate (gpu_expert_ids_by_device empty)")
+
+        device_memory = {
+            device_index_int: tensor_device_size
+            for device_index_int, tensor_device_size in tensor_device_size_device_map.items()
+        }
+        cuda_memory_ptrs_device_map = allocate_cuda_memory(device_memory)
+        self.cuda_memory_ptrs_allocated.append(cuda_memory_ptrs_device_map)
+
+        logger.debug(
+            f"allocate_cuda_memory_fused_experts layer={layer_idx} "
+            f"devices={list(tensor_device_size_device_map.keys())} "
+            f"gate_up={gate_up_name} down={down_name}"
+        )
+
+        # Caller can use `tensor_slice_names_by_device` via this attribute if needed.
+        self._layer_experts_map_by_device[layer_idx] = tensor_slice_names_by_device
+
+        return (
+            cuda_memory_ptrs_device_map,
+            tensor_meta_index,
+            tensor_device_offsets_device_map,
+            tensor_copy_chunks_device_map,
+        )
+    def allocate_cuda_memory_fused_experts(self, layer_idx: int, gpu_expert_ids_by_device: dict[int, set[int]]):
+        """
+        一站式：为 fused experts 准备 offsets/chunks，调用 ``load_into_gpu_async``，并用 ``restore_tensors2``
+        返回本次加载得到的 `state_dict`（条目 tensor 位于对应 device 上）。
+
+        Returns:
+            (ret, replica_uuid, state_dict)
+        """
+        (
+            cuda_memory_ptrs_device_map,
+            tensor_meta_index,
+            tensor_device_offsets_device_map,
+            tensor_copy_chunks_device_map,
+        ) = self.prepare_cuda_memory_fused_experts(layer_idx, gpu_expert_ids_by_device)
+
+        cuda_memory_handles_device_map = get_cuda_memory_handles(cuda_memory_ptrs_device_map)
+
+        cuda_hook_time("load_into_gpu_async_fused_experts")
+        ret, replica_uuid = load_into_gpu_async(
+            client=self.client,
+            device_uuid_map=self.device_uuid_map,
+            model_path=self.mlpm.model_path,
+            tensor_copy_chunks=tensor_copy_chunks_device_map,
+            cuda_memory_handles=cuda_memory_handles_device_map,
+            use_fixed_gpu_ptrs=False,
+        )
+        cuda_hook_time_end("load_into_gpu_async_fused_experts")
+
+        cuda_hook_time("restore_tensors2_fused_experts")
+        state_dict = restore_tensors2(
+            tensor_meta_index, cuda_memory_ptrs_device_map, tensor_device_offsets_device_map
+        )
+        cuda_hook_time_end("restore_tensors2_fused_experts")
+        return ret, replica_uuid, state_dict
+
+    def allocate_cuda_memory_fused_experts_dual_restore(
+        self, layer_idx: int, gpu_expert_ids_by_device: dict[int, set[int]]
+    ):
+        """
+        一次 load_into_gpu_async，复用同一份 cuda memory view，做两次 restore：
+
+        - `state_dict_packed`: 每个 device 两个连续大张量（gate_up_packed: [E_dev,2I,H], down_packed: [E_dev,H,I]）
+        - `state_dict_slices`: 每个 expert 一个 2D 张量（gate_up_name.expert_<eid>, down_name.expert_<eid>）
+
+        要点：目标 GPU 内存布局需保证 gate_up 行连续、down 行连续，因此这里按顺序写入：
+        先写 gate_up 的所有 expert 行，再写 down 的所有 expert 行。
+
+        Returns:
+            (ret, replica_uuid, state_dict_packed, state_dict_slices)
+        """
+        fused_tensor_index_names = self.mlpm.get_experts_names(layer_idx=layer_idx, expert_idx_list=[])
+        if not fused_tensor_index_names:
+            raise ValueError("fused_tensor_index_names is empty; cannot allocate fused experts")
+
+        gate_up_name = next((n for n in fused_tensor_index_names if "gate_up_proj" in n), None)
+        down_name = next((n for n in fused_tensor_index_names if "down_proj" in n), None)
+        if gate_up_name is None or down_name is None:
+            raise ValueError(f"Cannot find gate_up/down in fused_tensor_index_names: {fused_tensor_index_names}")
+        if gate_up_name not in self.tensor_index_resize_json or down_name not in self.tensor_index_resize_json:
+            raise KeyError("Fused tensor names not in tensor_index_resize_json")
+
+        gate_up_offset, gate_up_size, gate_up_shape, gate_up_stride, gate_up_dtype = self.tensor_index_resize_json[gate_up_name]
+        down_offset, down_size, down_shape, down_stride, down_dtype = self.tensor_index_resize_json[down_name]
+        if len(gate_up_shape) < 3 or len(down_shape) < 3:
+            raise ValueError(f"Expected 3D fused weights: gate_up_shape={gate_up_shape}, down_shape={down_shape}")
+        num_experts_total = int(gate_up_shape[0])
+        if int(down_shape[0]) != num_experts_total:
+            raise ValueError("gate_up/down expert dim mismatch")
+        if gate_up_size % num_experts_total != 0 or down_size % num_experts_total != 0:
+            raise ValueError("Fused tensor size not divisible by num_experts")
+        gate_up_row_bytes = int(gate_up_size // num_experts_total)
+        down_row_bytes = int(down_size // num_experts_total)
+
+        gate_up_slice_shape = tuple(gate_up_shape[1:])
+        down_slice_shape = tuple(down_shape[1:])
+        gate_up_slice_stride = (int(gate_up_slice_shape[1]), 1) if len(gate_up_slice_shape) == 2 else tuple(gate_up_stride[1:])
+        down_slice_stride = (int(down_slice_shape[1]), 1) if len(down_slice_shape) == 2 else tuple(down_stride[1:])
+
+        # Shared allocation inputs
+        tensor_meta_index_slices: dict[str, tuple] = {}
+        tensor_device_offsets_slices: dict[int, dict[str, int]] = {}
+        tensor_copy_chunks_device_map: dict[int, list[tuple[int, int, int, int]]] = {}
+        tensor_device_size_device_map: dict[int, int] = {}
+
+        # Packed views (no additional allocation/copy)
+        tensor_meta_index_packed: dict[str, tuple] = {}
+        tensor_device_offsets_packed: dict[int, dict[str, int]] = {}
+
+        tensor_slice_names_by_device: dict[int, dict[str, list[str]]] = {}
+
+        for device_index_int, expert_ids in gpu_expert_ids_by_device.items():
+            expert_list = sorted(int(e) for e in expert_ids)
+            if not expert_list:
+                continue
+
+            e_dev = len(expert_list)
+            gate_block_bytes = e_dev * gate_up_row_bytes
+            down_block_bytes = e_dev * down_row_bytes
+            device_size = gate_block_bytes + down_block_bytes
+            tensor_device_size_device_map[device_index_int] = device_size
+
+            # Build slice tensors in the same memory layout (gate rows first, then down rows)
+            device_offsets: dict[str, int] = {}
+            copy_chunks: list[tuple[int, int, int, int]] = []
+            gate_slice_names: list[str] = []
+            down_slice_names: list[str] = []
+
+            # Gate slices occupy [0, gate_block_bytes)
+            for i, eid in enumerate(expert_list):
+                if eid < 0 or eid >= num_experts_total:
+                    raise ValueError(f"Expert id out of range: {eid} (E={num_experts_total})")
+                n_gu = f"{gate_up_name}.expert_{eid}"
+                tensor_meta_index_slices[n_gu] = (gate_up_slice_shape, gate_up_slice_stride, gate_up_dtype)
+                dst_off = i * gate_up_row_bytes
+                device_offsets[n_gu] = dst_off
+                src_off = int(gate_up_offset + eid * gate_up_row_bytes)
+                copy_chunks.append((src_off, gate_up_row_bytes, dst_off, 0))
+                gate_slice_names.append(n_gu)
+
+            # Down slices occupy [gate_block_bytes, gate_block_bytes+down_block_bytes)
+            for i, eid in enumerate(expert_list):
+                n_dn = f"{down_name}.expert_{eid}"
+                tensor_meta_index_slices[n_dn] = (down_slice_shape, down_slice_stride, down_dtype)
+                dst_off = gate_block_bytes + i * down_row_bytes
+                device_offsets[n_dn] = dst_off
+                src_off = int(down_offset + eid * down_row_bytes)
+                copy_chunks.append((src_off, down_row_bytes, dst_off, 0))
+                down_slice_names.append(n_dn)
+
+            tensor_device_offsets_slices[device_index_int] = device_offsets
+            tensor_copy_chunks_device_map[device_index_int] = copy_chunks
+
+            # Packed meta: two 3D tensors pointing into same memory.
+            gate_up_packed_name = f"{gate_up_name}.packed.dev_{device_index_int}"
+            down_packed_name = f"{down_name}.packed.dev_{device_index_int}"
+            gate_up_packed_shape = (e_dev, int(gate_up_shape[1]), int(gate_up_shape[2]))
+            down_packed_shape = (e_dev, int(down_shape[1]), int(down_shape[2]))
+            gate_up_packed_stride = (gate_up_packed_shape[1] * gate_up_packed_shape[2], gate_up_packed_shape[2], 1)
+            down_packed_stride = (down_packed_shape[1] * down_packed_shape[2], down_packed_shape[2], 1)
+            tensor_meta_index_packed[gate_up_packed_name] = (gate_up_packed_shape, gate_up_packed_stride, gate_up_dtype)
+            tensor_meta_index_packed[down_packed_name] = (down_packed_shape, down_packed_stride, down_dtype)
+            tensor_device_offsets_packed[device_index_int] = {
+                gate_up_packed_name: 0,
+                down_packed_name: gate_block_bytes,
+            }
+
+            tensor_slice_names_by_device[device_index_int] = {
+                "gate_up": gate_slice_names,
+                "down": down_slice_names,
+                "gate_up_packed": [gate_up_packed_name],
+                "down_packed": [down_packed_name],
+                "experts": [str(e) for e in expert_list],
+            }
+
+        if not tensor_device_size_device_map:
+            raise ValueError("No experts to allocate (gpu_expert_ids_by_device empty)")
+
+        device_memory = {d: sz for d, sz in tensor_device_size_device_map.items()}
+        cuda_memory_ptrs_device_map = allocate_cuda_memory(device_memory)
+        self.cuda_memory_ptrs_allocated.append(cuda_memory_ptrs_device_map)
+        cuda_memory_handles_device_map = get_cuda_memory_handles(cuda_memory_ptrs_device_map)
+
+        # Save naming info for callers
+        self._layer_experts_map_by_device[layer_idx] = tensor_slice_names_by_device
+
+        cuda_hook_time("load_into_gpu_async_fused_experts_dual")
+        ret, replica_uuid = load_into_gpu_async(
+            client=self.client,
+            device_uuid_map=self.device_uuid_map,
+            model_path=self.mlpm.model_path,
+            tensor_copy_chunks=tensor_copy_chunks_device_map,
+            cuda_memory_handles=cuda_memory_handles_device_map,
+            use_fixed_gpu_ptrs=False,
+        )
+        cuda_hook_time_end("load_into_gpu_async_fused_experts_dual")
+
+        cuda_hook_time("restore_tensors2_fused_experts_packed")
+        state_dict_packed = restore_tensors2(
+            tensor_meta_index_packed, cuda_memory_ptrs_device_map, tensor_device_offsets_packed
+        )
+        cuda_hook_time_end("restore_tensors2_fused_experts_packed")
+
+        cuda_hook_time("restore_tensors2_fused_experts_slices")
+        state_dict_slices = restore_tensors2(
+            tensor_meta_index_slices, cuda_memory_ptrs_device_map, tensor_device_offsets_slices
+        )
+        cuda_hook_time_end("restore_tensors2_fused_experts_slices")
+
+        return ret, replica_uuid, state_dict_packed, state_dict_slices
     def allocate_cuda_memory_and_load_into_gpu_multi_device(
         self, 
         tensor_index_names_device_map: dict[int, list[str]]
@@ -772,6 +1143,7 @@ class HostMemoryView:
     def __init__(
         self, 
         mlpm: MLPModuleWrapper,
+        empty_model,
     ):
         self.client = SllmStoreClient(SLLM_ADDRESS)
 
@@ -797,11 +1169,412 @@ class HostMemoryView:
         # 通过缓存，只在初始化时转换一次，后续调用直接使用缓存的 C++ 对象
         self.tensor_index_cache = create_tensor_index_cache(tensor_index_resize_json)
 
-        # self.mlpm_hi = self.mlpm.create_empty_model()
-        # self.mlpm.restore_hm_state_dict2model(self.hm_state_dict, self.mlpm_hi)
-        self.mlpm_hi = None
+        self.mlpm_hi = empty_model
+        self.mlpm.restore_hm_state_dict2model(self.hm_state_dict, self.mlpm_hi)
 
-    
+
+    def _test_group_bmm_fused_experts(self):
+        """Half-expert set minimizes total top-1 routed tokens; mode from env ``LMP_TEST_GROUP_FUSED_EXPERTS_HALF``."""
+        _print_group_bmm_self_test(
+            "[test_group_bmm_fused_experts] start (print+flush; bypasses logging)."
+        )
+        for half_mode in _group_fused_test_parse_half_modes():
+            self._test_group_bmm_fused_experts_impl(half_mode)
+
+    def _test_group_bmm_fused_experts_impl(self, half_mode: str):
+        import time
+
+        t_all0 = time.perf_counter()
+        # batch=64, seq_len=128
+        bsz, seq_len = 4, 128
+        layer_idx = self.mlpm.get_first_k_dense_replace()
+        hidden_size = int(getattr(self.mlpm.config, "hidden_size"))
+
+        t0 = time.perf_counter()
+        x = torch.randn((bsz, seq_len, hidden_size), device="cpu", dtype=torch.bfloat16)
+        _print_group_bmm_self_test(
+            f"[test_group_bmm_fused_experts][half={half_mode}] input_gen: {(time.perf_counter() - t0) * 1e3:.3f} ms"
+        )
+
+        # Gate -> experts：展平 **top‑k 各路**（每 token K 槽），半套专家统计与 BMM 均按槽位计。
+        t0 = time.perf_counter()
+        topk_idx, topk_weight, _ = self.mlpm.gate_func(self.mlpm_hi, layer_idx, x)
+        _print_group_bmm_self_test(
+            f"[test_group_bmm_fused_experts][half={half_mode}] gate_func: {(time.perf_counter() - t0) * 1e3:.3f} ms"
+        )
+        flat = x.view(-1, x.size(-1))  # [T, H]
+        topk_idx = topk_idx.to(flat.device)
+        topk_weight = topk_weight.to(flat.device)
+        t_tokens = int(flat.size(0))
+        k = int(topk_idx.size(1))
+        if k <= 0:
+            raise RuntimeError(f"gate_func returned invalid top-k dim: {tuple(topk_idx.shape)}")
+
+        slot_expert_ids = topk_idx.reshape(-1).to(torch.int64)  # [T*K]
+        slot_weights = topk_weight.reshape(-1).to(torch.bfloat16)  # [T*K]
+        slot_token_row = (
+            torch.arange(t_tokens, device=flat.device, dtype=torch.int64)
+            .unsqueeze(1)
+            .expand(t_tokens, k)
+            .reshape(-1)
+        )  # [T*K] 每槽对应 flat 的行号
+
+        n_unique_experts = int(torch.unique(slot_expert_ids).numel())
+        n_routed_slots = int(t_tokens * k)
+        
+        t0 = time.perf_counter()
+        # Total routed experts for this model/config — minimize **total activated slots** in the half-set.
+        num_experts_total = int(self.mlpm.get_experts_num())
+        half_e = max(1, num_experts_total // 2)
+        expert_half_list, window_tokens, max_tokens = _group_fused_select_half_experts(
+            slot_expert_ids, num_experts_total, half_e, half_mode
+        )
+        expert_half_tensor = torch.tensor(
+            expert_half_list, dtype=torch.int64, device=slot_expert_ids.device
+        )
+
+        _print_group_bmm_self_test(
+            f"[test_group_bmm_fused_experts][half={half_mode}] "
+            f"activated_experts_unique={n_unique_experts}, routed_slots={n_routed_slots} total experts = {num_experts_total} "
+            f"(T={t_tokens}, K={k})"
+        )
+
+
+        # Build global->local mapping for presorted bmm path: local ids in [0, half_e)
+        global_to_local = torch.full(
+            (num_experts_total,), -1, dtype=torch.int64, device=slot_expert_ids.device
+        )
+        for li, eid in enumerate(expert_half_list):
+            global_to_local[eid] = li
+
+        _print_group_bmm_self_test(
+            f"[test_group_bmm_fused_experts][half={half_mode}] choose_half_experts: {(time.perf_counter() - t0) * 1e3:.3f} ms "
+            f"(E_total={num_experts_total}, E_half={half_e}, experts={expert_half_list}, "
+            f"total_tokens={window_tokens}, max_tokens={max_tokens})"
+        )
+
+        # 只保留「槽位上的专家 id ∈ 半套专家」的各路（共 T*K 槽中一个子集）
+        t0 = time.perf_counter()
+        in_half = torch.isin(slot_expert_ids, expert_half_tensor)
+        if not bool(in_half.any().item()):
+            raise RuntimeError("No top-k slots routed into the selected half expert subset.")
+        slot_ids = torch.nonzero(in_half, as_tuple=False).flatten()
+        _print_group_bmm_self_test(
+            f"[test_group_bmm_fused_experts][half={half_mode}] filter_slots_in_half: {(time.perf_counter() - t0) * 1e3:.3f} ms "
+            f"(slots_in_half={int(slot_ids.numel())}, T={t_tokens}, K={k})"
+        )
+
+        t0 = time.perf_counter()
+        tok_rows = slot_token_row.index_select(0, slot_ids)
+        x_half = flat.index_select(0, tok_rows)
+        expert_ids_half_global = slot_expert_ids.index_select(0, slot_ids)
+        expert_ids_half_local = global_to_local.index_select(0, expert_ids_half_global)
+        _print_group_bmm_self_test(
+            f"[test_group_bmm_fused_experts][half={half_mode}] gather_half_tokens: {(time.perf_counter() - t0) * 1e3:.3f} ms"
+        )
+
+        # Sort by local expert id
+        t0 = time.perf_counter()
+        expert_ids_sorted, perm = torch.sort(expert_ids_half_local)
+        x_sorted = x_half.index_select(0, perm)
+        _print_group_bmm_self_test(
+            f"[test_group_bmm_fused_experts][half={half_mode}] sort_by_expert: {(time.perf_counter() - t0) * 1e3:.3f} ms"
+        )
+
+        # Restore fused weights for the selected half experts via group_fused_experts_tensor
+        t0 = time.perf_counter()
+        group = self.group_fused_experts_tensor(layer_idx, expert_half_list)
+        _print_group_bmm_self_test(
+            f"[test_group_bmm_fused_experts][half={half_mode}] restore_group_fused_weights: "
+            f"{(time.perf_counter() - t0) * 1e3:.3f} ms"
+        )
+        group_gate_up = group["group_gate_up"]
+        group_down = group["group_down"]
+        if group_gate_up.size(0) != half_e or group_down.size(0) != half_e:
+            raise RuntimeError(
+                f"group_fused_experts_tensor returned wrong E: gate_up={group_gate_up.size(0)} down={group_down.size(0)} expected={half_e}"
+            )
+
+        t0 = time.perf_counter()
+        # group_gate_up = group_gate_up.to(torch.bfloat16)  # [E, 2I, H]
+        # group_down = group_down.to(torch.bfloat16)        # [E, H, I]
+        # gu_eh2i = group_gate_up.transpose(1, 2).contiguous()  # [E, H, 2I]
+        # dn_eih = group_down.transpose(1, 2).contiguous()      # [E, I, H]
+        group_gate_up = group_gate_up  # [E, 2I, H]
+        group_down = group_down        # [E, H, I]
+        gu_eh2i = group_gate_up.transpose(1, 2) # [E, H, 2I]
+        dn_eih = group_down.transpose(1, 2)     # [E, I, H]
+        _print_group_bmm_self_test(
+            f"[test_group_bmm_fused_experts][half={half_mode}] transpose_contig: {(time.perf_counter() - t0) * 1e3:.3f} ms"
+        )
+
+        t0 = time.perf_counter()
+        stacked, counts = self.mlpm._batched_pad_inputs_presorted(x_sorted, expert_ids_sorted, num_experts=half_e)
+        _print_group_bmm_self_test(
+            f"[test_group_bmm_fused_experts][half={half_mode}] pad_pack: {(time.perf_counter() - t0) * 1e3:.3f} ms"
+        )
+
+        t0 = time.perf_counter()
+        gu = torch.bmm(stacked, gu_eh2i)
+        t_bmm1 = time.perf_counter()
+        half = gu.size(-1) // 2
+        g, u = gu.split(half, dim=-1)
+        act_name = getattr(self.mlpm.config, "hidden_activation", None) or getattr(self.mlpm.config, "hidden_act", None)
+        if act_name is None:
+            raise RuntimeError("Cannot determine activation name for fused experts test.")
+        act_fn = ACT2FN[act_name]
+        mid = act_fn(g) * u
+        t_act = time.perf_counter()
+        y_stacked = torch.bmm(mid, dn_eih)
+        t_bmm2 = time.perf_counter()
+        y_sorted_bmm = self.mlpm._batched_unpad_outputs(y_stacked, counts)
+        t_unpad = time.perf_counter()
+        _print_group_bmm_self_test(
+            f"[test_group_bmm_fused_experts][half={half_mode}] fused_group_bmm: "
+            f"{(t_unpad - t0) * 1e3:.3f} ms "
+            f"(bmm1={(t_bmm1 - t0) * 1e3:.3f} act+split={(t_act - t_bmm1) * 1e3:.3f} "
+            f"bmm2={(t_bmm2 - t_act) * 1e3:.3f} unpad={(t_unpad - t_bmm2) * 1e3:.3f})"
+        )
+
+        # Reference: per-expert mm on the same expert-sorted layout
+        t0 = time.perf_counter()
+        y_sorted_ref = torch.empty_like(y_sorted_bmm)
+        cursor = 0
+        for i in range(half_e):
+            c = int(counts[i].item())
+            if c == 0:
+                continue
+            w_gu = group_gate_up[i]
+            w_dn = group_down[i]
+            xs = x_sorted[cursor : cursor + c]
+            gu_ref = xs @ w_gu.t()
+            g_ref, u_ref = gu_ref.split(half, dim=-1)
+            mid_ref = act_fn(g_ref) * u_ref
+            y_ref = mid_ref @ w_dn.t()
+            y_sorted_ref[cursor : cursor + c] = y_ref
+            cursor += c
+        torch.testing.assert_close(y_sorted_bmm, y_sorted_ref, rtol=2e-2, atol=2e-2)
+        _print_group_bmm_self_test(
+            f"[test_group_bmm_fused_experts][half={half_mode}] ref_mm_and_assert: {(time.perf_counter() - t0) * 1e3:.3f} ms"
+        )
+
+        # Scatter back to the selected token subset order and apply gate weights (sanity)
+        t0 = time.perf_counter()
+        y_half = torch.empty_like(x_half)
+        y_half.index_copy_(0, perm, y_sorted_bmm)
+        slot_w = slot_weights.index_select(0, slot_ids).unsqueeze(-1)
+        y_half = y_half * slot_w
+        _print_group_bmm_self_test(
+            f"[test_group_bmm_fused_experts][half={half_mode}] unsort_and_weight: {(time.perf_counter() - t0) * 1e3:.3f} ms"
+        )
+
+        _print_group_bmm_self_test(
+            f"[test_group_bmm_fused_experts][half={half_mode}] total: {(time.perf_counter() - t_all0) * 1e3:.3f} ms "
+            f"(T={t_tokens}, K={k}, slots_in_half={int(slot_ids.numel())}, E_half={half_e})"
+        )
+
+    def _test_group_gmm_fused_experts(self):
+        """
+        GMM version for fused experts group compute (no explicit padding to max_tokens).
+
+        Mirrors ``_test_group_bmm_fused_experts`` expert selection (min total top-1 routed tokens; see
+        ``LMP_TEST_GROUP_FUSED_EXPERTS_HALF``). Uses
+        ``MLPModuleWrapper.fused_experts_gate_up_down_mm_presorted(..., mm_backend="gmm")``
+        and checks consistency against the bmm backend on the same presorted slots.
+        """
+        for half_mode in _group_fused_test_parse_half_modes():
+            self._test_group_gmm_fused_experts_impl(half_mode)
+
+    def _test_group_gmm_fused_experts_impl(self, half_mode: str):
+        import time
+
+        t_all0 = time.perf_counter()
+        bsz, seq_len = 64, 128
+        layer_idx = self.mlpm.get_first_k_dense_replace()
+        hidden_size = int(getattr(self.mlpm.config, "hidden_size"))
+
+        t0 = time.perf_counter()
+        x = torch.randn((bsz, seq_len, hidden_size), device="cpu", dtype=torch.bfloat16)
+        logger.debug(
+            f"[test_group_gmm_fused_experts][half={half_mode}] input_gen: {(time.perf_counter() - t0) * 1e3:.3f} ms"
+        )
+
+        t0 = time.perf_counter()
+        topk_idx, topk_weight, _ = self.mlpm.gate_func(self.mlpm_hi, layer_idx, x)
+        logger.debug(
+            f"[test_group_gmm_fused_experts][half={half_mode}] gate_func: {(time.perf_counter() - t0) * 1e3:.3f} ms"
+        )
+        expert_ids = topk_idx[:, 0].to(torch.int64)      # [T]
+        expert_w = topk_weight[:, 0].to(torch.bfloat16)  # [T]
+        flat = x.view(-1, x.size(-1))                    # [T, H]
+
+        num_experts_total = int(self.mlpm.get_experts_num())
+        half_e = max(1, num_experts_total // 2)
+
+        t0 = time.perf_counter()
+        expert_half_list, window_tokens, max_tokens = _group_fused_select_half_experts(
+            expert_ids, num_experts_total, half_e, half_mode
+        )
+        expert_half_tensor = torch.tensor(expert_half_list, dtype=torch.int64, device=expert_ids.device)
+
+        global_to_local = torch.full((num_experts_total,), -1, dtype=torch.int64, device=expert_ids.device)
+        for li, eid in enumerate(expert_half_list):
+            global_to_local[eid] = li
+
+        logger.debug(
+            f"[test_group_gmm_fused_experts][half={half_mode}] choose_half_experts: {(time.perf_counter() - t0) * 1e3:.3f} ms "
+            f"(E_total={num_experts_total}, E_half={half_e}, experts={expert_half_list}, "
+            f"total_tokens={window_tokens}, max_tokens={max_tokens})"
+        )
+
+        # Only compute tokens routed to the selected half subset.
+        in_half = torch.isin(expert_ids, expert_half_tensor)
+        if not bool(in_half.any().item()):
+            raise RuntimeError("No tokens routed into the selected half expert subset.")
+        token_ids = torch.nonzero(in_half, as_tuple=False).flatten()
+
+        x_half = flat.index_select(0, token_ids)
+        expert_ids_half_global = expert_ids.index_select(0, token_ids)
+        expert_ids_half_local = global_to_local.index_select(0, expert_ids_half_global)  # [S]
+
+        # Presort by expert id for grouped-mm
+        t0 = time.perf_counter()
+        expert_ids_sorted, perm = torch.sort(expert_ids_half_local)
+        x_sorted = x_half.index_select(0, perm)  # [S, H]
+        logger.debug(
+            f"[test_group_gmm_fused_experts][half={half_mode}] sort_by_expert: {(time.perf_counter() - t0) * 1e3:.3f} ms"
+        )
+
+        # Restore fused weights for the selected half experts
+        t0 = time.perf_counter()
+        group = self.group_fused_experts_tensor(layer_idx, expert_half_list)
+        logger.debug(
+            f"[test_group_gmm_fused_experts][half={half_mode}] restore_group_fused_weights: "
+            f"{(time.perf_counter() - t0) * 1e3:.3f} ms"
+        )
+        group_gate_up = group["group_gate_up"]  # [E, 2I, H]
+        group_down = group["group_down"]        # [E, H, I]
+        if group_gate_up.size(0) != half_e or group_down.size(0) != half_e:
+            raise RuntimeError(
+                f"group_fused_experts_tensor returned wrong E: gate_up={group_gate_up.size(0)} down={group_down.size(0)} expected={half_e}"
+            )
+
+        # Prepare weights for mm backends
+        t0 = time.perf_counter()
+        gu_eh2i = group_gate_up.transpose(1, 2)  # [E, H, 2I]
+        dn_eih = group_down.transpose(1, 2)      # [E, I, H]
+        logger.debug(
+            f"[test_group_gmm_fused_experts][half={half_mode}] transpose: {(time.perf_counter() - t0) * 1e3:.3f} ms"
+        )
+
+        act_name = getattr(self.mlpm.config, "hidden_activation", None) or getattr(self.mlpm.config, "hidden_act", None)
+        if act_name is None:
+            raise RuntimeError("Cannot determine activation name for fused experts test.")
+        act_fn = ACT2FN[act_name]
+
+        # Run gmm and bmm on the same presorted slots and compare.
+        t0 = time.perf_counter()
+        y_sorted_gmm = self.mlpm.fused_experts_gate_up_down_mm_presorted(
+            x_slots_sorted=x_sorted,
+            expert_ids_sorted=expert_ids_sorted,
+            gate_up_w_eh2i=gu_eh2i,
+            down_w_eih=dn_eih,
+            act_fn=act_fn,
+            mm_backend="gmm",
+        )
+        logger.debug(
+            f"[test_group_gmm_fused_experts][half={half_mode}] fused_group_gmm: {(time.perf_counter() - t0) * 1e3:.3f} ms"
+        )
+
+        t0 = time.perf_counter()
+        y_sorted_bmm = self.mlpm.fused_experts_gate_up_down_mm_presorted(
+            x_slots_sorted=x_sorted,
+            expert_ids_sorted=expert_ids_sorted,
+            gate_up_w_eh2i=gu_eh2i,
+            down_w_eih=dn_eih,
+            act_fn=act_fn,
+            mm_backend="bmm",
+        )
+        logger.debug(
+            f"[test_group_gmm_fused_experts][half={half_mode}] fused_group_bmm_ref: {(time.perf_counter() - t0) * 1e3:.3f} ms"
+        )
+
+        torch.testing.assert_close(y_sorted_gmm, y_sorted_bmm, rtol=2e-2, atol=2e-2)
+
+        # Unsort to token order and apply weights (sanity)
+        y_half = torch.empty_like(x_half)
+        y_half.index_copy_(0, perm, y_sorted_gmm)
+        y_half = y_half * expert_w.index_select(0, token_ids).unsqueeze(-1)
+
+        logger.debug(
+            f"[test_group_gmm_fused_experts][half={half_mode}] total: {(time.perf_counter() - t_all0) * 1e3:.3f} ms "
+            f"(T={int(flat.size(0))}, tokens_in_half={int(token_ids.numel())}, E_half={half_e})"
+        )
+
+    def group_fused_experts_tensor(self, layer_idx: int, expert_idx_list: list[int]):
+        """
+        从共享内存恢复 fused MoE expert 的两路权重：
+        - gate_up_proj.weight: ``[E, 2I, H]``（从若干 ``[2I, H]`` 堆叠）
+        - down_proj.weight: ``[E, H, I]``（从若干 ``[H, I]`` 堆叠）
+
+        返回 dict 中的 key 为：
+        - ``group_gate_up``: ``[E, 2I, H]``
+        - ``group_down``: ``[E, H, I]``
+
+        说明：该函数不依赖 ``W3``，用于 Gemma4 / Qwen3 / GPT-OSS 等 fused expert 结构。
+        C++ restore 路径为 mmap 映射共享内存（无 memcpy）；若调用方对返回张量再 ``.clone()`` / ``.contiguous()`` 等会脱离零拷贝语义。
+        """
+        cuda_hook_time("get_fused_experts_names_w")
+        names_gate_up = self.mlpm.get_experts_names_w(layer_idx, expert_idx_list, type_idx=WeightType.W1)
+        names_down = self.mlpm.get_experts_names_w(layer_idx, expert_idx_list, type_idx=WeightType.W2)
+        cuda_hook_time_end("get_fused_experts_names_w")
+
+        cuda_hook_time("restore_fused_tensors")
+        # fused bank: C++ 将 expert_idx_list 映射到连续虚拟地址 [E_sel,...]（非连续 id 时按行 MAP_FIXED）
+        if len(names_gate_up) == 1 and len(names_down) == 1:
+            tensor_state_dict = restore_fused_experts_packed_from_shared_memory_silent_cached_ptr(
+                self.mshm_names,
+                self.tensor_index_cache,
+                self.mchunk_size,
+                names_gate_up[0],
+                names_down[0],
+                expert_idx_list,
+            )
+        else:
+            # fallback: 每个 expert 独立名字（或非 bank 布局），仍走 group restore
+            tensor_state_dict = restore_experts_groups_from_shared_memory_silent_cached_ptr(
+                self.mshm_names,
+                self.tensor_index_cache,
+                self.mchunk_size,
+                [names_gate_up, names_down],
+            )
+        cuda_hook_time_end("restore_fused_tensors")
+
+        if not tensor_state_dict:
+            raise RuntimeError(
+                f"restore fused experts returned empty dict: layer_idx={layer_idx}, experts={len(expert_idx_list)}"
+            )
+
+        # NOTE: do not use `or` on tensors (truthiness is ambiguous).
+        g0 = tensor_state_dict.get("gate_up_packed")
+        if g0 is None:
+            g0 = tensor_state_dict.get("group_0_big_tensor")
+        g1 = tensor_state_dict.get("down_packed")
+        if g1 is None:
+            g1 = tensor_state_dict.get("group_1_big_tensor")
+        if g0 is None or g1 is None:
+            # keep diagnostics small but actionable
+            raise KeyError(
+                f"Expected group_0_big_tensor/group_1_big_tensor, got keys={list(tensor_state_dict.keys())}"
+            )
+
+        # 经过 packed restore 后，g0/g1 已经是 [E_sel, ...]，无需再二次筛选
+        g0_sel, g1_sel = g0, g1
+
+        tensor_state_dict["group_gate_up"] = g0_sel
+        tensor_state_dict["group_down"] = g1_sel
+        return tensor_state_dict
+
     def group_experts_tensor(self, layer_idx: int, expert_idx_list: list[int]):
         """
         从共享内存恢复本层若干 expert 的权重：两路 group（交错 w1/w3 名 -> ``[2E,I,H]``，w2 -> ``[E,H,I]``），
@@ -823,6 +1596,18 @@ class HostMemoryView:
         #     self.mshm_names, self.tensor_index_resize_json,
         #     self.mchunk_size, [ewnc1, ewnc2, ewnc3])
         logger.debug(f"ewnc1: {ewnc1}, ewnc2: {ewnc2}, ewnc3: {ewnc3}")
+
+        # Gemma4 / Qwen3 等 fused MoE：无独立 W3 名（get_experts_names_w(W3) 返回 []），不能走 w1/w3 交错 mmap
+        if not ewnc3 and ewnc1 and ewnc2:
+            tensor_state_dict = self.group_fused_experts_tensor(layer_idx, expert_idx_list)
+            gate_up = tensor_state_dict["group_gate_up"]
+            down = tensor_state_dict["group_down"]
+            tensor_state_dict["group_w1_w3"] = gate_up
+            tensor_state_dict["group_w2"] = down
+            half_i = int(gate_up.shape[1]) // 2
+            tensor_state_dict["group_w1"] = gate_up[:, :half_i, :]
+            tensor_state_dict["group_w3"] = gate_up[:, half_i:, :]
+            return tensor_state_dict
         
         # 调试：检查tensor名称是否在metadata中存在
         if not ewnc1 or not ewnc2 or not ewnc3:
@@ -899,41 +1684,6 @@ class HostMemoryView:
             tensor_state_dict["group_w1"] = group_w1_w3[:, :half, :]
             tensor_state_dict["group_w3"] = group_w1_w3[:, half:, :]
 
-        # cuda_hook_time("rename_dict")
-        # # 将 key 从 group_0_big_tensor, group_1_big_tensor, group_2_big_tensor 
-        # # 重命名为 group_w1, group_w2, group_w3
-        # renamed_dict = {}
-        # key_mapping = {
-        #     'group_0_big_tensor': 'group_w1',
-        #     'group_1_big_tensor': 'group_w2',
-        #     'group_2_big_tensor': 'group_w3'
-        # }
-        # # print(f"{tensor_state_dict}")
-        # for key, value in tensor_state_dict.items():
-        #     new_key = key_mapping.get(key, key)
-        #     renamed_dict[new_key] = value
-        # cuda_hook_time("rename_dict_end")
-
-        # 单次调用
-        # group_w1 = restore_experts_tensor_from_shared_memory(
-        #     self.mshm_names, self.tensor_index_resize_json,
-        #     self.mchunk_size, ewnc1
-        # )
-        # group_w2 = restore_experts_tensor_from_shared_memory(
-        #     self.mshm_names, self.tensor_index_resize_json,
-        #     self.mchunk_size, ewnc2
-        # )
-        # group_w3 = restore_experts_tensor_from_shared_memory(
-        #     self.mshm_names, self.tensor_index_resize_json,
-        #     self.mchunk_size, ewnc3
-        # )
-        
-        # renamed_dict = {
-        #     'group_w1': group_w1["big_tensor"],
-        #     'group_w2': group_w2["big_tensor"],
-        #     'group_w3': group_w3["big_tensor"]
-        # }
-
         return tensor_state_dict
     
     def test_restore_group_experts_tensor_from_shared_memory(self):
@@ -983,17 +1733,17 @@ class HostMemoryView:
                 f"big_tensor stride: {big_tensor.stride()}"
             )
         else:
-            # 如果没有 big_tensor，回退到使用 try_stack_without_copy
+            # 如果没有 big_tensor，回退到使用 _try_stack_without_copy
             experts_tensors_list = []
             for i in experts_names_continuous:
                 experts_tensors_list.append(experts_state_dict[i])
-            big_tensor = HostMemoryView.try_stack_without_copy(experts_tensors_list)
+            big_tensor = HostMemoryView._try_stack_without_copy(experts_tensors_list)
             logger.debug(
                 f"restore time: {time.time() - time_start_restore}, "
-                f"fallback to try_stack_without_copy, big_tensor shape: {big_tensor.shape}"
+                f"fallback to _try_stack_without_copy, big_tensor shape: {big_tensor.shape}"
             )
 
-    def try_stack_without_copy(weights_list):
+    def _try_stack_without_copy(weights_list):
         """
         尝试在不复制数据的情况下创建 stacked tensor。
         要求：tensor 必须在连续地址空间中，且按 weights_list 的顺序排列。

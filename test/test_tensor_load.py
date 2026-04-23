@@ -19,10 +19,12 @@ from __future__ import annotations
 
 import argparse
 import gc
+import json
 import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 
 import torch
 
@@ -192,6 +194,104 @@ def run_multi_gpu_parallel(
     torch.cuda.empty_cache()
 
 
+def _load_gemma_text_moe_params(config_path: str) -> tuple[int, int, int, torch.dtype]:
+    """
+    Returns (hidden_size, moe_intermediate_size, num_experts, dtype) from Gemma config.json,
+    using only text_config (language model) fields.
+    """
+    p = Path(config_path)
+    with p.open("r", encoding="utf-8") as f:
+        cfg = json.load(f)
+    text_cfg = cfg.get("text_config") or {}
+
+    hidden_size = int(text_cfg["hidden_size"])
+    moe_intermediate_size = int(text_cfg.get("moe_intermediate_size") or text_cfg["intermediate_size"])
+    num_experts = int(text_cfg["num_experts"])
+
+    dtype_str = (text_cfg.get("dtype") or cfg.get("dtype") or "bfloat16").lower()
+    if dtype_str in ("bfloat16", "bf16"):
+        dtype = torch.bfloat16
+    elif dtype_str in ("float16", "fp16", "half"):
+        dtype = torch.float16
+    elif dtype_str in ("float32", "fp32"):
+        dtype = torch.float32
+    else:
+        raise ValueError(f"Unsupported dtype in config: {dtype_str}")
+
+    return hidden_size, moe_intermediate_size, num_experts, dtype
+
+
+def run_gemma_one_layer_experts_h2d(
+    *,
+    config_path: str,
+    device: torch.device,
+    warmup: int,
+    iters: int,
+) -> None:
+    """
+    Measure H2D time for loading MoE expert weights for ONE transformer layer.
+
+    We only consider the language model (text_config), ignoring vision/audio.
+
+    Weight model (per expert, common MoE MLP layout):
+      - gate_proj: [hidden_size, moe_intermediate_size]
+      - up_proj:   [hidden_size, moe_intermediate_size]
+      - down_proj: [moe_intermediate_size, hidden_size]
+    Total elements per expert = hidden*moe_int*2 + moe_int*hidden = hidden*moe_int*3
+    Total bytes for one layer = num_experts * hidden * moe_int * 3 * bytes_per_element
+    """
+    hidden, moe_int, num_experts, dtype = _load_gemma_text_moe_params(config_path)
+    bpe = _dtype_bytes(dtype)
+    numel = num_experts * hidden * moe_int * 3
+    target_bytes = numel * bpe
+
+    torch.cuda.set_device(device)
+    print(
+        "[gemma-moe-layer] "
+        f"config={config_path} device={device} dtype={dtype} "
+        f"hidden={hidden} moe_intermediate={moe_int} experts={num_experts}"
+    )
+    print(
+        "[gemma-moe-layer] "
+        f"one-layer experts weights ~ numel={numel:,} bytes={target_bytes:,} "
+        f"(~{target_bytes / (1024**3):.3f} GiB)"
+    )
+
+    t_cpu = torch.empty(numel, dtype=dtype, pin_memory=True)
+    t_cpu[0] = 0
+    t_cpu[-1] = 0
+
+    for _ in range(max(0, warmup)):
+        w = torch.empty(256 * 1024, dtype=dtype, pin_memory=True)
+        w[0] = 0
+        _ = w.to(device, non_blocking=True)
+    torch.cuda.synchronize()
+
+    times: list[float] = []
+    for i in range(max(1, iters)):
+        torch.cuda.synchronize()
+        t0 = time.perf_counter()
+        _t_gpu = t_cpu.to(device, non_blocking=True)
+        torch.cuda.synchronize()
+        t1 = time.perf_counter()
+        dt = t1 - t0
+        times.append(dt)
+        # prevent DCE
+        if i == 0:
+            _ = _t_gpu
+
+    best = min(times)
+    avg = sum(times) / len(times)
+    gib_s_best = (target_bytes / (1024**3)) / best
+    gib_s_avg = (target_bytes / (1024**3)) / avg
+    print(f"[gemma-moe-layer] iters={len(times)} best_time={best:.4f}s avg_time={avg:.4f}s")
+    print(f"[gemma-moe-layer] bandwidth_best={gib_s_best:.2f} GiB/s bandwidth_avg={gib_s_avg:.2f} GiB/s")
+
+    del t_cpu
+    gc.collect()
+    torch.cuda.empty_cache()
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument(
@@ -221,10 +321,38 @@ def main() -> None:
     )
     ap.add_argument("--compare-unpinned", action="store_true")
     ap.add_argument("--warmup", type=int, default=2)
+    ap.add_argument(
+        "--gemma-layer-experts-h2d",
+        action="store_true",
+        help="Measure one-layer MoE experts H2D for Gemma config.json (text_config only).",
+    )
+    ap.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help="Path to Gemma config.json (required with --gemma-layer-experts-h2d).",
+    )
+    ap.add_argument(
+        "--iters",
+        type=int,
+        default=5,
+        help="Iterations for timed region (best/avg reported).",
+    )
     args = ap.parse_args()
 
     if not torch.cuda.is_available():
         raise SystemExit("CUDA is required for this test.")
+
+    if args.gemma_layer_experts_h2d:
+        if not args.config:
+            raise SystemExit("--config is required with --gemma-layer-experts-h2d")
+        run_gemma_one_layer_experts_h2d(
+            config_path=args.config,
+            device=torch.device(args.device),
+            warmup=args.warmup,
+            iters=args.iters,
+        )
+        return
 
     dtype = getattr(torch, args.dtype)
 

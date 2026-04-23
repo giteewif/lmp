@@ -5,6 +5,7 @@ import torch
 import torch.nn.functional as F
 import queue
 import copy
+import time as time_mod
 from typing import Optional, Tuple, Dict, List
 
 from typing import Dict, TYPE_CHECKING
@@ -81,6 +82,20 @@ class ExpertEinsumResult:
     """CPU expert einsum 任务的结果"""
     final_hidden_states: torch.Tensor
     time_einsum_end: float
+
+
+def _print_group_bmm_self_test(msg: str) -> None:
+    """与 ``lmp.cuda_memory_view._print_group_bmm_self_test`` 一致：``print``+flush；可选 ``LMP_MP_SELFTEST_DIAG`` 追加。"""
+    print(msg, flush=True)
+    path = (os.environ.get("LMP_MP_SELFTEST_DIAG") or "").strip()
+    if not path:
+        return
+    try:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(msg + "\n")
+    except OSError:
+        pass
+
 
 DEEPSEEK_MODEL_NAME_TYPE = "Deepseek"
 MIXTRAL_MODEL_NAME_TYPE = "Mixtral"
@@ -322,6 +337,17 @@ class MLPModuleWrapper:
             "group_dict missing expert tensors; expected group_w1/w2/w3 or group_w1_w3+w2 or group_0/1/2"
         )
 
+    def _moe_gate_act_fn(self):
+        """Gemma4 等用 ``hidden_activation``；多数 MoE 用 ``hidden_act``。"""
+        act_name = getattr(self.config, "hidden_activation", None) or getattr(
+            self.config, "hidden_act", None
+        )
+        if act_name is None:
+            raise RuntimeError(
+                "Cannot determine gate activation from config (expected hidden_activation or hidden_act)."
+            )
+        return ACT2FN[act_name]
+
     def _moe_gate_up_from_stacked(self, stacked_inputs: torch.Tensor, group_w1_w3: torch.Tensor):
         """
         对 padding 后的专家输入做一次 ``einsum`` 完成 gate 与 up 的线性，再对 gate 半幅做激活后与 up 相乘。
@@ -332,7 +358,7 @@ class MLPModuleWrapper:
         gate_up = torch.einsum("eth,eih->eti", stacked_inputs, group_w1_w3)
         I_half = group_w1_w3.shape[1] // 2
         w1_out, w3_out = gate_up.split(I_half, dim=-1)
-        act_fn = ACT2FN[self.config.hidden_act]
+        act_fn = self._moe_gate_act_fn()
         w1_out = act_fn(w1_out)
         return w1_out * w3_out
 
@@ -346,12 +372,12 @@ class MLPModuleWrapper:
         gate_up = torch.bmm(stacked_inputs, w_t)
         I_half = group_w1_w3.shape[1] // 2
         w1_out, w3_out = gate_up.split(I_half, dim=-1)
-        act_fn = ACT2FN[self.config.hidden_act]
+        act_fn = self._moe_gate_act_fn()
         w1_out = act_fn(w1_out)
         return w1_out * w3_out
 
         
-    def init_chmv_meta_model(self, cmv: "CudaMemoryView", hmv: "HostMemoryView", device=None):
+    def init_chmv_meta_model(self, device=None):
         """
         在 ``init_empty_weights`` 上下文中构建 GPU 侧元模型 ``cmv.mlpm_ci``，供后续按需加载权重。
 
@@ -365,7 +391,7 @@ class MLPModuleWrapper:
                     cm = DeepseekV2ForCausalLM(self.config)
                     cm.to(self.config.torch_dtype)
                     cm.eval()
-                    cmv.mlpm_ci = cm
+                    return cm
             else:
                 with init_empty_weights():
                     self.config._attn_implementation = "sdpa"
@@ -373,13 +399,13 @@ class MLPModuleWrapper:
                     cm = DeepseekForCausalLM(self.config)
                     cm.to(self.config.torch_dtype)
                     cm.eval()
-                    cmv.mlpm_ci = cm
+                    return cm
 
                 # Not need hm, we use einsum to restore experts weights from shared memory to model
                 # hm =copy.deepcopy(cm)
                 # hmv.mlpm_hi = None 
                 # self.layerc = DeepseekDecoderLayer(self.config, 1)
-            return
+            return cm
         elif self.model_name_type == QWEN2_MODEL_NAME_TYPE:
             with init_empty_weights():
                 self.config._attn_implementation = "sdpa"
@@ -390,8 +416,7 @@ class MLPModuleWrapper:
                         Qwen2MoeRotaryEmbedding(config=self.config, device=device)
                 cm.to(self.config.torch_dtype)
                 cm.eval()
-                cmv.mlpm_ci = cm
-                return
+                return cm
         elif self.model_name_type == QWEN3_MODEL_NAME_TYPE:
             with init_empty_weights():
                 cm = Qwen3MoeForCausalLM(self.config)
@@ -401,8 +426,7 @@ class MLPModuleWrapper:
                 #         Qwen3MoeRotaryEmbedding(config=self.config, device=device)
                 cm.to(self.config.torch_dtype)
                 cm.eval()
-                cmv.mlpm_ci = cm
-                return
+                return cm
         elif self.model_name_type == MIXTRAL_MODEL_NAME_TYPE:
             with init_empty_weights():
                 self.config._attn_implementation = "sdpa"
@@ -418,8 +442,7 @@ class MLPModuleWrapper:
                         )
                 cm.to(self.config.torch_dtype)
                 cm.eval()
-                cmv.mlpm_ci = cm
-                return
+                return cm
         elif self.model_name_type == GEMMA4_MODEL_NAME_TYPE:
             with init_empty_weights():
                 # Gemma4 text attention 需要 position_embeddings；这里启用 sdpa（与现有 mask 构造兼容）。
@@ -430,8 +453,7 @@ class MLPModuleWrapper:
                     cm = Gemma4ForCausalLM(self.config)
                 cm.to(self.config.torch_dtype)
                 cm.eval()
-                cmv.mlpm_ci = cm
-                return
+                return cm
         elif self.model_name_type == QWEN3_5_MODEL_NAME_TYPE:
             with init_empty_weights():
                 self.config._attn_implementation = "sdpa"
@@ -439,16 +461,14 @@ class MLPModuleWrapper:
                 cm.model.rotary_emb = Qwen3_5MoeTextRotaryEmbedding(config=self.config, device=device)
                 cm.to(self.config.torch_dtype)
                 cm.eval()
-                cmv.mlpm_ci = cm
-                return
+                return cm
         elif self.model_name_type == GPT_OSS_MODEL_NAME_TYPE:
             with init_empty_weights():
                 cm = GptOssForCausalLM(self.config)
                 cm.model.rotary_emb = GptOssRotaryEmbedding(config=self.config, device=device)
                 cm.to(self.config.torch_dtype)
                 cm.eval()
-                cmv.mlpm_ci = cm
-                return
+                return cm
         elif self.model_name_type == ERINE_MODEL_NAME_TYPE:
             with init_empty_weights():
                 self.config._attn_implementation = "sdpa"
@@ -456,8 +476,7 @@ class MLPModuleWrapper:
                 cm.model.rotary_emb = Ernie4_5_MoeRotaryEmbedding(config=self.config, device=device)
                 cm.to(self.config.torch_dtype)
                 cm.eval()
-                cmv.mlpm_ci = cm
-                return
+                return cm
         else:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")
 
@@ -876,6 +895,39 @@ class MLPModuleWrapper:
                 "restore_hm_state_dict2model loaded %d expert tensors for Qwen3_5 model",
                 updated_params,
             )
+        elif self.model_name_type == GEMMA4_MODEL_NAME_TYPE:
+            # Gemma4 MoE expert weights live under ".experts." (layer naming differs from Qwen/Mixtral).
+            expert_indicators = [".experts.", ".router."]
+            target_linears = {"gate_up_proj", "down_proj", "per_expert_scale", "proj", "scale"}
+            updated_params = 0
+            with torch.no_grad():
+                for name, tensor in hm_state_dict.items():
+                    if not any(ind in name for ind in expert_indicators):
+                        continue
+                    line_segments = name.split(".")
+                    linear_pos = next(
+                        (idx for idx, token in enumerate(line_segments) if token in target_linears),
+                        -1,
+                    )
+                    if linear_pos == -1:
+                        continue
+                    try:
+                        set_module_tensor_to_device(
+                            model,
+                            name,
+                            tensor.device,
+                            tensor,
+                            clear_cache=False,
+                        )
+                        updated_params += 1
+                    except Exception as exc:
+                        logger.warning(
+                            "Failed to assign tensor %s to module: %s", name, exc, exc_info=True
+                        )
+            logger.debug(
+                "restore_hm_state_dict2model loaded %d expert tensors for Gemma4 model",
+                updated_params,
+            )
         elif self.model_name_type == GPT_OSS_MODEL_NAME_TYPE:
             expert_indicators = [".mlp.experts.experts."]
             target_linears = {"gate_up_proj", "down_proj"}
@@ -944,6 +996,12 @@ class MLPModuleWrapper:
             logger.warning(f"restore_hm_state_dict2model not implemented for {self.model_name_type}")
             pass
 
+    def get_embed_tokens(self, model):
+        if self.model_name_type == GEMMA4_MODEL_NAME_TYPE:
+            return model.model.language_model.embed_tokens
+        else:
+            return model.model.embed_tokens
+
     def get_experts_num(self):
         """返回当前配置下每层路由专家数量（不含 shared 语义，具体见各模型 config 字段名）。"""
         if self.model_name_type == DEEPSEEK_MODEL_NAME_TYPE:
@@ -989,9 +1047,9 @@ class MLPModuleWrapper:
             return experts_names
         elif self.model_name_type == QWEN3_MODEL_NAME_TYPE:
             type_str_list = ["none", "gate_up_proj", "down_proj"]
-            type_str = type_str_list[type_idx.value]
-            if type_idx.value == 0:
+            if type_idx.value == 0 or type_idx.value >= len(type_str_list):
                 return []
+            type_str = type_str_list[type_idx.value]
             experts_names = [
                 f"model.layers.{layer_idx}.mlp.experts.experts.{expert_idx}.{type_str}.weight"
                 for expert_idx in experts_idx_list
@@ -999,9 +1057,9 @@ class MLPModuleWrapper:
             return experts_names
         elif self.model_name_type == QWEN3_5_MODEL_NAME_TYPE:
             type_str_list = ["none", "gate_up_proj", "down_proj"]
-            type_str = type_str_list[type_idx.value]
-            if type_idx.value == 0:
+            if type_idx.value == 0 or type_idx.value >= len(type_str_list):
                 return []
+            type_str = type_str_list[type_idx.value]
             experts_names = [
                 f"model.layers.{layer_idx}.mlp.experts.experts.{expert_idx}.{type_str}.weight"
                 for expert_idx in experts_idx_list
@@ -1009,9 +1067,9 @@ class MLPModuleWrapper:
             return experts_names
         elif self.model_name_type == GPT_OSS_MODEL_NAME_TYPE:
             type_str_list = ["none", "gate_up_proj", "down_proj"]
-            type_str = type_str_list[type_idx.value]
-            if type_idx.value == 0:
+            if type_idx.value == 0 or type_idx.value >= len(type_str_list):
                 return []
+            type_str = type_str_list[type_idx.value]
             experts_names = [
                 f"model.layers.{layer_idx}.mlp.experts.experts.{expert_idx}.{type_str}.weight"
                 for expert_idx in experts_idx_list
@@ -1019,9 +1077,9 @@ class MLPModuleWrapper:
             return experts_names
         elif self.model_name_type == ERINE_MODEL_NAME_TYPE:
             type_str_list = ["none", "gate_up_proj", "down_proj"]
-            type_str = type_str_list[type_idx.value]
-            if type_idx.value == 0:
+            if type_idx.value == 0 or type_idx.value >= len(type_str_list):
                 return []
+            type_str = type_str_list[type_idx.value]
             experts_names = [
                 f"model.layers.{layer_idx}.mlp.experts.experts.{expert_idx}.{type_str}.weight"
                 for expert_idx in experts_idx_list
@@ -1029,14 +1087,15 @@ class MLPModuleWrapper:
             return experts_names
         elif self.model_name_type == GEMMA4_MODEL_NAME_TYPE:
             type_str_list = ["none", "gate_up_proj", "down_proj"]
-            type_str = type_str_list[type_idx.value]
-            if type_idx.value == 0:
+            if type_idx.value == 0 or type_idx.value >= len(type_str_list):
                 return []
+            type_str = type_str_list[type_idx.value]
             p = self._gemma4_weight_prefix()
-            return [
-                f"{p}.layers.{layer_idx}.experts.{expert_idx}.{type_str}.weight"
-                for expert_idx in experts_idx_list
-            ]
+            # Gemma4 routed experts are stored as fused Parameter banks on the layer:
+            #   `{p}.layers.{layer_idx}.experts.gate_up_proj`  shape [E, 2I, H]
+            #   `{p}.layers.{layer_idx}.experts.down_proj`     shape [E, H, I]
+            # The tensor index uses these names WITHOUT a trailing `.weight`.
+            return [f"{p}.layers.{layer_idx}.experts.{type_str}"]
 
         else:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")
@@ -1207,15 +1266,11 @@ class MLPModuleWrapper:
             return names_list
         elif self.model_name_type == GEMMA4_MODEL_NAME_TYPE:
             p = self._gemma4_weight_prefix()
-            names_list = [
-                f"{p}.layers.{layer_idx}.router.proj.weight",
-                f"{p}.layers.{layer_idx}.router.scale",
-                f"{p}.layers.{layer_idx}.router.per_expert_scale",
-            ]
+            names_list = []
             expert_ids = expert_idx_list if expert_idx_list else list(range(self.get_experts_num()))
             for expert_idx in expert_ids:
-                names_list.append(f"{p}.layers.{layer_idx}.experts.{expert_idx}.gate_up_proj.weight")
-                names_list.append(f"{p}.layers.{layer_idx}.experts.{expert_idx}.down_proj.weight")
+                names_list.append(f"{p}.layers.{layer_idx}.experts.gate_up_proj")
+                names_list.append(f"{p}.layers.{layer_idx}.experts.down_proj")
             return names_list
         else:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")
@@ -1297,7 +1352,6 @@ class MLPModuleWrapper:
                 f"{p}.layers.{layer_idx}.post_feedforward_layernorm_1.weight",
                 f"{p}.layers.{layer_idx}.post_feedforward_layernorm_2.weight",
                 f"{p}.layers.{layer_idx}.pre_feedforward_layernorm.weight",
-                f"{p}.layers.{layer_idx}.pre_feedforward_layernorm_1.weight",
                 f"{p}.layers.{layer_idx}.pre_feedforward_layernorm_2.weight",
             ]
         else:
@@ -1943,6 +1997,16 @@ class MLPModuleWrapper:
             return self.config.num_experts_per_tok
         elif self.model_name_type == ERINE_MODEL_NAME_TYPE:
             return self.config.moe_k
+        elif self.model_name_type == GEMMA4_MODEL_NAME_TYPE:
+            # Gemma4 text_config 使用 ``top_k_experts``（与 transformers Gemma4 一致），未必有 ``num_experts_per_tok``。
+            if hasattr(self.config, "num_experts_per_tok"):
+                return int(self.config.num_experts_per_tok)
+            k = getattr(self.config, "top_k_experts", None)
+            if k is None:
+                raise RuntimeError(
+                    "Gemma4 config must define top_k_experts or num_experts_per_tok for routed experts k."
+                )
+            return int(k)
         else:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")
 
@@ -1966,6 +2030,294 @@ class MLPModuleWrapper:
             return 0
         else:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")
+
+    def get_fused_experts_gate_up_down_act_fn(self, model, layer_idx: int):
+        """
+        从 ``model``（通常为 ``mlpm_ci``）解析 ``layers[layer_idx]``（兼容 Gemma4 多模态 ``language_model`` 路径），
+        返回 fused routed 块的 ``gate_up_proj``、``down_proj`` 与 ``hidden_activation`` 对应的 ``act_fn``。
+        """
+        layers = getattr(getattr(model, "model", None), "layers", None)
+        if layers is None and hasattr(getattr(model, "model", None), "language_model"):
+            layers = model.model.language_model.layers
+        if layers is None:
+            raise RuntimeError("Cannot locate model.layers for fused expert execution")
+        layer = layers[layer_idx]
+        experts_mod = getattr(layer, "experts", None)
+        if experts_mod is None:
+            raise RuntimeError("Cannot locate experts module on this layer for fused path")
+        gate_up = getattr(experts_mod, "gate_up_proj", None)
+        down = getattr(experts_mod, "down_proj", None)
+        if gate_up is None or down is None:
+            raise RuntimeError("Fused path expects `gate_up_proj` and `down_proj` on experts")
+        act_name = getattr(self.config, "hidden_activation", None) or getattr(self.config, "hidden_act", None)
+        if act_name is None:
+            raise RuntimeError("Cannot determine activation name from config for fused experts")
+        return gate_up, down, ACT2FN[act_name]
+
+    @staticmethod
+    def _gmm_slots_presorted(
+        x_sorted: torch.Tensor,
+        eid_sorted: torch.Tensor,
+        w_ehin: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Grouped expert matmul on presorted inputs.
+
+        Args:
+            x_sorted: ``[S, H]`` already grouped by ``eid_sorted`` (non-decreasing).
+            eid_sorted: ``[S]`` expert ids in ``[0, E)``.
+            w_ehin: ``[E, H, N]`` expert weight bank (already transposed for matmul).
+        """
+        try:
+            from transformers.integrations.moe import _grouped_mm as _tf_grouped_mm
+        except Exception as exc:
+            raise RuntimeError(
+                "Grouped-mm requires `transformers.integrations.moe._grouped_mm` to be available."
+            ) from exc
+
+        offs = torch.cumsum(
+            torch.bincount(eid_sorted, minlength=w_ehin.size(0)), dim=0
+        ).to(torch.int32)
+        return _tf_grouped_mm(x_sorted, w_ehin, offs=offs)
+
+    @staticmethod
+    def _batched_pad_inputs_presorted(
+        x_sorted: torch.Tensor,
+        expert_ids_sorted: torch.Tensor,
+        num_experts: int,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Pad+pack presorted rows to ``stacked_inputs`` for BMM.
+
+        Returns:
+            stacked_inputs: ``[E, max_tokens, H]``.
+            counts: ``[E]`` tokens per expert.
+        """
+        counts = torch.bincount(expert_ids_sorted, minlength=num_experts)
+        max_tokens = int(counts.max().item()) if counts.numel() else 0
+        e = num_experts
+        h = x_sorted.size(1)
+        stacked_inputs = torch.zeros((e, max_tokens, h), device=x_sorted.device, dtype=x_sorted.dtype)
+
+        start = 0
+        for expert_idx in range(e):
+            c = int(counts[expert_idx].item())
+            if c:
+                stacked_inputs[expert_idx, :c].copy_(x_sorted[start : start + c], non_blocking=False)
+            start += c
+        return stacked_inputs, counts
+
+    @staticmethod
+    def _batched_unpad_outputs(y_stacked: torch.Tensor, counts: torch.Tensor) -> torch.Tensor:
+        """Inverse of padding: ``[E, max_tokens, N]`` -> ``[S, N]`` in expert-sorted order.
+
+        ``y_stacked`` 可在任意 device；``counts`` 通常在 CPU（仅读标量 ``.item()``）。
+        """
+        outs: list[torch.Tensor] = []
+        e = int(counts.numel())
+        for expert_idx in range(e):
+            c = int(counts[expert_idx].item())
+            if c:
+                outs.append(y_stacked[expert_idx, :c])
+        if not outs:
+            return y_stacked.reshape(0, y_stacked.size(-1))
+        return torch.cat(outs, dim=0)
+
+    @staticmethod
+    def _batched_unpad_outputs_into(
+        dst: torch.Tensor,
+        y_stacked: torch.Tensor,
+        counts: torch.Tensor,
+    ) -> None:
+        """
+        与 ``_batched_unpad_outputs`` 相同的行拼接顺序，但直接写入已分配好的 ``dst``（``[sum(counts), N]``），
+        避免 ``torch.cat`` 产生中间张量及额外整块 ``copy_``。
+        """
+        e = int(counts.numel())
+        offset = 0
+        for expert_idx in range(e):
+            c = int(counts[expert_idx].item())
+            if c:
+                dst[offset : offset + c].copy_(y_stacked[expert_idx, :c], non_blocking=False)
+                offset += c
+        if offset != dst.size(0):
+            raise RuntimeError(
+                f"_batched_unpad_outputs_into: wrote {offset} rows but dst has {dst.size(0)} rows."
+            )
+
+    @torch.no_grad()
+    def _gather_cuda_flat_hidden_to_stacked_cpu_pin(
+        self,
+        flat_hidden_states: torch.Tensor,
+        idxs: torch.Tensor,
+        expert_idx_list: list[int],
+        expert_indices_map: Dict[int, Tuple[int, int]],
+    ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor]]:
+        """
+        从 CUDA 上的 ``flat_hidden_states``（``[T, H]``）按 MoE 槽位图取出各专家 token 行，
+        写入 CPU pinned 的 ``stacked``（``[E, max_tokens, H]``），布局与 ``_batched_pad_inputs_presorted``
+        输出一致；``expert_idx_list`` 的下标 ``li`` 即组内局部专家维。
+
+        Returns:
+            ``(stacked_pin, counts)``：``counts`` 为 ``[E]`` int64 CPU，第 ``li`` 维为该专家 token 数。
+            若 ``len(expert_idx_list)==0`` 或总 token 数为 0，返回 ``(None, None)``（调用方应提前判空时可跳过）。
+
+        Raises:
+            RuntimeError: ``flat_hidden_states`` 不在 CUDA 上。
+        """
+        half_e = len(expert_idx_list)
+        if half_e == 0:
+            return None, None
+        if not flat_hidden_states.is_cuda:
+            raise RuntimeError(
+                "_gather_cuda_flat_hidden_to_stacked_cpu_pin requires flat_hidden_states on CUDA, "
+                f"got device={flat_hidden_states.device}."
+            )
+
+        cuda_hook_time("prepare_group_stack")
+        x_dev = flat_hidden_states.device
+        k_per_tok = int(self.get_experts_per_tok())
+        token_idxs = (idxs.to(device=x_dev, dtype=torch.int64)) // k_per_tok
+
+        n_tokens_per_expert = [0] * half_e
+        for li, eid in enumerate(expert_idx_list):
+            start_idx, end_idx = expert_indices_map[eid]
+            if end_idx > start_idx:
+                n_tokens_per_expert[li] = end_idx - start_idx
+        if sum(n_tokens_per_expert) == 0:
+            return None, None
+
+        max_tokens = max(n_tokens_per_expert)
+        h = int(flat_hidden_states.size(-1))
+        counts = torch.tensor(n_tokens_per_expert, dtype=torch.int64, device="cpu")
+
+        stacked_proto = torch.empty(
+            (half_e, max_tokens, h),
+            dtype=flat_hidden_states.dtype,
+            device=torch.device("cpu"),
+        )
+        stacked_pin = gpinpool.alloc_same_pin_tensor(stacked_proto)
+        stacked_pin.zero_()
+        cuda_hook_time_end("prepare_group_stack")
+
+        cuda_hook_time("group stack")
+        # Gather rows once on GPU, then do a single D2H copy directly into padded `stacked_pin`.
+        # This avoids an intermediate pinned buffer (`x_sorted_pin`) at the cost of transferring padded bytes.
+        s = int(sum(n_tokens_per_expert))
+        tok_list: list[torch.Tensor] = []
+        for li, eid in enumerate(expert_idx_list):
+            n = n_tokens_per_expert[li]
+            if n == 0:
+                continue
+            start_idx, end_idx = expert_indices_map[eid]
+            tok_list.append(token_idxs[start_idx:end_idx])
+        tok_all = torch.cat(tok_list, dim=0)  # [S] on CUDA
+
+        x_sorted_gpu = torch.index_select(flat_hidden_states, 0, tok_all)  # [S, H] on CUDA
+
+        # Build destination indices for padded layout [E,max_tokens,H] flattened to [E*max_tokens, H].
+        dst_rows_cpu: list[torch.Tensor] = []
+        for li in range(half_e):
+            n = int(n_tokens_per_expert[li])
+            if n:
+                base = li * max_tokens
+                dst_rows_cpu.append(
+                    torch.arange(base, base + n, dtype=torch.int64, device="cpu")
+                )
+        dst_rows = torch.cat(dst_rows_cpu, dim=0).to(device=x_dev, non_blocking=True)  # [S] on CUDA
+
+        stacked_gpu_flat = torch.zeros(
+            (half_e * max_tokens, h),
+            dtype=flat_hidden_states.dtype,
+            device=x_dev,
+        )
+        stacked_gpu_flat.index_copy_(0, dst_rows, x_sorted_gpu)
+        stacked_gpu = stacked_gpu_flat.view(half_e, max_tokens, h)
+        # single D2H copy into the final pinned buffer
+        stacked_pin.copy_(stacked_gpu, non_blocking=True)
+        cuda_hook_time_end("group stack")
+
+        return stacked_pin, counts
+
+    @torch.no_grad()
+    def fused_experts_gate_up_down_mm_presorted(
+        self,
+        x_slots_sorted: torch.Tensor,
+        expert_ids_sorted: torch.Tensor,
+        gate_up_w_eh2i: torch.Tensor,
+        down_w_eih: torch.Tensor,
+        act_fn,
+        mm_backend: str,
+    ) -> torch.Tensor:
+        """
+        Fused routed experts (gate+up then down) compute for presorted slot rows.
+
+        Args:
+            x_slots_sorted: ``[S, H]`` rows grouped by expert id (non-decreasing).
+            expert_ids_sorted: ``[S]`` expert id for each row.
+            gate_up_w_eh2i: ``[E, H, 2I]``.
+            down_w_eih: ``[E, I, H]``.
+            act_fn: activation for gate half.
+            mm_backend: ``"bmm"`` or ``"gmm"``.
+
+        Returns:
+            y_slots_sorted: ``[S, H]`` aligned with input order.
+        """
+        mm_backend = (mm_backend or "bmm").strip().lower()
+        if mm_backend == "gmm":
+            gate_up_slots = self._gmm_slots_presorted(x_slots_sorted, expert_ids_sorted, gate_up_w_eh2i)
+            half = gate_up_slots.size(-1) // 2
+            gate, up = gate_up_slots.split(half, dim=-1)
+            mid_slots = act_fn(gate) * up
+            return self._gmm_slots_presorted(mid_slots, expert_ids_sorted, down_w_eih)
+
+        # default: bmm with explicit padding
+        import time
+
+        e = int(gate_up_w_eh2i.size(0))
+        s = int(x_slots_sorted.size(0))
+        h = int(x_slots_sorted.size(1))
+        n2 = int(gate_up_w_eh2i.size(-1))
+
+        t0 = time.perf_counter()
+        stacked, counts = self._batched_pad_inputs_presorted(x_slots_sorted, expert_ids_sorted, e)
+        t_pad = (time.perf_counter() - t0) * 1e3
+
+        max_tokens = int(stacked.size(1)) if stacked.dim() == 3 else 0
+
+        t0 = time.perf_counter()
+        gu = torch.bmm(stacked, gate_up_w_eh2i)
+        t_bmm1 = (time.perf_counter() - t0) * 1e3
+        half = gu.size(-1) // 2
+        t0 = time.perf_counter()
+        g, u = gu.split(half, dim=-1)
+        mid = act_fn(g) * u
+        t_act = (time.perf_counter() - t0) * 1e3
+
+        t0 = time.perf_counter()
+        y_st = torch.bmm(mid, down_w_eih)
+        t_bmm2 = (time.perf_counter() - t0) * 1e3
+
+        t0 = time.perf_counter()
+        y = self._batched_unpad_outputs(y_st, counts)
+        t_unpad = (time.perf_counter() - t0) * 1e3
+
+        logger.debug(
+            "[fused_experts_bmm_presorted] pad=%.3fms bmm1=%.3fms act=%.3fms bmm2=%.3fms unpad=%.3fms "
+            "(E=%d S=%d H=%d 2I=%d maxT=%d dtype=%s)",
+            t_pad,
+            t_bmm1,
+            t_act,
+            t_bmm2,
+            t_unpad,
+            e,
+            s,
+            h,
+            n2,
+            max_tokens,
+            str(x_slots_sorted.dtype),
+        )
+        return y
 
     def experts_func_mgpu_group_pad(
         self,
@@ -2869,408 +3221,165 @@ class MLPModuleWrapper:
         cuda_hook_end("gpu_einsum_with_group_tensors")
         
         return final_hidden_states
-
-    def experts_func_einsum(self, 
-        hmv: "HostMemoryView", layer_idx: int, 
-        expert_idx_list: list[int], 
-        expert_indices_map: Dict[int, Tuple[int, int]],  # {expert_id: (start_idx, end_idx)}
-        expert_token_indices_map: Dict[int, torch.Tensor],  # {expert_id: token_ids}
-        flat_hidden_states: torch.Tensor,  # 原始展平的 hidden states
-        flat_experts_weight: torch.Tensor,  # 原始展平的 experts weight
-        idxs: torch.Tensor,  # 排序后的索引
-        final_hidden_states: torch.Tensor,
-        output_queue: queue.Queue
-    ):
-        """
-        委托 ``einsum_with_group_tensors``：在 CPU 上用共享内存恢复的专家组权重做批量 MoE（含 scatter）。
-
-        适用于主进程内同步 einsum 路径；结果写回 ``final_hidden_states`` 并向 ``output_queue`` 投递标记。
-        """
-        if not expert_idx_list:
-            return final_hidden_states
-
-        cuda_hook("einsum_with_group_tensors")
-        time_start_group = time.time()
-        # 调用 einsum_with_group_tensors 函数（在 CPU 上计算）
-        # 直接传递索引信息，避免创建中间 tensor maps
-        final_hidden_states = self.einsum_with_group_tensors(
-            hmv=hmv,
-            layer_idx=layer_idx,
-            expert_idx_list=expert_idx_list,
-            expert_indices_map=expert_indices_map,
-            expert_token_indices_map=expert_token_indices_map,
-            flat_hidden_states=flat_hidden_states,
-            flat_experts_weight=flat_experts_weight,
-            idxs=idxs,
-            final_hidden_states=final_hidden_states,
-            output_queue=output_queue
-        )
-        logger.debug(f" experts func einsum cost {time.time()-time_start_group} s")
-        cuda_hook_end("einsum_with_group_tensors")
-
-        return final_hidden_states
     
-    def experts_func_einsum_mp(self, 
-        hmv: "HostMemoryView", layer_idx: int, 
-        expert_idx_list: list[int], 
+
+    @torch.no_grad()
+    def bmm_with_group_tensors_mp(
+        self,
+        hmv: "HostMemoryView",
+        layer_idx: int,
+        expert_idx_list: list[int],
+        expert_indices_map: Dict[int, Tuple[int, int]],
+        flat_hidden_states: torch.Tensor,
+        idxs: torch.Tensor,
+        output_queue,
+    ):
+        """
+        MP 子进程：对 ``expert_idx_list`` 中的专家做融合 gate+up+down 的 presorted BMM。
+
+        数据流与 ``CudaMemoryView._test_group_bmm_fused_experts_impl`` 等价：组内局部专家 id 为
+        ``expert_idx_list`` 的下标 ``li``。在 GPU 上按槽位 ``index_select`` 出各专家 token 行后，
+        直接 ``copy_`` 到 CPU pin 上的 ``[E, max_tokens, H]`` 的 ``stacked``（与
+        ``_batched_pad_inputs_presorted`` 输出布局一致），不再先拼 ``x_sorted`` 再在 CPU 上 pad。
+
+        ``flat_hidden_states`` 必须在 CUDA 上；``stacked`` 由
+        ``_gather_cuda_flat_hidden_to_stacked_cpu_pin`` 构造（与 ``einsum_with_group_tensors`` 的
+        ``group stack`` 段「GPU gather → CPU pin」一致）。
+        """
+        half_e = len(expert_idx_list)
+        if half_e <= 0:
+            return None, []
+
+        cuda_hook_time("move_flatidxs_group_fused_mp")
+        try:
+            stacked_pin, counts = self._gather_cuda_flat_hidden_to_stacked_cpu_pin(
+                flat_hidden_states,
+                idxs,
+                expert_idx_list,
+                expert_indices_map,
+            )
+        except Exception:
+            cuda_hook_time_end("move_flatidxs_group_fused_mp")
+            raise
+        if stacked_pin is None:
+            cuda_hook_time_end("move_flatidxs_group_fused_mp")
+            return None, []
+
+        stacked = stacked_pin
+        cuda_hook_time_end("move_flatidxs_group_fused_mp")
+
+        cuda_hook_time("group_fused_tensors_mp")
+        group_dict = hmv.group_fused_experts_tensor(layer_idx, expert_idx_list)
+        group_gate_up = group_dict["group_gate_up"]
+        group_down = group_dict["group_down"]
+        cuda_hook_time_end("group_fused_tensors_mp")
+        if int(group_gate_up.size(0)) != half_e or int(group_down.size(0)) != half_e:
+            raise RuntimeError(
+                f"group_fused_experts_tensor returned wrong E: gate_up={group_gate_up.size(0)} "
+                f"down={group_down.size(0)} expected={half_e}"
+            )
+
+        gu_eh2i = group_gate_up.transpose(1, 2)
+        dn_eih = group_down.transpose(1, 2)
+
+        act_name = getattr(self.config, "hidden_activation", None) or getattr(
+            self.config, "hidden_act", None
+        )
+        if act_name is None:
+            raise RuntimeError("Cannot determine activation name for fused group bmm MP path.")
+        act_fn = ACT2FN[act_name]
+
+        cuda_hook_time("fused_group_bmm")
+        
+
+        _t0 = time_mod.perf_counter()
+        gu = torch.bmm(stacked, gu_eh2i)
+        _t1 = time_mod.perf_counter()
+
+        hdim = gu.size(-1) // 2
+        g, u = gu.split(hdim, dim=-1)
+        _t2 = time_mod.perf_counter()
+
+        mid = act_fn(g) * u
+        _t3 = time_mod.perf_counter()
+        # 本 bmm 输出为 ``[E, max_tokens, H]``，须与 ``stacked`` 同形；不能 ``out`` 到紧排 ``[S,H]``。
+        y_stacked_pin = gpinpool.alloc_same_pin_tensor(torch.empty_like(stacked))
+        torch.bmm(mid, dn_eih, out=y_stacked_pin)
+        _t4 = time_mod.perf_counter()
+        logger.debug(
+            "[fused_group_bmm][steps] bmm1=%.3f ms split=%.3f ms act_mul=%.3f ms bmm2=%.3f ms",
+            (_t1 - _t0) * 1e3,
+            (_t2 - _t1) * 1e3,
+            (_t3 - _t2) * 1e3,
+            (_t4 - _t3) * 1e3,
+        )
+        cuda_hook_time_end("fused_group_bmm")
+
+        cuda_hook_time("gather_outputs_group_fused_mp")
+        # pin 整块 H2D，再在 GPU 上 cat unpad，避免 CPU 紧排缓冲 + 二次上屏。
+        y_stacked_gpu = y_stacked_pin.to(flat_hidden_states.device, non_blocking=True)
+        output_gpu = self._batched_unpad_outputs(y_stacked_gpu, counts)
+        cuda_hook_time_end("gather_outputs_group_fused_mp")
+
+        output_queue.put(
+            ExpertEinsumResult(
+                final_hidden_states=output_gpu,
+                time_einsum_end=time.time(),
+            )
+        )
+        gpinpool.free(y_stacked_pin)
+        gpinpool.free(stacked_pin)
+
+        group_list = [group_gate_up, group_down, gu_eh2i, dn_eih]
+        return output_gpu, group_list
+
+    def experts_func_einsum_mp(
+        self,
+        hmv: "HostMemoryView",
+        layer_idx: int,
+        expert_idx_list: list[int],
         expert_indices_map: Dict[int, Tuple[int, int]],  # {expert_id: (start_idx, end_idx)}
         flat_hidden_states: torch.Tensor,  # 原始展平的 hidden states
         idxs: torch.Tensor,  # 排序后的索引
-        output_queue
+        output_queue,
+        fused: bool = False,
     ):
         """
-        子进程 / MP 用入口：当前实现委托 ``bmm_with_group_tensors_mp``（CPU 上融合 bmm gate+up，再回传 GPU）。
-
-        返回 ``(output_gpu, group_list)`` 供调用方持有组张量引用以延迟 unmap；无 expert 时返回 ``(None, [])``。
+        子进程 / MP：委托 ``einsum_with_group_tensors_mp``。
+        ``fused=True`` 时在 ``einsum_with_group_tensors_mp`` 内用 ``hmv.group_fused_experts_tensor`` 得到
+        ``group_gate_up``/``group_down`` 并作为 ``group_w1_w3``/``group_w2`` 参与同一套 einsum。
         """
         if not expert_idx_list:
             return None, []
-        # 调用 einsum_with_group_tensors 函数（在 CPU 上计算）
-        # 直接传递索引信息，避免创建中间 tensor maps
-        # final_hidden_states, group_list = self.einsum_with_group_tensors_mp(
-        #     hmv=hmv,
-        #     layer_idx=layer_idx,
-        #     expert_idx_list=expert_idx_list,
-        #     expert_indices_map=expert_indices_map,
-        #     flat_hidden_states=flat_hidden_states,
-        #     idxs=idxs,
-        #     output_queue=output_queue
-        # )
-        final_hidden_states, group_list = self.bmm_with_group_tensors_mp(
+        final_hidden_states, group_list = self.einsum_with_group_tensors_mp(
             hmv=hmv,
             layer_idx=layer_idx,
             expert_idx_list=expert_idx_list,
             expert_indices_map=expert_indices_map,
             flat_hidden_states=flat_hidden_states,
             idxs=idxs,
-            output_queue=output_queue
+            output_queue=output_queue,
+            fused=fused,
         )
         return final_hidden_states, group_list
 
     @torch.no_grad()
-    def bmm_with_group_tensors_mp(
-        self, 
+    def einsum_with_group_tensors_mp(
+        self,
         hmv: "HostMemoryView",
-        layer_idx: int, expert_idx_list: list[int], 
+        layer_idx: int,
+        expert_idx_list: list[int],
         expert_indices_map: Dict[int, Tuple[int, int]],  # {expert_id: (start_idx, end_idx)}
         flat_hidden_states: torch.Tensor,  # 原始展平的 hidden states
         idxs: torch.Tensor,
-        output_queue
+        output_queue,
+        fused: bool = False,
     ):
         """
-        从 ``hmv.group_experts_tensor`` 取批专家权重，在 CPU pinned 缓冲上做融合 gate+up ``bmm`` 与 down ``bmm``，
-        将拼接后的 token 输出拷回 GPU。
-
-        ``group_list`` 顺序：``[w1, w2, w3, w1_w3^T, w2^T, w3^T]``（末项保留以兼容旧调用方槽位）。
-
-        Args:
-            hmv: HostMemoryView。
-            layer_idx / expert_idx_list / expert_indices_map: 层与 expert 及 idx 区间。
-            flat_hidden_states: GPU 展平隐状态（先拷到 CPU pin）。
-            idxs: 路由索引（用于构造 token 映射）。
-            output_queue: 写入 ``ExpertEinsumResult``。
-
-        Returns:
-            ``(output_gpu, group_list)``。
-        """
-        cuda_hook_time("move_flatidxs")
-        flat_hidden_states_cpu_pin = gpinpool.alloc_same_pin_tensor(flat_hidden_states)
-        flat_hidden_states_cpu_pin.copy_(flat_hidden_states, non_blocking=False)
-        token_idxs = idxs // self.get_experts_per_tok()
-        token_idxs_cpu_pin = token_idxs.cpu()
-        cuda_hook_time_end("move_flatidxs")
-
-        cuda_hook_time("group_tensors")
-        # 获取 group tensors (已经是堆叠好的 [E, ...] 形状)
-        group_dict = hmv.group_experts_tensor(layer_idx, expert_idx_list)
-        try:
-            group_w1, group_w2, group_w3 = self._coerce_expert_group_w123(group_dict)
-        except Exception as e:
-            logger.error(f"group_dict: {group_dict}")
-            logger.error(f"Error getting group tensors: {e}")
-            raise e
-        group_w1_w3 = (
-            group_dict["group_w1_w3"]
-            if "group_w1_w3" in group_dict
-            else self._pack_batched_w1_w3(group_w1, group_w3)
-        )
-        
-        cuda_hook_time_end("group_tensors")
-        
-        expert_token_indices_map = {
-            expert_idx: 
-            token_idxs_cpu_pin[expert_indices_map[expert_idx][0]:expert_indices_map[expert_idx][1]] 
-            for expert_idx in expert_idx_list
-        }
-
-        cuda_hook_time("group pad")
-        # 计算 max_tokens（直接从索引信息计算，避免创建 tensor）
-        max_tokens = max(
-            expert_token_indices_map[expert_idx].shape[0] 
-            for expert_idx in expert_idx_list
-        )
-        
-        # 获取 hidden_dim
-        H = flat_hidden_states_cpu_pin.shape[1]  # hidden_dim
-        E = len(expert_idx_list)  # expert 数量
-        
-        # 优化：直接分配整个 stacked_inputs tensor，避免多次分配和 stack 操作
-        # 形状: [E, max_tokens, H]
-        stacked_inputs = torch.zeros(
-            E, max_tokens, H,
-            dtype=flat_hidden_states_cpu_pin.dtype, device="cpu"
-        )
-        
-        # 直接从 flat_hidden_states 复制需要的 token 到 stacked_inputs 的对应位置
-        for i, expert_idx in enumerate(expert_idx_list):
-            token_ids = expert_token_indices_map[expert_idx]
-            num_tokens = token_ids.shape[0]
-            
-            # 使用 blocking copy 以确保数据完整性（特别是跨设备复制时）
-            stacked_inputs[i, :num_tokens].copy_(flat_hidden_states_cpu_pin[token_ids], non_blocking=True)
-            # padding 部分保持未初始化（如果后续不需要0值，可以跳过 zero_）
-            # 如果需要确保 padding 为0，取消下面的注释
-            # stacked_inputs[i, num_tokens:].zero_()
-        
-        cuda_hook_time_end("group pad")
-
-        cuda_hook_time("group_bmm")
-        # stacked_inputs: [E, max_tokens, H]；一次 bmm 完成 gate+up，再 bmm down
-        intermediate = self._moe_gate_up_bmm_from_stacked(stacked_inputs, group_w1_w3)
-        group_w2_transposed = group_w2.transpose(1, 2)  # [E, I, H]
-        outputs_result = torch.bmm(intermediate, group_w2_transposed)  # [E, max_tokens, H]
-        cuda_hook_time_end("group_bmm")
-        
-
-        cuda_hook_time("get_outputs_cpu1")
-        ce_out_list = []
-        for i, expert_idx in enumerate(expert_idx_list):
-            token_ids = expert_token_indices_map[expert_idx]
-            num_tokens = token_ids.shape[0]
-            expert_out = outputs_result[i][:num_tokens]
-            ce_out_list.append(expert_out)
-        concat_ce_out = torch.cat(ce_out_list, dim=0)
-        outputs_result_cpu_pin = gpinpool.alloc_same_pin_tensor(concat_ce_out)
-        outputs_result_cpu_pin.copy_(concat_ce_out, non_blocking=False)
-        output_gpu = outputs_result_cpu_pin.to(flat_hidden_states.device, non_blocking=False)
-        cuda_hook_time_end("get_outputs_cpu1")
-
-        # cuda_hook_time("get_outputs_cpu2")
-        # outputs_result_cpu_pin = gpinpool.alloc_same_pin_tensor(outputs_result)
-        # outputs_result_cpu_pin.copy_(outputs_result, non_blocking=False)
-        # output_gpu = outputs_result_cpu_pin.to(flat_hidden_states.device, non_blocking=False)
-        # cuda_hook_time_end("get_outputs_cpu2")
-
-        result = ExpertEinsumResult(final_hidden_states=output_gpu, time_einsum_end=time.time())
-        output_queue.put(result)
-        gpinpool.free(flat_hidden_states_cpu_pin)
-        gpinpool.free(token_idxs_cpu_pin)
-        gpinpool.free(outputs_result_cpu_pin)
-        group_w1_w3_transposed = group_w1_w3.transpose(1, 2)
-        group_w3_transposed = group_w3.transpose(1, 2)
-        group_list = [
-            group_w1,
-            group_w2,
-            group_w3,
-            group_w1_w3_transposed,
-            group_w2_transposed,
-            group_w3_transposed,
-        ]
-        return output_gpu, group_list
-
-    @torch.no_grad()
-    def einsum_with_group_tensors(
-        self, 
-        hmv: "HostMemoryView",
-        layer_idx: int, expert_idx_list: list[int], 
-        expert_indices_map: Dict[int, Tuple[int, int]],  # {expert_id: (start_idx, end_idx)}
-        expert_token_indices_map: Dict[int, torch.Tensor],  # {expert_id: token_ids}
-        flat_hidden_states: torch.Tensor,  # 原始展平的 hidden states
-        flat_experts_weight: torch.Tensor,  # 原始展平的 experts weight
-        idxs: torch.Tensor,  # 排序后的索引
-        final_hidden_states: torch.Tensor,
-        output_queue: queue.Queue
-    ):
-        """
-        主进程同步路径：从 Host 共享内存拉取 ``[E,*]`` 批专家权重，GPU 上 padding 输入后做融合 gate+up einsum 与 down einsum，
-        将结果搬回 CPU pin 再 scatter 到 ``final_hidden_states``，并向 ``output_queue`` 放入结果对象。
-
-        中间含两段 ``stacked_inputs`` 构造（历史路径：先 CPU pin 预取再 GPU 主算），修改时需保持索引与 expert 过滤一致。
-        """
-        time_start_group = time.time()
-        cuda_hook("group tensor")
-        # 获取 group tensors (已经是堆叠好的 [E, ...] 形状)
-        group_dict = hmv.group_experts_tensor(layer_idx, expert_idx_list)
-        group_w1, group_w2, group_w3 = self._coerce_expert_group_w123(group_dict)
-        group_w1_w3 = (
-            group_dict["group_w1_w3"]
-            if "group_w1_w3" in group_dict
-            else self._pack_batched_w1_w3(group_w1, group_w3)
-        )
-        
-        cuda_hook_end("group tensor")
-        logger.debug(f"group tensors cost {time.time() - time_start_group} s")
-        
-        cuda_hook_time("move_flat_hidden2cpu")
-        flat_hidden_states_cpu_pin = gpinpool.alloc_same_pin_tensor(flat_hidden_states)
-        flat_hidden_states_cpu_pin.copy_(flat_hidden_states, non_blocking=False)
-
-        token_idxs = idxs // self.get_experts_per_tok()
-        token_idxs_cpu_pin = token_idxs.cpu()
-        # token_idxs_cpu_pin = gpinpool.alloc_same_pin_tensor(token_idxs)
-        # token_idxs_cpu_pin.copy_(token_idxs, non_blocking=False)
-        # token_idxs_cpu_pin = token_idxs_cpu_pin.long()
-
-        H = flat_hidden_states_cpu_pin.shape[1]
-        E = len(expert_idx_list)
-
-        max_tokens = max(
-            expert_token_indices_map[eid].shape[0] 
-            for eid in expert_idx_list
-        )
-        stacked_inputs_cpu = torch.zeros(
-            E, max_tokens, H,
-            dtype=flat_hidden_states_cpu_pin.dtype, device="cpu"
-        )
-
-        # 直接从 flat_hidden_states 复制需要的 token 到 stacked_inputs 的对应位置
-        for i, expert_idx in enumerate(expert_idx_list):
-            start_idx, end_idx = expert_indices_map[expert_idx]
-            token_ids = token_idxs_cpu_pin[start_idx:end_idx]
-            num_tokens = token_ids.shape[0]
-            
-            # 使用 blocking copy 以确保数据完整性（特别是跨设备复制时）
-            stacked_inputs_cpu[i, :num_tokens].copy_(flat_hidden_states_cpu_pin[token_ids], non_blocking=True)
-        cuda_hook_time_end("move_flat_hidden2cpu")
-        gpinpool.free(flat_hidden_states_cpu_pin)
-        # gpinpool.free(token_idxs_cpu_pin)
-
-        time_start_pad = time.time()
-        cuda_hook("group pad")
-        # 过滤有效的 expert indices
-        expert_indices = [idx for idx in expert_idx_list if idx in expert_token_indices_map]
-        if not expert_indices:
-            return final_hidden_states
-        
-        # 计算 max_tokens（直接从索引信息计算，避免创建 tensor）
-        max_tokens = max(
-            expert_token_indices_map[eid].shape[0] 
-            for eid in expert_indices
-        )
-        
-
-        # 获取 hidden_dim
-        H = flat_hidden_states.shape[1]  # hidden_dim
-        E = len(expert_indices)  # expert 数量
-        
-        # 优化：直接分配整个 stacked_inputs tensor，避免多次分配和 stack 操作
-        # 形状: [E, max_tokens, H]
-        stacked_inputs = torch.zeros(
-            E, max_tokens, H,
-            dtype=flat_hidden_states.dtype, device=flat_hidden_states.device
-        )
-        
-        # 直接从 flat_hidden_states 复制需要的 token 到 stacked_inputs 的对应位置
-        for i, expert_idx in enumerate(expert_indices):
-            token_ids = expert_token_indices_map[expert_idx]
-            num_tokens = token_ids.shape[0]
-            
-            # 使用 blocking copy 以确保数据完整性（特别是跨设备复制时）
-            stacked_inputs[i, :num_tokens].copy_(flat_hidden_states[token_ids], non_blocking=False)
-            # padding 部分保持未初始化（如果后续不需要0值，可以跳过 zero_）
-            # 如果需要确保 padding 为0，取消下面的注释
-            # stacked_inputs[i, num_tokens:].zero_()
-        
-        cuda_hook_end("group pad")
-        logger.debug(f"pad cost {time.time() - time_start_pad} s")
-
-        time_start_create_cpu = time.time()
-        cuda_hook("group stack")
-        outputs_pin = gpinpool.alloc_same_pin_tensor(stacked_inputs)
-        stacked_inputs_cpu_pin = gpinpool.alloc_same_pin_tensor(stacked_inputs)
-        logger.debug(f"create cpu tensor cost {time.time() - time_start_create_cpu} s")
-        time_start_move2cpu = time.time()
-        stacked_inputs_cpu_pin.copy_(stacked_inputs, non_blocking=False)
-        stacked_inputs_gpu = stacked_inputs
-        stacked_inputs = stacked_inputs_cpu_pin
-        logger.debug(f"move to cpu cost {time.time() - time_start_move2cpu} s")
-        cuda_hook_end("group stack")
-
-        time_start_einsum = time.time()
-        cuda_hook("group_einsum")
-        # 一次 einsum 完成 gate+up，再 einsum down
-        intermediate = self._moe_gate_up_from_stacked(stacked_inputs, group_w1_w3)
-        
-        # outputs: [E, max_tokens, H] - 使用预分配的 tensor（先计算再复制）
-        # 先计算结果，然后复制到预分配的 tensor（因为某些 PyTorch 版本不支持 einsum 的 out 参数）
-        outputs_result = torch.einsum('eti,ehi->eth', intermediate, group_w2)
-        logger.debug(f"group einsum cost {time.time() - time_start_einsum} s")
-        cuda_hook_end("group_einsum")
-
-        cuda_hook("cpy2cpu2gpu_tensor")
-        time_start_cpy = time.time()
-        outputs_pin.copy_(outputs_result, non_blocking=False)
-        outputs = outputs_pin
-        outputs_cpu = outputs
-        cuda_hook_end("cpy2cputensor")
-        logger.debug(f"cpy2cputensor cost {time.time() - time_start_cpy} s")
-
-        cuda_hook_time("move_outputs")
-        outputs = outputs.to(final_hidden_states.device, non_blocking=False)
-        cuda_hook_time_end("move_outputs")
-        cuda_hook("final_hidden_states scatter")
-        # 一次性提交
-        
-        # 提取有效结果（去除 padding）
-        for i, expert_idx in enumerate(expert_indices):
-            # 直接从索引信息获取 token 数量，避免访问 tensor
-            token_ids = expert_token_indices_map[expert_idx]
-            num_tokens = token_ids.shape[0]
-            
-            # 使用切片 [:num_tokens] 创建 view，避免拷贝
-            expert_out = outputs[i][:num_tokens]
-            # 多次提交
-            # expert_out = expert_out.to(final_hidden_states.device, non_blocking=True)
-            
-            # 直接从 flat_experts_weight 获取 weights，避免中间拷贝
-            start_idx, end_idx = expert_indices_map[expert_idx]
-            expert_weights = flat_experts_weight[idxs[start_idx:end_idx]]
-            
-            expert_out = expert_out.mul_(expert_weights)
-            
-            # 使用 token_ids 进行 scatter
-            final_hidden_states.scatter_reduce_(
-                dim=0,
-                index=token_ids.view(-1, 1).repeat(1, final_hidden_states.shape[-1]),
-                src=expert_out,
-                reduce='sum'
-            )
-        cuda_hook_end("final_hidden_states scatter")
-        
-        # 在 scatter 操作完成后再释放内存
-        # 确保所有对 outputs 的访问都已完成
-        gpinpool.free(outputs_pin)
-        gpinpool.free(stacked_inputs_cpu_pin)
-
-        time_einsum_end = time.time()
-        result = ExpertEinsumResult(final_hidden_states=outputs_cpu, time_einsum_end=time_einsum_end)
-        
-        output_queue.put(result)
-        del group_w1, group_w2, group_w3, group_w1_w3
-        return final_hidden_states
-
-    @torch.no_grad()
-    def einsum_with_group_tensors_mp(self, 
-        hmv: "HostMemoryView",
-        layer_idx: int, expert_idx_list: list[int], 
-        expert_indices_map: Dict[int, Tuple[int, int]],  # {expert_id: (start_idx, end_idx)}
-        flat_hidden_states: torch.Tensor,  # 原始展平的 hidden states
-        idxs: torch.Tensor,
-        output_queue
-    ):
-        """
-        MP 变体：输入先拷到 CPU pin，在 CPU 上 padding ``stacked_inputs`` 后做融合 gate+up einsum 与 down einsum，
-        将有效 expert 行拼成连续张量再拷回 ``flat_hidden_states.device``，结果放入 ``output_queue``。
+        MP 变体：``fused=False`` 时用 ``hmv.group_experts_tensor`` 再得到 ``group_w1_w3``；
+        ``fused=True`` 时用 ``hmv.group_fused_experts_tensor``（与 ``CudaMemoryView.group_fused_experts_tensor`` 一致），
+        将 ``group_gate_up`` 视作 ``[E,2I,H]`` 的 ``group_w1_w3``、``group_down`` 视作 ``group_w2``，再走同一套
+        ``_moe_gate_up_from_stacked`` + down einsum。
 
         与 ``einsum_with_group_tensors`` 相比不做 ``final_hidden_states`` 上的 scatter，适合子进程只负责算子回传。
         """
@@ -3282,15 +3391,25 @@ class MLPModuleWrapper:
         cuda_hook_time_end("move_flatidxs")
 
         cuda_hook_time("group_tensors")
-        # 获取 group tensors (已经是堆叠好的 [E, ...] 形状)
-        group_dict = hmv.group_experts_tensor(layer_idx, expert_idx_list)
-        group_w1, group_w2, group_w3 = self._coerce_expert_group_w123(group_dict)
-        group_w1_w3 = (
-            group_dict["group_w1_w3"]
-            if "group_w1_w3" in group_dict
-            else self._pack_batched_w1_w3(group_w1, group_w3)
-        )
-        
+        if fused:
+            group_dict = hmv.group_fused_experts_tensor(layer_idx, expert_idx_list)
+            group_gate_up = group_dict["group_gate_up"]
+            group_down = group_dict["group_down"]
+            # fused gate+up 与 unfused 的 group_w1_w3 同为 [E, 2I, H]；down 与 group_w2 同为 [E, H, I]
+            group_w1_w3 = group_gate_up
+            group_w2 = group_down
+            half_i = group_w1_w3.shape[1] // 2
+            group_w1 = group_w1_w3[:, :half_i, :]
+            group_w3 = group_w1_w3[:, half_i:, :]
+        else:
+            group_dict = hmv.group_experts_tensor(layer_idx, expert_idx_list)
+            group_w1, group_w2, group_w3 = self._coerce_expert_group_w123(group_dict)
+            group_w1_w3 = (
+                group_dict["group_w1_w3"]
+                if "group_w1_w3" in group_dict
+                else self._pack_batched_w1_w3(group_w1, group_w3)
+            )
+
         cuda_hook_time_end("group_tensors")
         
         expert_token_indices_map = {

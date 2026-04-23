@@ -29,6 +29,8 @@ sllm-store start --storage-path /mnt/zhengcf3/models/sllm_models --num-thread 8 
 Gemma4
 sllm-store start --storage-path /mnt/zhengcf3/models/sllm_models --num-thread 8 --mem-pool-size 64GB --use-shared-memory True --chunk-size 1452MB
 
+numactl --cpunodebind=0 --membind=0 sllm-store start --storage-path /mnt/zhengcf3/models/sllm_models --num-thread 8 --mem-pool-size 64GB --use-shared-memory True --chunk-size 1GB
+
 Gemma4 vllm
 sllm-store start --storage-path /mnt/zhengcf3/models/vllm_sllm_models --num-thread 8 --mem-pool-size 60GB --use-shared-memory True --chunk-size 1452MB --port 8074
 

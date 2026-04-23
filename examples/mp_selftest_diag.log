@@ -1,0 +1,24 @@
+[cpu_experts_worker pid=74280] entered (model_path='gemma4-26B-A4B' type='Gemma4')
+[cpu_experts_worker pid=74280] torch.set_num_threads(32) done
+[cpu_experts_worker pid=74280] importing MLPModuleWrapper / HostMemoryView ...
+[cpu_experts_worker pid=74280] imports done
+[cpu_experts_worker pid=74280] MLPModuleWrapper(...) ...
+[cpu_experts_worker pid=74280] init_chmv_meta_model(...) ...
+[cpu_experts_worker pid=74280] HostMemoryView(...) ...
+[cpu_experts_worker pid=74280] HostMemoryView ready
+[cpu_experts_worker pid=74280] begin _test_group_bmm_fused_experts()
+[test_group_bmm_fused_experts] start (print+flush; bypasses logging).
+[test_group_bmm_fused_experts][half=noncontiguous] input_gen: 539.371 ms
+[test_group_bmm_fused_experts][half=noncontiguous] gate_func: 46.323 ms
+[test_group_bmm_fused_experts][half=noncontiguous] choose_half_experts: 1.012 ms (E_total=128, E_half=64, experts=[54, 22, 87, 123, 1, 77, 23, 92, 15, 73, 79, 44, 45, 39, 47, 102, 51, 58, 126, 55, 81, 108, 28, 68, 83, 103, 3, 13, 19, 91, 111, 114, 120, 34, 29, 110, 18, 20, 24, 63, 67, 90, 46, 122, 14, 64, 5, 99, 117, 8, 17, 33, 16, 50, 52, 53, 84, 89, 109, 125, 60, 118, 72, 94], total_tokens=3289, max_tokens=63)
+[test_group_bmm_fused_experts][half=noncontiguous] filter_tokens_in_half: 0.817 ms (tokens_in_half=3289)
+[test_group_bmm_fused_experts][half=noncontiguous] gather_half_tokens: 0.922 ms
+[test_group_bmm_fused_experts][half=noncontiguous] sort_by_expert: 1.023 ms
+[test_group_bmm_fused_experts][half=noncontiguous] restore_group_fused_weights: 1.748 ms
+[test_group_bmm_fused_experts][half=noncontiguous] transpose_contig: 0.030 ms
+[test_group_bmm_fused_experts][half=noncontiguous] pad_pack: 3.121 ms
+[test_group_bmm_fused_experts][half=noncontiguous] fused_group_bmm: 25.505 ms
+[test_group_bmm_fused_experts][half=noncontiguous] ref_mm_and_assert: 129.287 ms
+[test_group_bmm_fused_experts][half=noncontiguous] unsort_and_weight: 1.986 ms
+[test_group_bmm_fused_experts][half=noncontiguous] total: 755.982 ms (T=8192, tokens_in_half=3289, E_half=64)
+[cpu_experts_worker pid=74280] end _test_group_bmm_fused_experts()

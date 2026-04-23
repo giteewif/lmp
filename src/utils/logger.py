@@ -86,14 +86,16 @@ def init_logger(name: str):
     # Use the same settings as above for root logger
     logger = logging.getLogger(name)
     # INFO, DEBUG, WARNING
-    log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+    log_level = os.getenv("LOG_LEVEL", "DEBUG").upper()
     logger.setLevel(log_level)
 
     # Ensure the handler's level matches the logger's level
     if _default_handler:
         _default_handler.setLevel(log_level)
 
-    logger.addHandler(_default_handler)
+    # 同一 logger 多次 init_logger（循环 import）时避免重复 handler 导致同一条日志输出多份。
+    if _default_handler is not None and _default_handler not in logger.handlers:
+        logger.addHandler(_default_handler)
     logger.propagate = False
 
     return logger

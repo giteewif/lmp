@@ -143,6 +143,9 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
 // 注意：只有当所有引用计数为 0 时才会真正释放内存
 void ReleaseCachedGroupMemory();
 
+// Release all cached fused-experts packed memory mappings (only releases if ref count is 0).
+void ReleaseCachedFusedExpertsPackedMemory();
+
 // TensorIndexResizeMap 缓存包装类，用于避免重复转换 Python dict
 // 在 Python 端只转换一次，然后重复使用
 class TensorIndexResizeMapCache {
@@ -169,3 +172,18 @@ std::unordered_map<std::string, torch::Tensor> RestoreExpertsGroupsFromSharedMem
     const TensorIndexResizeMapCache& tensor_metadata_cache,
     size_t chunk_size,
     const std::vector<std::vector<std::string>>& name_groups);
+
+// fused-experts 专用：从 fused bank 大张量中按 expert_idx_list 采样，输出为第0维连续的 packed 大张量
+// gate_up_name/down_name 对应 tensor_metadata 中 fused bank 的名字（shape[0] 是 num_experts）
+// expert_idx_list 为要抽取的 expert 行 id（顺序即输出第0维顺序；不要求 id 在 bank 中连续；严格递增时走单次 mmap 快路径）
+// 零拷贝：实现仅通过 mmap(MAP_SHARED|MAP_FIXED) 将 shm 页映射到连续虚拟地址，无 memcpy 中转；返回张量为 CPU 上对该映射的视图（勿对权重再 .clone()/.cpu() 等若需保持零拷贝语义）。
+// 返回:
+// - "gate_up_packed", "down_packed"：两个 packed big tensor
+// - 同时兼容 "group_0_big_tensor"/"group_1_big_tensor"（便于复用旧调用方）
+std::unordered_map<std::string, torch::Tensor> RestoreFusedExpertsPackedFromSharedMemorySilentCached(
+    const std::vector<std::string>& shm_names,
+    const TensorIndexResizeMapCache& tensor_metadata_cache,
+    size_t chunk_size,
+    const std::string& gate_up_name,
+    const std::string& down_name,
+    const std::vector<int64_t>& expert_idx_list);
