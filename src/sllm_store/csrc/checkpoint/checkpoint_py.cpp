@@ -18,7 +18,6 @@
 #include <torch/extension.h>
 
 #include "checkpoint.h"
-#include "cuda_memcpy.h"
 
 namespace py = pybind11;
 
@@ -27,113 +26,10 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("save_tensors", &SaveTensors, "Save a state dict")
       .def("restore_tensors", &RestoreTensors, "Restore a state dict")
       .def("restore_tensors2", &RestoreTensors2, "Restore a state dict and not released")
-      .def("restore_tensors_from_pinned_memory", &RestoreTensorsFromPinnedMemory, "Restore a state dict from pinned memory")
       .def("restore_tensors_from_shared_memory_names", &RestoreTensorsFromSharedMemoryNames, 
-           py::arg("shm_names"), py::arg("tensor_metadata"), py::arg("chunk_size"),
-           "Restore a state dict from shared memory names")
-      .def("restore_experts_tensor_from_shared_memory", &RestoreExpertsFromSharedMemory,
-           py::arg("shm_names"), py::arg("tensor_metadata"), py::arg("chunk_size"),
-           py::arg("name_continuous_space"),
-           "Restore some experts in a layer from shared memory to contiguous address space"
-      )
-      .def("restore_experts_groups_from_shared_memory", &RestoreExpertsGroupsFromSharedMemory,
-           py::arg("shm_names"), py::arg("tensor_metadata"), py::arg("chunk_size"),
-           py::arg("name_groups"),
-           "Restore multiple groups of experts, each group creates a big_tensor"
-      )
-      .def("restore_experts_groups_from_shared_memory_profiled", &RestoreExpertsGroupsFromSharedMemoryProfiled,
-           py::arg("shm_names"), py::arg("tensor_metadata"), py::arg("chunk_size"),
-           py::arg("name_groups"),
-           py::call_guard<py::gil_scoped_release>(),
-           "Restore multiple groups of experts with performance profiling (outputs to stderr)"
-      )
-      .def("restore_experts_groups_from_shared_memory_silent", &RestoreExpertsGroupsFromSharedMemorySilent,
-           py::arg("shm_names"), py::arg("tensor_metadata"), py::arg("chunk_size"),
-           py::arg("name_groups"),
-           py::call_guard<py::gil_scoped_release>(),
-           "Restore multiple groups of experts silently (no output, same functionality as profiled version)"
-      )
-      // 缓存版本：接受 TensorIndexResizeMapCache 对象，避免重复转换
-      .def("restore_experts_groups_from_shared_memory_profiled_cached", &RestoreExpertsGroupsFromSharedMemoryProfiledCached,
-           py::arg("shm_names"), py::arg("tensor_metadata_cache"), py::arg("chunk_size"),
-           py::arg("name_groups"),
-           py::call_guard<py::gil_scoped_release>(),
-           "Restore multiple groups of experts with cached tensor_metadata (avoids repeated Python->C++ conversion)"
-      )
-      .def("restore_experts_groups_from_shared_memory_silent_cached", &RestoreExpertsGroupsFromSharedMemorySilentCached,
-           py::arg("shm_names"), py::arg("tensor_metadata_cache"), py::arg("chunk_size"),
-           py::arg("name_groups"),
-           py::call_guard<py::gil_scoped_release>(),
-           "Restore multiple groups of experts silently with cached tensor_metadata (no output, avoids repeated Python->C++ conversion)"
-      )
-      // TensorIndexResizeMapCache 类，用于缓存转换后的 tensor_metadata
-      .def("create_tensor_index_cache", [](const TensorIndexResizeMap& metadata) {
-        return std::make_shared<TensorIndexResizeMapCache>(metadata);
-      }, py::arg("tensor_metadata"),
-      "Create a cached TensorIndexResizeMap to avoid repeated Python->C++ conversion")
-      .def("restore_experts_groups_from_shared_memory_profiled_cached_ptr", 
-           [](const std::vector<std::string>& shm_names,
-              const std::shared_ptr<TensorIndexResizeMapCache>& tensor_metadata_cache,
-              size_t chunk_size,
-              const std::vector<std::vector<std::string>>& name_groups) {
-             return RestoreExpertsGroupsFromSharedMemoryProfiledCached(
-                 shm_names, *tensor_metadata_cache, chunk_size, name_groups);
-           },
-           py::arg("shm_names"), py::arg("tensor_metadata_cache"), py::arg("chunk_size"),
-           py::arg("name_groups"),
-           py::call_guard<py::gil_scoped_release>(),
-           "Restore multiple groups of experts with shared_ptr cached tensor_metadata"
-      )
-      .def("restore_experts_groups_from_shared_memory_silent_cached_ptr", 
-           [](const std::vector<std::string>& shm_names,
-              const std::shared_ptr<TensorIndexResizeMapCache>& tensor_metadata_cache,
-              size_t chunk_size,
-              const std::vector<std::vector<std::string>>& name_groups) {
-             return RestoreExpertsGroupsFromSharedMemorySilentCached(
-                 shm_names, *tensor_metadata_cache, chunk_size, name_groups);
-           },
-           py::arg("shm_names"), py::arg("tensor_metadata_cache"), py::arg("chunk_size"),
-           py::arg("name_groups"),
-           py::call_guard<py::gil_scoped_release>(),
-           "Restore multiple groups of experts silently with shared_ptr cached tensor_metadata (no output)"
-      );
-
-  // fused-experts 专用：按 expert_idx_list 从 fused bank 大张量中打包 gate_up/down
-  m.def("restore_fused_experts_packed_from_shared_memory_silent_cached_ptr",
-        [](const std::vector<std::string>& shm_names,
-           const std::shared_ptr<TensorIndexResizeMapCache>& tensor_metadata_cache,
-           size_t chunk_size,
-           const std::string& gate_up_name,
-           const std::string& down_name,
-           const std::vector<int64_t>& expert_idx_list) {
-          return RestoreFusedExpertsPackedFromSharedMemorySilentCached(
-              shm_names, *tensor_metadata_cache, chunk_size, gate_up_name, down_name, expert_idx_list);
-        },
-        py::arg("shm_names"), py::arg("tensor_metadata_cache"), py::arg("chunk_size"),
-        py::arg("gate_up_name"), py::arg("down_name"), py::arg("expert_idx_list"),
-        py::call_guard<py::gil_scoped_release>(),
-        "Restore packed gate_up/down from fused bank by expert_idx_list (mmap MAP_SHARED zero-copy; cached metadata)");
-  
-  // 注册 TensorIndexResizeMapCache 类
-  py::class_<TensorIndexResizeMapCache, std::shared_ptr<TensorIndexResizeMapCache>>(m, "TensorIndexResizeMapCache")
-      .def(py::init<const TensorIndexResizeMap&>(), py::arg("tensor_metadata"),
-           "Create a cached TensorIndexResizeMap from Python dict (conversion happens only once)");
-  
-  // 继续注册模块级别的函数
-  m.def("restore_experts_groups_from_shared_memory_cached", &RestoreExpertsGroupsFromSharedMemoryCached,
         py::arg("shm_names"), py::arg("tensor_metadata"), py::arg("chunk_size"),
-        py::arg("name_groups"),
-        py::call_guard<py::gil_scoped_release>(),
-        "Restore multiple groups of experts with memory caching (reuses mapped memory)"
-       )
-      .def("release_cached_group_memory", &ReleaseCachedGroupMemory,
-           "Release all cached group memory mappings (only releases if ref count is 0)"
-      )
-      .def("release_cached_fused_packed_memory", &ReleaseCachedFusedExpertsPackedMemory,
-           "Release all cached fused packed memory mappings (only releases if ref count is 0)"
-      )
+        "Restore a state dict from shared memory names")
       .def("allocate_cuda_memory", &AllocateCudaMemory, "Allocate cuda memory")
-      .def("free_cuda_memory", &FreeCudaMemory, "Free cuda memory")
       .def(
           "get_cuda_memory_handles",
           [](const std::unordered_map<int, void*>& memory_ptrs) {
@@ -188,19 +84,5 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
             return py_memory_handles;
           },
           py::arg("memory_ptrs"), "Get cuda memory handles")
-      .def("get_device_uuid_map", &GetDeviceUuidMap, "Get device uuid map")
-      
-      // CUDA memory copy functions
-      .def("cuda_memcpy_h2d", &CudaMemcpyTensorHostToDevice, 
-           py::arg("dst_tensor"), py::arg("src_tensor"), py::arg("non_blocking") = false,
-           "Copy tensor from host to device using cudaMemcpy")
-      .def("cuda_memcpy_d2h", &CudaMemcpyTensorDeviceToHost,
-           py::arg("dst_tensor"), py::arg("src_tensor"), py::arg("non_blocking") = false,
-           "Copy tensor from device to host using cudaMemcpy")
-      .def("cuda_memcpy_d2d", &CudaMemcpyTensorDeviceToDevice,
-           py::arg("dst_tensor"), py::arg("src_tensor"), py::arg("non_blocking") = false,
-           "Copy tensor from device to device using cudaMemcpy")
-      .def("cuda_memcpy_smart", &CudaMemcpyTensorSmart,
-           py::arg("dst_tensor"), py::arg("src_tensor"), py::arg("non_blocking") = false,
-           "Smart tensor copy that automatically determines copy direction");
+      .def("get_device_uuid_map", &GetDeviceUuidMap, "Get device uuid map");
 }

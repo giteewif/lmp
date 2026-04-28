@@ -15,13 +15,10 @@
 //   See the License for the specific language governing permissions and
 //   limitations under the License.
 //  ----------------------------------------------------------------------------
-// Include glog BEFORE checkpoint_store.h to ensure glog's LOG macro takes precedence
-// over PyTorch's LOG macro (which is included via model.h -> torch headers)
-#include <glog/logging.h>
-
 #include "checkpoint_store.h"
 
 #include <fcntl.h>
+#include <glog/logging.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -40,26 +37,18 @@ CheckpointStore::CheckpointStore(const std::string& storage_path,
     : storage_path_(storage_path),
       memory_pool_size_(memory_pool_size),
       num_thread_(num_thread),
-      chunk_size_(chunk_size),
       use_shared_memory_(use_shared_memory),
-      shm_name_prefix_(shm_name_prefix) {
-  // Get number of GPUs (must check: on hosts without CUDA / driver, count is undefined unless we check).
-  cudaError_t cd = cudaGetDeviceCount(&num_gpus_);
-  if (cd != cudaSuccess) {
-    LOG(FATAL) << "cudaGetDeviceCount failed: " << cudaGetErrorString(cd)
-               << " (is NVIDIA driver loaded? CUDA_VISIBLE_DEVICES empty/disabled?)";
-  }
-  if (num_gpus_ <= 0) {
-    LOG(FATAL) << "No CUDA devices visible (num_gpus=" << num_gpus_
-               << "). CheckpointStore requires at least one GPU for streams and pinned I/O.";
-  }
-  LOG(INFO) << "CheckpointStore: Number of GPUs: " << num_gpus_;
+      shm_name_prefix_(shm_name_prefix),
+      chunk_size_(chunk_size) {
+  // Get number of GPUs
+  cudaGetDeviceCount(&num_gpus_);
+  LOG(INFO) << "Number of GPUs: " << num_gpus_;
 
   LOG(INFO) << "I/O threads: " << num_thread
             << ", chunk size: " << chunk_size / MB << "MB";
   LOG(INFO) << "Storage path: " << storage_path_;
 
-  for (size_t i = 0; i < static_cast<size_t>(num_gpus_); ++i) {
+  for (size_t i = 0; i < num_gpus_; ++i) {
     cudaSetDevice(i);
 
     cudaDeviceProp props;
@@ -106,19 +95,12 @@ CheckpointStore::CheckpointStore(const std::string& storage_path,
   }
 }
 
-CheckpointStore::~CheckpointStore() { 
-  ClearMem(); 
-  ReleaseRegisteredFixedGpuPtrsAll(); 
-}
+CheckpointStore::~CheckpointStore() { ClearMem(); }
 
-int64_t CheckpointStore::RegisterModelInfo(
-  const std::string& model_path,
-  const TensorIndexMap& tensor_index,
-  const TensorIndexResizeMap& tensor_index_resize
-) {
+int64_t CheckpointStore::RegisterModelInfo(const std::string& model_path) {
   std::unique_lock<std::mutex> lock_info(model_info_mutex_);
   if (model_map_.find(model_path) != model_map_.end()) {
-    // LOG(INFO) << "Model " << model_path << " is already regfistered";
+    // LOG(WARNING) << "Model " << model_path << " is already regfistered";
     auto model = model_map_.at(model_path);
     return model->GetModelSize();
   }
@@ -126,8 +108,6 @@ int64_t CheckpointStore::RegisterModelInfo(
   auto model = std::make_shared<Model>(model_path);
 
   int ret = model->Initialize(storage_path_);
-  model->SetTensorInfo(tensor_index, tensor_index_resize);
-
   if (ret != 0) {
     LOG(ERROR) << "Failed to initialize model " << model_path;
     return ret;
@@ -200,15 +180,13 @@ int CheckpointStore::LoadModelFromDisk(const std::string& model_path) {
   model_last_access_time_[model_path] = std::chrono::system_clock::now();
   lock_info.unlock();
 
-  // 如果设置了 tensor_index_resize，使用 ToHostResize，否则使用 ToHost
   int ret;
   if (model->HasTensorIndexResize()) {
-    LOG(INFO) << "Using ToHostResize for model " << model_path;
     ret = model->ToHostResize(num_thread_);
   } else {
-    LOG(INFO) << "Using ToHost for model " << model_path;
     ret = model->ToHost(num_thread_);
   }
+
   if (ret != 0) {
     LOG(ERROR) << "Failed to load model " << model_path << " to host";
     if (model->FreeHost() != 0) {
@@ -232,11 +210,8 @@ int CheckpointStore::LoadModelFromDiskAsync(const std::string& model_path) {
 int CheckpointStore::LoadModelFromMem(
     const std::string& model_path, const std::string& replica_uuid,
     const MemCopyHandleListMap& gpu_memory_handles,
-    const MemCopyChunkListMap& mem_copy_chunks,
-    const bool& use_fixed_gpu_ptrs
-  ) {
+    const MemCopyChunkListMap& mem_copy_chunks) {
   // Sanity check
-  auto time_start_prepare = std::chrono::system_clock::now();
   if (model_path.empty() || replica_uuid.empty()) {
     LOG(ERROR) << "Model name or replica uuid is empty";
     return -1;
@@ -258,14 +233,8 @@ int CheckpointStore::LoadModelFromMem(
   model_last_access_time_[model_path] = std::chrono::system_clock::now();
   lock_info.unlock();
 
-  LOG(INFO) << "Stage 1: prepare data for loading model cost" 
-            << std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::system_clock::now() - time_start_prepare)
-                    .count()
-            << " ms";
   LOG(INFO) << "Loading model " << model_path;
 
-  
   // Convert device uuid to device id
   std::unordered_map<int, MemCopyChunkList> converted_mem_copy_chunks;
   for (auto& [device_id, gpu_info] : gpu_info_map_) {
@@ -274,11 +243,7 @@ int CheckpointStore::LoadModelFromMem(
     }
     converted_mem_copy_chunks[device_id] = mem_copy_chunks.at(gpu_info.uuid_);
   }
-  LOG(INFO) << "Stage 2: prepare data for loading model cost" 
-            << std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::system_clock::now() - time_start_prepare)
-                    .count()
-            << " ms";
+
   std::unordered_map<int, MemCopyHandleList> converted_mem_copy_handles;
   for (auto& [device_id, gpu_info] : gpu_info_map_) {
     if (gpu_memory_handles.find(gpu_info.uuid_) == gpu_memory_handles.end()) {
@@ -287,34 +252,12 @@ int CheckpointStore::LoadModelFromMem(
     converted_mem_copy_handles[device_id] =
         gpu_memory_handles.at(gpu_info.uuid_);
   }
-  LOG(INFO) << "Stage 3: prepare data for loading model cost" 
-            << std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::system_clock::now() - time_start_prepare)
-                    .count()
-            << " ms";
   // Convert memory handles to device pointers
-  // auto device_ptrs = GetDevicePtrsFromMemHandles(gpu_memory_handles);
-  // could use the fix gpu ptrs
-  MemPtrListMap device_ptrs;
-  if (use_fixed_gpu_ptrs && !registered_fixed_gpu_ptrs_.empty()) {
-    device_ptrs = GetFixedDevicePtrsFromMemHandles(gpu_memory_handles);
-  } else {
-    device_ptrs = GetDevicePtrsFromMemHandles(gpu_memory_handles);
-  }
+  auto device_ptrs = GetDevicePtrsFromMemHandles(gpu_memory_handles);
 
-  LOG(INFO) << "Stage 4: prepare data for loading model cost" 
-            << std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::system_clock::now() - time_start_prepare)
-                    .count()
-            << " ms";
-  auto time_start = std::chrono::system_clock::now();
   auto ret = model->ToGpu(replica_uuid, device_ptrs, converted_mem_copy_chunks,
-                          converted_mem_copy_handles, use_fixed_gpu_ptrs);
-  LOG(INFO) << "Load model once " << model_path << " to gpu cost "
-            << std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::system_clock::now() - time_start_prepare)
-                    .count()
-            << " ms";
+                          converted_mem_copy_handles);
+
   // TODO: check if the model is loaded successfully
   if (ret != 0) {
     LOG(ERROR) << "Failed to load model " << model_path << " to GPU";
@@ -330,18 +273,69 @@ int CheckpointStore::LoadModelFromMemAsync(
     const std::string& model_path, const std::string& replica_uuid,
     const std::unordered_map<std::string, MemCopyHandleList>&
         gpu_memory_handles,
-    const std::unordered_map<std::string, MemCopyChunkList>& mem_copy_chunks,
-    const bool& use_fixed_gpu_ptrs
-  ) {
+    const std::unordered_map<std::string, MemCopyChunkList>& mem_copy_chunks) {
   std::unique_lock<std::mutex> lock_info(model_info_mutex_);
   async_tasks_.emplace(std::async(
       std::launch::async,
-      [this, model_path, replica_uuid, gpu_memory_handles, mem_copy_chunks, use_fixed_gpu_ptrs]() {
+      [this, model_path, replica_uuid, gpu_memory_handles, mem_copy_chunks]() {
         return LoadModelFromMem(model_path, replica_uuid, gpu_memory_handles,
-                                mem_copy_chunks, use_fixed_gpu_ptrs);
+                                mem_copy_chunks);
       }));
 
   return 0;
+}
+
+int CheckpointStore::SubmitHighPriorityTasks(
+    const std::string& model_path, const std::string& replica_uuid,
+    const std::vector<uint64_t>& task_ids,
+    std::vector<uint64_t>* pending_task_ids) {
+  std::shared_ptr<Model> model;
+  std::unique_lock<std::mutex> lock_info(model_info_mutex_);
+  if (model_map_.find(model_path) == model_map_.end()) {
+    LOG(ERROR) << "Model " << model_path << " is not registered";
+    return -1;
+  }
+  model = model_map_[model_path];
+  model_last_access_time_[model_path] = std::chrono::system_clock::now();
+  lock_info.unlock();
+
+  return model->SubmitHighPriorityTasks(replica_uuid, task_ids,
+                                        pending_task_ids);
+}
+
+int CheckpointStore::SetReorderBitmap(const std::string& model_path,
+                                      const std::string& replica_uuid,
+                                      const std::vector<uint64_t>& task_ids) {
+  std::shared_ptr<Model> model;
+  std::unique_lock<std::mutex> lock_info(model_info_mutex_);
+  if (model_map_.find(model_path) == model_map_.end()) {
+    LOG(ERROR) << "Model " << model_path << " is not registered";
+    return -1;
+  }
+  model = model_map_[model_path];
+  model_last_access_time_[model_path] = std::chrono::system_clock::now();
+  lock_info.unlock();
+
+  return model->SetReorderBitmap(replica_uuid, task_ids);
+}
+
+int CheckpointStore::WaitCopyTasks(const std::string& model_path,
+                                   const std::string& replica_uuid,
+                                   const std::vector<uint64_t>& task_ids,
+                                   uint64_t timeout_ms,
+                                   std::vector<uint64_t>* pending_task_ids) {
+  std::shared_ptr<Model> model;
+  std::unique_lock<std::mutex> lock_info(model_info_mutex_);
+  if (model_map_.find(model_path) == model_map_.end()) {
+    LOG(ERROR) << "Model " << model_path << " is not registered";
+    return -1;
+  }
+  model = model_map_[model_path];
+  model_last_access_time_[model_path] = std::chrono::system_clock::now();
+  lock_info.unlock();
+
+  return model->WaitCopyTasks(replica_uuid, task_ids, timeout_ms,
+                              pending_task_ids);
 }
 
 int CheckpointStore::WaitModelInGpu(const std::string& model_path,
@@ -422,143 +416,4 @@ MemPtrListMap CheckpointStore::GetDevicePtrsFromMemHandles(
     }
   }
   return gpu_ptrs;
-}
-
-MemPtrListMap CheckpointStore::GetFixedDevicePtrsFromMemHandles(
-  const MemCopyHandleListMap& memory_handles) {
-  MemPtrListMap gpu_ptrs;
-  for (const auto& [device_id, gpu_info] : gpu_info_map_) {
-    const std::string& uuid = gpu_info.uuid_;
-    if (memory_handles.find(uuid) == memory_handles.end()) {
-      continue;
-    }
-    auto& handle_list = memory_handles.at(uuid);
-    for (const auto& handle : handle_list) {
-      // Convert handle string to cuda handle
-      void* ptr = registered_device_string_mem_ptr_map_[device_id][handle.cuda_ipc_handle_];
-      if (ptr == nullptr) {
-        LOG(ERROR) << "Failed to get fixed device pointer from memory handles";
-        exit(1);
-      }
-      gpu_ptrs[device_id].push_back(ptr);
-    }
-  }
-  return gpu_ptrs;
-}
-
-int CheckpointStore::RegisterFixedGpuPtrs(
-   const MemCopyHandleListMap& memory_handles) {
-  if (!registered_fixed_gpu_ptrs_.empty()) {
-    LOG(INFO) << "Has Registered fixed gpu pointers";
-    // INSERT_YOUR_CODE
-    // Print the first element of registered_fixed_gpu_ptrs_ if not empty
-
-    auto first = registered_fixed_gpu_ptrs_.begin();
-    LOG(INFO) << "registered_fixed_gpu_ptrs num =" << registered_fixed_gpu_ptrs_.size()
-              << "First non-empty element: device_id = " << first->first
-              << ", ptr count = " << first->second.size();
-  }
-  LOG(INFO) << "Register fixed gpu pointers";
-  for (const auto& [device_id, gpu_info] : gpu_info_map_) {
-    const std::string& uuid = gpu_info.uuid_;
-    if (memory_handles.find(uuid) == memory_handles.end()) {
-      continue;
-    }
-    auto& handle_list = memory_handles.at(uuid);
-    for (const auto& handle : handle_list) {
-      // Convert handle string to cuda handle
-      cudaIpcMemHandle_t* cuda_handle =
-          reinterpret_cast<cudaIpcMemHandle_t*>(const_cast<char*>(
-              reinterpret_cast<const char*>(handle.cuda_ipc_handle_.data())));
-      void* ptr = nullptr;
-
-      cudaSetDevice(device_id);
-      cudaError_t err = cudaIpcOpenMemHandle(&ptr, *cuda_handle,
-                                             cudaIpcMemLazyEnablePeerAccess);
-      if (err != cudaSuccess || ptr == nullptr) {
-        LOG(ERROR) << "Failed to open cuda handle on device " << device_id
-                   << " error: " << cudaGetErrorString(err);
-        exit(1);
-      }
-      registered_fixed_gpu_ptrs_[device_id].push_back(ptr);
-      registered_device_string_mem_ptr_map_[device_id][handle.cuda_ipc_handle_] = ptr;
-      LOG(INFO) << "Register fixed gpu pointer on device " << device_id << " handle " << handle.cuda_ipc_handle_ << " ptr " << ptr;
-    }
-  }
-  return 0;
-}
-
-int CheckpointStore::ReleaseRegisteredFixedGpuPtrsAll() {
-  LOG(INFO) << "Release all registered fixed gpu pointers";
-  for (const auto& [device_id, ptr_list] : registered_fixed_gpu_ptrs_) {
-    cudaSetDevice(device_id);
-    for (const auto& ptr : ptr_list) {
-      cudaError_t err = cudaIpcCloseMemHandle(ptr);
-      if (err != cudaSuccess) {
-        LOG(ERROR) << "Failed to close memory handle on device " << device_id
-                   << " error: " << cudaGetErrorString(err);
-        return -1;
-      }
-    }
-  }
-  registered_device_string_mem_ptr_map_.clear();
-  registered_fixed_gpu_ptrs_.clear();
-  return 0;
-}
-
-int CheckpointStore::ReleaseRegisteredFixedGpuPtrs(
-  const MemCopyHandleListMap& memory_handles) {
-  LOG(INFO) << "Release registered fixed gpu pointers for memory handles";
-  for (const auto& [device_id, gpu_info] : gpu_info_map_) {
-    const std::string& uuid = gpu_info.uuid_;
-    if (memory_handles.find(uuid) == memory_handles.end()) {
-      continue;
-    }
-    auto& handle_list = memory_handles.at(uuid);
-    for (const auto& handle : handle_list) {
-      // Convert handle string to cuda handle
-      if (registered_device_string_mem_ptr_map_[device_id].find(handle.cuda_ipc_handle_) == registered_device_string_mem_ptr_map_[device_id].end()) {
-        continue;
-      }
-      void* ptr = registered_device_string_mem_ptr_map_[device_id][handle.cuda_ipc_handle_];
-      if (ptr == nullptr) {
-        LOG(ERROR) << "Failed to get fixed device pointer from memory handles";
-        exit(1);
-      }
-      cudaError_t err = cudaIpcCloseMemHandle(ptr);
-      if (err != cudaSuccess) {
-        LOG(ERROR) << "Failed to close memory handle on device " << device_id
-                   << " error: " << cudaGetErrorString(err);
-        return -1;
-      }
-      registered_device_string_mem_ptr_map_[device_id].erase(handle.cuda_ipc_handle_);
-      auto it = std::find(registered_fixed_gpu_ptrs_[device_id].begin(), 
-                          registered_fixed_gpu_ptrs_[device_id].end(), ptr);
-      if (it != registered_fixed_gpu_ptrs_[device_id].end()) {
-        LOG(INFO) << "Release fixed gpu pointer on device " << device_id << " ptr " << ptr;
-        registered_fixed_gpu_ptrs_[device_id].erase(it);
-      }
-    }
-  }
-  return 0;
-}
-
-std::pair<std::vector<std::string>, size_t> CheckpointStore::GetModelSharedMemoryNames(
-    const std::string& model_path) {
-  std::unique_lock<std::mutex> lock_info(model_info_mutex_);
-  auto model = GetModelPtr(model_path);
-  if (model == nullptr) {
-    LOG(ERROR) << "Model " << model_path << " is not registered";
-    return {{}, 0};
-  }
-  lock_info.unlock();
-  
-  if (!use_shared_memory_) {
-    LOG(ERROR) << "Not using shared memory pool";
-    return {{}, 0};
-  }
-  
-  std::vector<std::string> shm_names = model->GetSharedMemoryNames();
-  size_t chunk_size = chunk_size_;
-  return {shm_names, chunk_size};
 }

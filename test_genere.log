@@ -1,0 +1,118 @@
+/mnt/zhengcf3/lmp_env/fslmp/lib/python3.10/site-packages/torch/cuda/__init__.py:65: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+  import pynvml  # type: ignore[import]
+here pin
+INFO 04-23 19:01:49.886051.886051 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+INFO 04-23 19:01:50.418027.418027 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+INFO 04-23 19:01:50.849553.849553 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 04-23 19:01:50.849911.849911 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 0.963s
+`torch_dtype` is deprecated! Use `dtype` instead!
+DEBUG 04-23 19:01:56.526645.526645 cuda_memory_view.py:1180] 
+DEBUG 04-23 19:01:56.526645.526645 cuda_memory_view.py:1180] restore_tensors_from_shared_memory_names time: 0.0026586055755615234
+DEBUG 04-23 19:01:56.531969.531969 mlpmodule.py:927] restore_hm_state_dict2model loaded 150 expert tensors for Gemma4 model
+DEBUG 04-23 19:01:56.531692.531692 cuda_h.py:27] end init_cmv_hmv cost 678.036 ms
+/mnt/zhengcf3/lmp_env/fslmp/lib/python3.10/site-packages/torch/cuda/__init__.py:65: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+  import pynvml  # type: ignore[import]
+here pin
+INFO 04-23 19:01:58.059712.059712 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+INFO 04-23 19:01:58.576290.576290 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+INFO 04-23 19:01:59.046660.046660 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 04-23 19:01:59.047888.047888 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 0.987s
+[cpu_experts_worker pid=9590] entered (model_path='gemma4-26B-A4B' type='Gemma4')
+DEBUG 04-23 19:02:03.658797.658797 cpu_thread_manager_mp.py:137] 初始化
+DEBUG 04-23 19:02:03.693344.693344 cpu_thread_manager_mp.py:143] CPU experts MP worker: torch.set_num_threads(32) (LMP_MP_CPU_INTRAOP_THREADS / OMP_NUM_THREADS / default cap 32)
+[cpu_experts_worker pid=9590] torch.set_num_threads(32) done
+[cpu_experts_worker pid=9590] importing MLPModuleWrapper / HostMemoryView ...
+[cpu_experts_worker pid=9590] imports done
+[cpu_experts_worker pid=9590] MLPModuleWrapper(...) ...
+[cpu_experts_worker pid=9590] init_chmv_meta_model(...) ...
+`torch_dtype` is deprecated! Use `dtype` instead!
+[cpu_experts_worker pid=9590] HostMemoryView(...) ...
+DEBUG 04-23 19:02:04.264336.264336 cuda_memory_view.py:1180] 
+DEBUG 04-23 19:02:04.264336.264336 cuda_memory_view.py:1180] restore_tensors_from_shared_memory_names time: 0.002808809280395508
+DEBUG 04-23 19:02:04.269092.269092 mlpmodule.py:927] restore_hm_state_dict2model loaded 150 expert tensors for Gemma4 model
+[cpu_experts_worker pid=9590] HostMemoryView ready
+[cpu_experts_worker pid=9590] begin _test_group_bmm_fused_experts()
+[test_group_bmm_fused_experts] start (print+flush; bypasses logging).
+[test_group_bmm_fused_experts][half=noncontiguous] input_gen: 34.364 ms
+[test_group_bmm_fused_experts][half=noncontiguous] gate_func: 6.721 ms
+[test_group_bmm_fused_experts][half=noncontiguous] activated_experts_unique=128, routed_slots=4096 total experts = 128 (T=512, K=8)
+[test_group_bmm_fused_experts][half=noncontiguous] choose_half_experts: 0.868 ms (E_total=128, E_half=64, experts=[44, 20, 38, 91, 15, 33, 81, 103, 35, 78, 89, 31, 43, 50, 27, 84, 114, 123, 23, 29, 30, 53, 69, 120, 14, 51, 59, 70, 97, 124, 17, 18, 28, 45, 68, 113, 126, 9, 10, 46, 48, 0, 36, 54, 90, 92, 108, 112, 125, 127, 8, 24, 34, 47, 49, 63, 75, 77, 87, 3, 5, 25, 39, 52], total_tokens=1744, max_tokens=32)
+[test_group_bmm_fused_experts][half=noncontiguous] filter_slots_in_half: 0.485 ms (slots_in_half=1744, T=512, K=8)
+[test_group_bmm_fused_experts][half=noncontiguous] gather_half_tokens: 0.749 ms
+[test_group_bmm_fused_experts][half=noncontiguous] sort_by_expert: 0.812 ms
+DEBUG 04-23 19:02:04.314038.314038 cuda_h.py:27] end get_fused_experts_names_w cost 0.030 ms
+DEBUG 04-23 19:02:04.316140.316140 cuda_h.py:27] end restore_fused_tensors cost 1.349 ms
+[test_group_bmm_fused_experts][half=noncontiguous] restore_group_fused_weights: 1.788 ms
+[test_group_bmm_fused_experts][half=noncontiguous] transpose_contig: 0.022 ms
+[test_group_bmm_fused_experts][half=noncontiguous] pad_pack: 2.811 ms
+[test_group_bmm_fused_experts][half=noncontiguous] fused_group_bmm: 21.357 ms (bmm1=11.110 act+split=0.731 bmm2=6.063 unpad=3.454)
+[test_group_bmm_fused_experts][half=noncontiguous] ref_mm_and_assert: 81.825 ms
+[test_group_bmm_fused_experts][half=noncontiguous] unsort_and_weight: 0.650 ms
+[test_group_bmm_fused_experts][half=noncontiguous] total: 153.354 ms (T=512, K=8, slots_in_half=1744, E_half=64)
+[cpu_experts_worker pid=9590] end _test_group_bmm_fused_experts()
+INFO 04-23 19:02:04.423666.423666 cpu_thread_manager_mp.py:181] CPU experts worker: _test_group_bmm_fused_experts() finished.
+DEBUG 04-23 19:02:04.424234.424234 cuda_h.py:27] end init_mp_process cost 7889.628 ms
+generate input ids cost 0.05672025680541992 s
+DEBUG 04-23 19:02:07.161799.161799 cuda_h.py:27] end generate_input_ids cost 2736.619 ms
+DEBUG 04-23 19:02:07.161718.161718 cuda_h.py:27] end init_cache cost 0.043 ms
+DEBUG 04-23 19:02:07.161801.161801 cuda_h.py:27] end allocate_cuda_memory cost 0.222 ms
+DEBUG 04-23 19:02:07.162335.162335 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:02:07.162840.162840 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:02:07.164140.164140 cuda_h.py:27] end load_into_gpu_async cost 2.280 ms
+DEBUG 04-23 19:02:07.164726.164726 cuda_h.py:27] end restore_tensors2 cost 0.056 ms
+DEBUG 04-23 19:02:07.164774.164774 cuda_h.py:27] end allocate_cuda_memory_and_load_into_gpu cost 3.012 ms
+DEBUG 04-23 19:02:07.164563.164563 cuda_h.py:27] end restore2model cost 0.201 ms
+DEBUG 04-23 19:02:07.307945.307945 cuda_h.py:27] end allocate_cuda_memory cost 0.439 ms
+DEBUG 04-23 19:02:07.307687.307687 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:02:07.308526.308526 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:02:07.309027.309027 cuda_h.py:27] end load_into_gpu_async cost 2.036 ms
+DEBUG 04-23 19:02:07.310216.310216 cuda_h.py:27] end restore_tensors2 cost 0.183 ms
+DEBUG 04-23 19:02:07.310393.310393 cuda_h.py:27] end allocate_cuda_memory_and_load_into_gpu cost 3.519 ms
+DEBUG 04-23 19:02:07.458231.458231 cuda_h.py:27] end restore2model cost 1.631 ms
+DEBUG 04-23 19:02:07.458422.458422 cuda_h.py:27] end load_qkvogns_weight_l_0 cost 151.479 ms
+DEBUG 04-23 19:02:07.458492.458492 cuda_h.py:27] end init_general_weights cost 297.015 ms
+/mnt/zhengcf3/lmp_env/fslmp/lib/python3.10/site-packages/transformers/modeling_attn_mask_utils.py:71: FutureWarning: The attention mask API under `transformers.modeling_attn_mask_utils` (`AttentionMaskConverter`) is deprecated and will be removed in Transformers v5.10. Please use the new API in `transformers.masking_utils`.
+  warnings.warn(DEPRECATION_MESSAGE, FutureWarning)
+/mnt/zhengcf3/lmp_env/fslmp/lib/python3.10/site-packages/transformers/modeling_attn_mask_utils.py:281: FutureWarning: The attention mask API under `transformers.modeling_attn_mask_utils` (`AttentionMaskConverter`) is deprecated and will be removed in Transformers v5.10. Please use the new API in `transformers.masking_utils`.
+  warnings.warn(DEPRECATION_MESSAGE, FutureWarning)
+DEBUG 04-23 19:02:07.654339.654339 cuda_h.py:27] end init_inputs_tokens cost 195.468 ms
+DEBUG 04-23 19:02:07.654560.654560 lmp.py:197] -------------------------------- start prefill layer 0 --------------------------------
+DEBUG 04-23 19:02:07.655848.655848 cuda_h.py:27] end start_load_qkvogn_s_weight_l_1 cost 0.050 ms
+DEBUG 04-23 19:02:07.655031.655031 cuda_h.py:27] end allocate_cuda_memory cost 0.312 ms
+DEBUG 04-23 19:02:07.655577.655577 cuda_h.py:27] end start_load_qkvogn_s_weight_l_1 cost 0.655 ms
+DEBUG 04-23 19:02:07.656657.656657 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:02:07.656750.656750 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:02:07.659722.659722 cuda_h.py:27] end load_into_gpu_async cost 3.133 ms
+DEBUG 04-23 19:02:07.659467.659467 cuda_h.py:27] end restore_tensors2 cost 0.163 ms
+DEBUG 04-23 19:02:07.659613.659613 cuda_h.py:27] end allocate_cuda_memory_and_load_into_gpu cost 4.519 ms
+DEBUG 04-23 19:02:07.669947.669947 cuda_h.py:27] end restore2model cost 1.450 ms
+DEBUG 04-23 19:02:07.669774.669774 cuda_h.py:27] end sllm_worker_task cost 13.878 ms
+DEBUG 04-23 19:02:07.920483.920483 cuda_h.py:27] end self_attn cost 215.057 ms
+DEBUG 04-23 19:02:07.920348.920348 cuda_h.py:27] end iln_self_attn_paln cost 264.248 ms
+DEBUG 04-23 19:02:08.018155.018155 cuda_h.py:27] end gate cost 97.249 ms
+DEBUG 04-23 19:02:08.043317.043317 cuda_h.py:27] end experts_map_get cost 21.316 ms
+DEBUG 04-23 19:02:08.043096.043096 cuda_h.py:27] end cpu_experts_submit_fused_mp cost 0.392 ms
+DEBUG 04-23 19:02:08.077960.077960 cuda_h.py:27] end prepare_group_stack cost 29.690 ms
+DEBUG 04-23 19:02:08.089432.089432 cuda_h.py:27] end group stack cost 12.172 ms
+DEBUG 04-23 19:02:08.089610.089610 cuda_h.py:27] end move_flatidxs_group_fused_mp cost 42.219 ms
+DEBUG 04-23 19:02:08.089129.089129 cuda_h.py:27] end get_fused_experts_names_w cost 0.022 ms
+DEBUG 04-23 19:02:08.091104.091104 cuda_h.py:27] end restore_fused_tensors cost 1.270 ms
+DEBUG 04-23 19:02:08.091636.091636 cuda_h.py:27] end group_fused_tensors_mp cost 1.733 ms
+DEBUG 04-23 19:02:08.106443.106443 mlpmodule.py:3364] [fused_group_bmm][steps] bmm1=8.905 ms split=0.083 ms act_mul=0.693 ms bmm2=4.781 ms
+DEBUG 04-23 19:02:08.106576.106576 cuda_h.py:27] end fused_group_bmm cost 14.690 ms
+DEBUG 04-23 19:02:08.107464.107464 cuda_h.py:27] end gather_outputs_group_fused_mp cost 0.949 ms
+DEBUG 04-23 19:02:08.108691.108691 cuda_h.py:27] end experts_func_gpu_einsum_mp cost 61.103 ms
+DEBUG 04-23 19:02:08.409798.409798 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:02:08.409677.409677 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:02:08.413199.413199 cuda_h.py:27] end load_into_gpu_async_fused_experts_dual cost 3.888 ms
+DEBUG 04-23 19:02:08.413595.413595 cuda_h.py:27] end restore_tensors2_fused_experts_packed cost 0.073 ms
+DEBUG 04-23 19:02:08.413265.413265 cuda_h.py:27] end restore_tensors2_fused_experts_slices cost 0.379 ms
+DEBUG 04-23 19:02:08.413519.413519 cuda_h.py:27] end allocate_experts_cuda_memory_and_restore_model_multi_device_fused cost 368.455 ms
+DEBUG 04-23 19:02:08.413097.413097 cuda_h.py:27] end gpu_sexperts cost 0.007 ms
+DEBUG 04-23 19:02:08.414901.414901 cuda_h.py:27] end wait_load_qkvogn_s_weight cost 0.019 ms
+DEBUG 04-23 19:02:08.444810.444810 cuda_h.py:27] end wait_experts_multi_device cost 29.710 ms
+DEBUG 04-23 19:02:08.596261.596261 cuda_h.py:27] end gpu_experts_multi_device_fused cost 151.513 ms
+DEBUG 04-23 19:02:08.597791.597791 cuda_h.py:27] end cpu_thread_manager_mp_wait_fused cost 0.628 ms
+DEBUG 04-23 19:02:08.598363.598363 cuda_h.py:27] end layer_moe_generate_mp_multi_device_fused_l_1 cost 677.059 ms
+/root/miniconda3/envs/lpllm/lib/python3.10/multiprocessing/resource_tracker.py:224: UserWarning: resource_tracker: There appear to be 15 leaked semaphore objects to clean up at shutdown
+  warnings.warn('resource_tracker: There appear to be %d '

@@ -60,7 +60,7 @@ class PinnedMemoryPool:
         for chunk_idx, chunk in enumerate(self.pool_memory):
             self.free_list.append((chunk_idx, 0, chunk.numel()))
 
-    def alloc_same_pin_tensor(self, tensor: torch.Tensor):
+    def alloc_same_pin_tensor(self, tensor: torch.Tensor) -> torch.Tensor:
         """分配与给定Tensor形状和类型匹配的内存块"""
         required_elements = tensor.numel()
         required_bytes = required_elements * self.element_size

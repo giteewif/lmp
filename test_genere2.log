@@ -1,0 +1,1270 @@
+/mnt/zhengcf3/lmp_env/fslmp/lib/python3.10/site-packages/torch/cuda/__init__.py:65: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+  import pynvml  # type: ignore[import]
+here pin
+INFO 04-23 19:05:58.051546.051546 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+INFO 04-23 19:05:58.579822.579822 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+INFO 04-23 19:05:59.007632.007632 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 04-23 19:05:59.007916.007916 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 0.957s
+`torch_dtype` is deprecated! Use `dtype` instead!
+DEBUG 04-23 19:06:04.421023.421023 cuda_memory_view.py:1180] 
+DEBUG 04-23 19:06:04.421023.421023 cuda_memory_view.py:1180] restore_tensors_from_shared_memory_names time: 0.0026044845581054688
+DEBUG 04-23 19:06:04.426739.426739 mlpmodule.py:927] restore_hm_state_dict2model loaded 150 expert tensors for Gemma4 model
+DEBUG 04-23 19:06:04.427095.427095 cuda_h.py:27] end init_cmv_hmv cost 605.999 ms
+/mnt/zhengcf3/lmp_env/fslmp/lib/python3.10/site-packages/torch/cuda/__init__.py:65: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+  import pynvml  # type: ignore[import]
+here pin
+INFO 04-23 19:06:06.080642.080642 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+INFO 04-23 19:06:06.600217.600217 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+INFO 04-23 19:06:07.127593.127593 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 04-23 19:06:07.128004.128004 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 1.048s
+[cpu_experts_worker pid=12054] entered (model_path='gemma4-26B-A4B' type='Gemma4')
+DEBUG 04-23 19:06:11.943013.943013 cpu_thread_manager_mp.py:137] 初始化
+DEBUG 04-23 19:06:12.058459.058459 cpu_thread_manager_mp.py:143] CPU experts MP worker: torch.set_num_threads(32) (LMP_MP_CPU_INTRAOP_THREADS / OMP_NUM_THREADS / default cap 32)
+[cpu_experts_worker pid=12054] torch.set_num_threads(32) done
+[cpu_experts_worker pid=12054] importing MLPModuleWrapper / HostMemoryView ...
+[cpu_experts_worker pid=12054] imports done
+[cpu_experts_worker pid=12054] MLPModuleWrapper(...) ...
+[cpu_experts_worker pid=12054] init_chmv_meta_model(...) ...
+`torch_dtype` is deprecated! Use `dtype` instead!
+[cpu_experts_worker pid=12054] HostMemoryView(...) ...
+DEBUG 04-23 19:06:12.600487.600487 cuda_memory_view.py:1180] 
+DEBUG 04-23 19:06:12.600487.600487 cuda_memory_view.py:1180] restore_tensors_from_shared_memory_names time: 0.002826690673828125
+DEBUG 04-23 19:06:12.605428.605428 mlpmodule.py:927] restore_hm_state_dict2model loaded 150 expert tensors for Gemma4 model
+[cpu_experts_worker pid=12054] HostMemoryView ready
+[cpu_experts_worker pid=12054] begin _test_group_bmm_fused_experts()
+[test_group_bmm_fused_experts] start (print+flush; bypasses logging).
+[test_group_bmm_fused_experts][half=noncontiguous] input_gen: 33.899 ms
+[test_group_bmm_fused_experts][half=noncontiguous] gate_func: 13.348 ms
+[test_group_bmm_fused_experts][half=noncontiguous] activated_experts_unique=128, routed_slots=4096 total experts = 128 (T=512, K=8)
+[test_group_bmm_fused_experts][half=noncontiguous] choose_half_experts: 1.043 ms (E_total=128, E_half=64, experts=[67, 5, 35, 18, 51, 26, 47, 103, 58, 29, 44, 45, 106, 123, 23, 43, 21, 49, 73, 111, 1, 28, 30, 79, 125, 126, 3, 15, 27, 38, 46, 62, 69, 117, 33, 64, 70, 74, 78, 87, 108, 116, 120, 19, 36, 66, 76, 81, 88, 90, 124, 39, 57, 84, 102, 104, 105, 114, 118, 8, 10, 13, 63, 72], total_tokens=1693, max_tokens=31)
+[test_group_bmm_fused_experts][half=noncontiguous] filter_slots_in_half: 0.560 ms (slots_in_half=1693, T=512, K=8)
+[test_group_bmm_fused_experts][half=noncontiguous] gather_half_tokens: 0.504 ms
+[test_group_bmm_fused_experts][half=noncontiguous] sort_by_expert: 0.558 ms
+DEBUG 04-23 19:06:12.656453.656453 cuda_h.py:27] end get_fused_experts_names_w cost 0.031 ms
+DEBUG 04-23 19:06:12.658051.658051 cuda_h.py:27] end restore_fused_tensors cost 1.693 ms
+[test_group_bmm_fused_experts][half=noncontiguous] restore_group_fused_weights: 2.202 ms
+[test_group_bmm_fused_experts][half=noncontiguous] transpose_contig: 0.027 ms
+[test_group_bmm_fused_experts][half=noncontiguous] pad_pack: 2.649 ms
+[test_group_bmm_fused_experts][half=noncontiguous] fused_group_bmm: 20.744 ms (bmm1=10.646 act+split=0.602 bmm2=5.982 unpad=3.514)
+[test_group_bmm_fused_experts][half=noncontiguous] ref_mm_and_assert: 82.530 ms
+[test_group_bmm_fused_experts][half=noncontiguous] unsort_and_weight: 0.492 ms
+[test_group_bmm_fused_experts][half=noncontiguous] total: 159.496 ms (T=512, K=8, slots_in_half=1693, E_half=64)
+[cpu_experts_worker pid=12054] end _test_group_bmm_fused_experts()
+INFO 04-23 19:06:12.765259.765259 cpu_thread_manager_mp.py:181] CPU experts worker: _test_group_bmm_fused_experts() finished.
+DEBUG 04-23 19:06:12.766218.766218 cuda_h.py:27] end init_mp_process cost 8336.617 ms
+generate input ids cost 0.06353187561035156 s
+DEBUG 04-23 19:06:15.436825.436825 cuda_h.py:27] end generate_input_ids cost 2670.262 ms
+DEBUG 04-23 19:06:15.436227.436227 cuda_h.py:27] end init_cache cost 0.045 ms
+DEBUG 04-23 19:06:15.437993.437993 cuda_h.py:27] end allocate_cuda_memory cost 0.252 ms
+DEBUG 04-23 19:06:15.437336.437336 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:15.437093.437093 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:15.439869.439869 cuda_h.py:27] end load_into_gpu_async cost 2.468 ms
+DEBUG 04-23 19:06:15.440065.440065 cuda_h.py:27] end restore_tensors2 cost 0.051 ms
+DEBUG 04-23 19:06:15.440920.440920 cuda_h.py:27] end allocate_cuda_memory_and_load_into_gpu cost 3.236 ms
+DEBUG 04-23 19:06:15.440756.440756 cuda_h.py:27] end restore2model cost 0.200 ms
+DEBUG 04-23 19:06:15.583233.583233 cuda_h.py:27] end allocate_cuda_memory cost 0.408 ms
+DEBUG 04-23 19:06:15.583858.583858 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:15.583273.583273 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:15.585801.585801 cuda_h.py:27] end load_into_gpu_async cost 2.061 ms
+DEBUG 04-23 19:06:15.586937.586937 cuda_h.py:27] end restore_tensors2 cost 0.180 ms
+DEBUG 04-23 19:06:15.586821.586821 cuda_h.py:27] end allocate_cuda_memory_and_load_into_gpu cost 3.552 ms
+DEBUG 04-23 19:06:15.802130.802130 cuda_h.py:27] end restore2model cost 1.727 ms
+DEBUG 04-23 19:06:15.802654.802654 cuda_h.py:27] end load_qkvogns_weight_l_0 cost 220.272 ms
+DEBUG 04-23 19:06:15.803327.803327 cuda_h.py:27] end init_general_weights cost 366.252 ms
+/mnt/zhengcf3/lmp_env/fslmp/lib/python3.10/site-packages/transformers/modeling_attn_mask_utils.py:71: FutureWarning: The attention mask API under `transformers.modeling_attn_mask_utils` (`AttentionMaskConverter`) is deprecated and will be removed in Transformers v5.10. Please use the new API in `transformers.masking_utils`.
+  warnings.warn(DEPRECATION_MESSAGE, FutureWarning)
+/mnt/zhengcf3/lmp_env/fslmp/lib/python3.10/site-packages/transformers/modeling_attn_mask_utils.py:281: FutureWarning: The attention mask API under `transformers.modeling_attn_mask_utils` (`AttentionMaskConverter`) is deprecated and will be removed in Transformers v5.10. Please use the new API in `transformers.masking_utils`.
+  warnings.warn(DEPRECATION_MESSAGE, FutureWarning)
+DEBUG 04-23 19:06:15.820534.820534 cuda_h.py:27] end init_inputs_tokens cost 17.204 ms
+DEBUG 04-23 19:06:15.821322.821322 lmp.py:197] -------------------------------- start prefill layer 0 --------------------------------
+DEBUG 04-23 19:06:15.821152.821152 cuda_h.py:27] end start_load_qkvogn_s_weight_l_1 cost 0.045 ms
+DEBUG 04-23 19:06:15.821326.821326 cuda_h.py:27] end allocate_cuda_memory cost 0.464 ms
+DEBUG 04-23 19:06:15.821150.821150 cuda_h.py:27] end start_load_qkvogn_s_weight_l_1 cost 0.779 ms
+DEBUG 04-23 19:06:15.822621.822621 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:15.822457.822457 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:15.825316.825316 cuda_h.py:27] end load_into_gpu_async cost 3.356 ms
+DEBUG 04-23 19:06:15.825426.825426 cuda_h.py:27] end restore_tensors2 cost 0.185 ms
+DEBUG 04-23 19:06:15.826060.826060 cuda_h.py:27] end allocate_cuda_memory_and_load_into_gpu cost 4.864 ms
+DEBUG 04-23 19:06:15.835287.835287 cuda_h.py:27] end restore2model cost 1.659 ms
+DEBUG 04-23 19:06:15.835610.835610 cuda_h.py:27] end sllm_worker_task cost 14.580 ms
+DEBUG 04-23 19:06:16.088283.088283 cuda_h.py:27] end self_attn cost 217.332 ms
+DEBUG 04-23 19:06:16.089824.089824 cuda_h.py:27] end iln_self_attn_paln cost 266.556 ms
+DEBUG 04-23 19:06:16.186084.186084 cuda_h.py:27] end gate cost 96.705 ms
+DEBUG 04-23 19:06:16.211249.211249 cuda_h.py:27] end experts_map_get cost 21.168 ms
+DEBUG 04-23 19:06:16.212392.212392 cuda_h.py:27] end cpu_experts_submit_fused_mp cost 0.413 ms
+DEBUG 04-23 19:06:16.253711.253711 cuda_h.py:27] end prepare_group_stack cost 36.671 ms
+DEBUG 04-23 19:06:16.273776.273776 cuda_h.py:27] end group stack cost 20.705 ms
+DEBUG 04-23 19:06:16.274584.274584 cuda_h.py:27] end move_flatidxs_group_fused_mp cost 57.865 ms
+DEBUG 04-23 19:06:16.274215.274215 cuda_h.py:27] end get_fused_experts_names_w cost 0.035 ms
+DEBUG 04-23 19:06:16.275702.275702 cuda_h.py:27] end restore_fused_tensors cost 1.335 ms
+DEBUG 04-23 19:06:16.276580.276580 cuda_h.py:27] end group_fused_tensors_mp cost 1.818 ms
+DEBUG 04-23 19:06:16.290535.290535 mlpmodule.py:3370] [fused_group_bmm][steps] bmm1=8.868 ms split=0.107 ms act_mul=0.644 ms bmm2=4.723 ms
+DEBUG 04-23 19:06:16.290291.290291 cuda_h.py:27] end fused_group_bmm cost 14.576 ms
+DEBUG 04-23 19:06:16.291602.291602 cuda_h.py:27] end gather_outputs_group_fused_mp cost 0.943 ms
+DEBUG 04-23 19:06:16.293709.293709 cuda_h.py:27] end experts_func_gpu_einsum_mp cost 77.484 ms
+DEBUG 04-23 19:06:16.630145.630145 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:16.631594.631594 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:16.634775.634775 cuda_h.py:27] end load_into_gpu_async_fused_experts_dual cost 3.775 ms
+DEBUG 04-23 19:06:16.634170.634170 cuda_h.py:27] end restore_tensors2_fused_experts_packed cost 0.071 ms
+DEBUG 04-23 19:06:16.635693.635693 cuda_h.py:27] end restore_tensors2_fused_experts_slices cost 0.344 ms
+DEBUG 04-23 19:06:16.635742.635742 cuda_h.py:27] end allocate_experts_cuda_memory_and_restore_model_multi_device_fused cost 421.278 ms
+DEBUG 04-23 19:06:16.635266.635266 cuda_h.py:27] end gpu_sexperts cost 0.006 ms
+DEBUG 04-23 19:06:16.635092.635092 cuda_h.py:27] end wait_load_qkvogn_s_weight cost 0.017 ms
+DEBUG 04-23 19:06:16.668802.668802 cuda_h.py:27] end wait_experts_multi_device cost 32.638 ms
+DEBUG 04-23 19:06:16.826110.826110 cuda_h.py:27] end gpu_experts_multi_device_fused cost 157.518 ms
+DEBUG 04-23 19:06:16.827498.827498 cuda_h.py:27] end cpu_thread_manager_mp_wait_fused cost 0.566 ms
+DEBUG 04-23 19:06:16.828403.828403 cuda_h.py:27] end layer_moe_generate_mp_multi_device_fused_l_1 cost 738.574 ms
+DEBUG 04-23 19:06:16.828682.828682 cuda_h.py:27] end prefill_layer cost 1007.393 ms
+DEBUG 04-23 19:06:16.828466.828466 lmp.py:244] -------------------------------- end prefill layer 0 --------------------------------
+DEBUG 04-23 19:06:16.828937.828937 lmp.py:197] -------------------------------- start prefill layer 1 --------------------------------
+DEBUG 04-23 19:06:16.828383.828383 cuda_h.py:27] end start_load_qkvogn_s_weight_l_2 cost 0.042 ms
+DEBUG 04-23 19:06:16.829363.829363 cuda_h.py:27] end allocate_cuda_memory cost 0.382 ms
+DEBUG 04-23 19:06:16.829425.829425 cuda_h.py:27] end start_load_qkvogn_s_weight_l_2 cost 0.702 ms
+DEBUG 04-23 19:06:16.829922.829922 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:16.830657.830657 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:16.832135.832135 cuda_h.py:27] end self_attn cost 1.746 ms
+DEBUG 04-23 19:06:16.832116.832116 cuda_h.py:27] end iln_self_attn_paln cost 2.235 ms
+DEBUG 04-23 19:06:16.833032.833032 cuda_h.py:27] end load_into_gpu_async cost 3.690 ms
+DEBUG 04-23 19:06:16.920149.920149 cuda_h.py:27] end restore_tensors2 cost 0.177 ms
+DEBUG 04-23 19:06:16.920286.920286 cuda_h.py:27] end allocate_cuda_memory_and_load_into_gpu cost 91.136 ms
+DEBUG 04-23 19:06:16.921640.921640 cuda_h.py:27] end gate cost 2.004 ms
+DEBUG 04-23 19:06:16.922996.922996 cuda_h.py:27] end experts_map_get cost 0.708 ms
+DEBUG 04-23 19:06:16.922375.922375 cuda_h.py:27] end cpu_experts_submit_fused_mp cost 0.065 ms
+DEBUG 04-23 19:06:17.044822.044822 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:17.044265.044265 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:17.045399.045399 cuda_h.py:27] end prepare_group_stack cost 0.644 ms
+DEBUG 04-23 19:06:17.045584.045584 cuda_h.py:27] end restore2model cost 123.124 ms
+DEBUG 04-23 19:06:17.046978.046978 cuda_h.py:27] end sllm_worker_task cost 217.212 ms
+DEBUG 04-23 19:06:17.048369.048369 cuda_h.py:27] end load_into_gpu_async_fused_experts_dual cost 3.881 ms
+DEBUG 04-23 19:06:17.048890.048890 cuda_h.py:27] end restore_tensors2_fused_experts_packed cost 0.063 ms
+DEBUG 04-23 19:06:17.048657.048657 cuda_h.py:27] end restore_tensors2_fused_experts_slices cost 0.311 ms
+DEBUG 04-23 19:06:17.048514.048514 cuda_h.py:27] end allocate_experts_cuda_memory_and_restore_model_multi_device_fused cost 125.532 ms
+DEBUG 04-23 19:06:17.048302.048302 cuda_h.py:27] end gpu_sexperts cost 0.004 ms
+DEBUG 04-23 19:06:17.048462.048462 cuda_h.py:27] end wait_load_qkvogn_s_weight cost 0.014 ms
+DEBUG 04-23 19:06:17.049098.049098 cuda_h.py:27] end group stack cost 4.032 ms
+DEBUG 04-23 19:06:17.050345.050345 cuda_h.py:27] end move_flatidxs_group_fused_mp cost 5.212 ms
+DEBUG 04-23 19:06:17.050479.050479 cuda_h.py:27] end get_fused_experts_names_w cost 0.037 ms
+DEBUG 04-23 19:06:17.053464.053464 cuda_h.py:27] end restore_fused_tensors cost 2.491 ms
+DEBUG 04-23 19:06:17.053249.053249 cuda_h.py:27] end group_fused_tensors_mp cost 2.862 ms
+DEBUG 04-23 19:06:17.073219.073219 cuda_h.py:27] end wait_experts_multi_device cost 23.925 ms
+DEBUG 04-23 19:06:17.073251.073251 mlpmodule.py:3370] [fused_group_bmm][steps] bmm1=14.160 ms split=0.097 ms act_mul=0.366 ms bmm2=5.019 ms
+DEBUG 04-23 19:06:17.073891.073891 cuda_h.py:27] end fused_group_bmm cost 20.170 ms
+DEBUG 04-23 19:06:17.074926.074926 cuda_h.py:27] end gather_outputs_group_fused_mp cost 0.734 ms
+DEBUG 04-23 19:06:17.075192.075192 cuda_h.py:27] end experts_func_gpu_einsum_mp cost 30.510 ms
+DEBUG 04-23 19:06:17.083635.083635 cuda_h.py:27] end gpu_experts_multi_device_fused cost 10.169 ms
+DEBUG 04-23 19:06:17.084432.084432 cuda_h.py:27] end cpu_thread_manager_mp_wait_fused cost 0.363 ms
+DEBUG 04-23 19:06:17.084664.084664 cuda_h.py:27] end layer_moe_generate_mp_multi_device_fused_l_2 cost 165.325 ms
+DEBUG 04-23 19:06:17.085793.085793 cuda_h.py:27] end prefill_layer cost 256.556 ms
+DEBUG 04-23 19:06:17.085968.085968 lmp.py:244] -------------------------------- end prefill layer 1 --------------------------------
+DEBUG 04-23 19:06:17.085632.085632 lmp.py:197] -------------------------------- start prefill layer 2 --------------------------------
+DEBUG 04-23 19:06:17.085615.085615 cuda_h.py:27] end start_load_qkvogn_s_weight_l_3 cost 0.047 ms
+DEBUG 04-23 19:06:17.085579.085579 cuda_h.py:27] end allocate_cuda_memory cost 0.182 ms
+DEBUG 04-23 19:06:17.085362.085362 cuda_h.py:27] end start_load_qkvogn_s_weight_l_3 cost 0.385 ms
+DEBUG 04-23 19:06:17.086604.086604 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:17.086970.086970 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:17.087232.087232 cuda_h.py:27] end load_into_gpu_async cost 1.541 ms
+DEBUG 04-23 19:06:17.087968.087968 cuda_h.py:27] end restore_tensors2 cost 0.133 ms
+DEBUG 04-23 19:06:17.088387.088387 cuda_h.py:27] end allocate_cuda_memory_and_load_into_gpu cost 2.402 ms
+DEBUG 04-23 19:06:17.088863.088863 cuda_h.py:27] end self_attn cost 1.945 ms
+DEBUG 04-23 19:06:17.088421.088421 cuda_h.py:27] end iln_self_attn_paln cost 2.676 ms
+DEBUG 04-23 19:06:17.089736.089736 cuda_h.py:27] end gate cost 0.445 ms
+DEBUG 04-23 19:06:17.089669.089669 cuda_h.py:27] end experts_map_get cost 0.290 ms
+DEBUG 04-23 19:06:17.089632.089632 cuda_h.py:27] end cpu_experts_submit_fused_mp cost 0.027 ms
+DEBUG 04-23 19:06:17.092151.092151 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:17.092320.092320 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:17.092475.092475 cuda_h.py:27] end prepare_group_stack cost 0.472 ms
+DEBUG 04-23 19:06:17.094046.094046 cuda_h.py:27] end group stack cost 1.937 ms
+DEBUG 04-23 19:06:17.095017.095017 cuda_h.py:27] end move_flatidxs_group_fused_mp cost 2.644 ms
+DEBUG 04-23 19:06:17.095212.095212 cuda_h.py:27] end get_fused_experts_names_w cost 0.023 ms
+DEBUG 04-23 19:06:17.095355.095355 cuda_h.py:27] end restore2model cost 0.636 ms
+DEBUG 04-23 19:06:17.095013.095013 cuda_h.py:27] end sllm_worker_task cost 10.035 ms
+DEBUG 04-23 19:06:17.096660.096660 cuda_h.py:27] end load_into_gpu_async_fused_experts_dual cost 3.926 ms
+DEBUG 04-23 19:06:17.096949.096949 cuda_h.py:27] end restore_tensors2_fused_experts_packed cost 0.055 ms
+DEBUG 04-23 19:06:17.096140.096140 cuda_h.py:27] end restore_tensors2_fused_experts_slices cost 0.313 ms
+DEBUG 04-23 19:06:17.097811.097811 cuda_h.py:27] end allocate_experts_cuda_memory_and_restore_model_multi_device_fused cost 6.785 ms
+DEBUG 04-23 19:06:17.097812.097812 cuda_h.py:27] end gpu_sexperts cost 0.004 ms
+DEBUG 04-23 19:06:17.097521.097521 cuda_h.py:27] end restore_fused_tensors cost 1.533 ms
+DEBUG 04-23 19:06:17.097725.097725 cuda_h.py:27] end wait_load_qkvogn_s_weight cost 0.013 ms
+DEBUG 04-23 19:06:17.097302.097302 cuda_h.py:27] end group_fused_tensors_mp cost 1.918 ms
+DEBUG 04-23 19:06:17.117419.117419 mlpmodule.py:3370] [fused_group_bmm][steps] bmm1=13.482 ms split=0.093 ms act_mul=0.553 ms bmm2=6.085 ms
+DEBUG 04-23 19:06:17.117988.117988 cuda_h.py:27] end fused_group_bmm cost 20.410 ms
+DEBUG 04-23 19:06:17.118303.118303 cuda_h.py:27] end wait_experts_multi_device cost 20.950 ms
+DEBUG 04-23 19:06:17.118023.118023 cuda_h.py:27] end gather_outputs_group_fused_mp cost 0.990 ms
+DEBUG 04-23 19:06:17.119427.119427 cuda_h.py:27] end experts_func_gpu_einsum_mp cost 27.916 ms
+DEBUG 04-23 19:06:17.128264.128264 cuda_h.py:27] end gpu_experts_multi_device_fused cost 9.980 ms
+DEBUG 04-23 19:06:17.129260.129260 cuda_h.py:27] end cpu_thread_manager_mp_wait_fused cost 0.362 ms
+DEBUG 04-23 19:06:17.129346.129346 cuda_h.py:27] end layer_moe_generate_mp_multi_device_fused_l_3 cost 40.821 ms
+DEBUG 04-23 19:06:17.130806.130806 cuda_h.py:27] end prefill_layer cost 44.957 ms
+DEBUG 04-23 19:06:17.130180.130180 lmp.py:244] -------------------------------- end prefill layer 2 --------------------------------
+DEBUG 04-23 19:06:17.130559.130559 lmp.py:197] -------------------------------- start prefill layer 3 --------------------------------
+DEBUG 04-23 19:06:17.130735.130735 cuda_h.py:27] end start_load_qkvogn_s_weight_l_4 cost 0.048 ms
+DEBUG 04-23 19:06:17.131334.131334 cuda_h.py:27] end allocate_cuda_memory cost 0.179 ms
+DEBUG 04-23 19:06:17.131826.131826 cuda_h.py:27] end start_load_qkvogn_s_weight_l_4 cost 0.394 ms
+DEBUG 04-23 19:06:17.131855.131855 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:17.131315.131315 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:17.132419.132419 cuda_h.py:27] end load_into_gpu_async cost 1.398 ms
+DEBUG 04-23 19:06:17.132947.132947 cuda_h.py:27] end restore_tensors2 cost 0.080 ms
+DEBUG 04-23 19:06:17.132716.132716 cuda_h.py:27] end allocate_cuda_memory_and_load_into_gpu cost 1.943 ms
+DEBUG 04-23 19:06:17.133094.133094 cuda_h.py:27] end self_attn cost 1.687 ms
+DEBUG 04-23 19:06:17.133407.133407 cuda_h.py:27] end iln_self_attn_paln cost 2.438 ms
+DEBUG 04-23 19:06:17.134413.134413 cuda_h.py:27] end gate cost 0.453 ms
+DEBUG 04-23 19:06:17.134061.134061 cuda_h.py:27] end experts_map_get cost 0.290 ms
+DEBUG 04-23 19:06:17.135739.135739 cuda_h.py:27] end cpu_experts_submit_fused_mp cost 0.026 ms
+DEBUG 04-23 19:06:17.137022.137022 cuda_h.py:27] end prepare_group_stack cost 0.521 ms
+DEBUG 04-23 19:06:17.138872.138872 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:17.138115.138115 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:17.139810.139810 cuda_h.py:27] end group stack cost 1.684 ms
+DEBUG 04-23 19:06:17.139569.139569 cuda_h.py:27] end move_flatidxs_group_fused_mp cost 2.415 ms
+DEBUG 04-23 19:06:17.139127.139127 cuda_h.py:27] end get_fused_experts_names_w cost 0.019 ms
+DEBUG 04-23 19:06:17.140737.140737 cuda_h.py:27] end restore2model cost 0.685 ms
+DEBUG 04-23 19:06:17.140501.140501 cuda_h.py:27] end sllm_worker_task cost 9.546 ms
+DEBUG 04-23 19:06:17.140194.140194 cuda_h.py:27] end load_into_gpu_async_fused_experts_dual cost 2.484 ms
+DEBUG 04-23 19:06:17.140089.140089 cuda_h.py:27] end restore_fused_tensors cost 1.200 ms
+DEBUG 04-23 19:06:17.140766.140766 cuda_h.py:27] end restore_tensors2_fused_experts_packed cost 0.057 ms
+DEBUG 04-23 19:06:17.140922.140922 cuda_h.py:27] end group_fused_tensors_mp cost 1.415 ms
+DEBUG 04-23 19:06:17.141005.141005 cuda_h.py:27] end restore_tensors2_fused_experts_slices cost 0.302 ms
+DEBUG 04-23 19:06:17.141491.141491 cuda_h.py:27] end allocate_experts_cuda_memory_and_restore_model_multi_device_fused cost 5.935 ms
+DEBUG 04-23 19:06:17.141161.141161 cuda_h.py:27] end gpu_sexperts cost 0.004 ms
+DEBUG 04-23 19:06:17.141815.141815 cuda_h.py:27] end wait_load_qkvogn_s_weight cost 0.015 ms
+DEBUG 04-23 19:06:17.160594.160594 mlpmodule.py:3370] [fused_group_bmm][steps] bmm1=12.092 ms split=0.100 ms act_mul=0.610 ms bmm2=7.111 ms
+DEBUG 04-23 19:06:17.161176.161176 cuda_h.py:27] end fused_group_bmm cost 20.127 ms
+DEBUG 04-23 19:06:17.162431.162431 cuda_h.py:27] end gather_outputs_group_fused_mp cost 0.840 ms
+DEBUG 04-23 19:06:17.162815.162815 cuda_h.py:27] end wait_experts_multi_device cost 20.910 ms
+DEBUG 04-23 19:06:17.162829.162829 cuda_h.py:27] end experts_func_gpu_einsum_mp cost 26.382 ms
+DEBUG 04-23 19:06:17.172490.172490 cuda_h.py:27] end gpu_experts_multi_device_fused cost 9.683 ms
+DEBUG 04-23 19:06:17.172718.172718 cuda_h.py:27] end cpu_thread_manager_mp_wait_fused cost 0.358 ms
+DEBUG 04-23 19:06:17.173369.173369 cuda_h.py:27] end layer_moe_generate_mp_multi_device_fused_l_4 cost 39.506 ms
+DEBUG 04-23 19:06:17.174232.174232 cuda_h.py:27] end prefill_layer cost 43.642 ms
+DEBUG 04-23 19:06:17.174699.174699 lmp.py:244] -------------------------------- end prefill layer 3 --------------------------------
+DEBUG 04-23 19:06:17.174839.174839 lmp.py:197] -------------------------------- start prefill layer 4 --------------------------------
+DEBUG 04-23 19:06:17.174558.174558 cuda_h.py:27] end start_load_qkvogn_s_weight_l_5 cost 0.047 ms
+DEBUG 04-23 19:06:17.174891.174891 cuda_h.py:27] end allocate_cuda_memory cost 0.174 ms
+DEBUG 04-23 19:06:17.174344.174344 cuda_h.py:27] end start_load_qkvogn_s_weight_l_5 cost 0.378 ms
+DEBUG 04-23 19:06:17.174294.174294 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:17.175911.175911 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:17.176689.176689 cuda_h.py:27] end load_into_gpu_async cost 1.697 ms
+DEBUG 04-23 19:06:17.176210.176210 cuda_h.py:27] end restore_tensors2 cost 0.080 ms
+DEBUG 04-23 19:06:17.176926.176926 cuda_h.py:27] end allocate_cuda_memory_and_load_into_gpu cost 2.253 ms
+DEBUG 04-23 19:06:17.177689.177689 cuda_h.py:27] end self_attn cost 1.804 ms
+DEBUG 04-23 19:06:17.177478.177478 cuda_h.py:27] end iln_self_attn_paln cost 2.348 ms
+DEBUG 04-23 19:06:17.178259.178259 cuda_h.py:27] end gate cost 0.451 ms
+DEBUG 04-23 19:06:17.178238.178238 cuda_h.py:27] end experts_map_get cost 0.289 ms
+DEBUG 04-23 19:06:17.178347.178347 cuda_h.py:27] end cpu_experts_submit_fused_mp cost 0.028 ms
+DEBUG 04-23 19:06:17.181453.181453 cuda_h.py:27] end prepare_group_stack cost 0.475 ms
+DEBUG 04-23 19:06:17.181951.181951 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:17.181067.181067 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:17.182198.182198 cuda_h.py:27] end group stack cost 1.803 ms
+DEBUG 04-23 19:06:17.183956.183956 cuda_h.py:27] end move_flatidxs_group_fused_mp cost 2.477 ms
+DEBUG 04-23 19:06:17.183329.183329 cuda_h.py:27] end get_fused_experts_names_w cost 0.019 ms
+DEBUG 04-23 19:06:17.184531.184531 cuda_h.py:27] end restore_fused_tensors cost 1.235 ms
+DEBUG 04-23 19:06:17.184858.184858 cuda_h.py:27] end group_fused_tensors_mp cost 1.360 ms
+DEBUG 04-23 19:06:17.189051.189051 cuda_h.py:27] end restore2model cost 1.595 ms
+DEBUG 04-23 19:06:17.189704.189704 cuda_h.py:27] end sllm_worker_task cost 14.982 ms
+DEBUG 04-23 19:06:17.190324.190324 cuda_h.py:27] end load_into_gpu_async_fused_experts_dual cost 9.352 ms
+DEBUG 04-23 19:06:17.190981.190981 cuda_h.py:27] end restore_tensors2_fused_experts_packed cost 0.120 ms
+DEBUG 04-23 19:06:17.191469.191469 cuda_h.py:27] end restore_tensors2_fused_experts_slices cost 0.389 ms
+DEBUG 04-23 19:06:17.191870.191870 cuda_h.py:27] end allocate_experts_cuda_memory_and_restore_model_multi_device_fused cost 12.775 ms
+DEBUG 04-23 19:06:17.191944.191944 cuda_h.py:27] end gpu_sexperts cost 0.010 ms
+DEBUG 04-23 19:06:17.191924.191924 cuda_h.py:27] end wait_load_qkvogn_s_weight cost 0.028 ms
+DEBUG 04-23 19:06:17.202079.202079 mlpmodule.py:3370] [fused_group_bmm][steps] bmm1=9.390 ms split=0.079 ms act_mul=0.529 ms bmm2=7.546 ms
+DEBUG 04-23 19:06:17.202715.202715 cuda_h.py:27] end fused_group_bmm cost 17.800 ms
+DEBUG 04-23 19:06:17.203627.203627 cuda_h.py:27] end gather_outputs_group_fused_mp cost 0.865 ms
+DEBUG 04-23 19:06:17.203352.203352 cuda_h.py:27] end experts_func_gpu_einsum_mp cost 24.260 ms
+DEBUG 04-23 19:06:17.213698.213698 cuda_h.py:27] end wait_experts_multi_device cost 21.366 ms
+DEBUG 04-23 19:06:17.222200.222200 cuda_h.py:27] end gpu_experts_multi_device_fused cost 8.469 ms
+DEBUG 04-23 19:06:17.222932.222932 cuda_h.py:27] end cpu_thread_manager_mp_wait_fused cost 0.400 ms
+DEBUG 04-23 19:06:17.223539.223539 cuda_h.py:27] end layer_moe_generate_mp_multi_device_fused_l_5 cost 45.817 ms
+DEBUG 04-23 19:06:17.223759.223759 cuda_h.py:27] end prefill_layer cost 49.618 ms
+DEBUG 04-23 19:06:17.223722.223722 lmp.py:244] -------------------------------- end prefill layer 4 --------------------------------
+DEBUG 04-23 19:06:17.223332.223332 lmp.py:197] -------------------------------- start prefill layer 5 --------------------------------
+DEBUG 04-23 19:06:17.224342.224342 cuda_h.py:27] end start_load_qkvogn_s_weight_l_6 cost 0.041 ms
+DEBUG 04-23 19:06:17.224816.224816 cuda_h.py:27] end allocate_cuda_memory cost 0.186 ms
+DEBUG 04-23 19:06:17.224592.224592 cuda_h.py:27] end start_load_qkvogn_s_weight_l_6 cost 0.399 ms
+DEBUG 04-23 19:06:17.224291.224291 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:17.224243.224243 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:17.226876.226876 cuda_h.py:27] end load_into_gpu_async cost 1.872 ms
+DEBUG 04-23 19:06:17.226206.226206 cuda_h.py:27] end restore_tensors2 cost 0.081 ms
+DEBUG 04-23 19:06:17.226389.226389 cuda_h.py:27] end allocate_cuda_memory_and_load_into_gpu cost 2.723 ms
+DEBUG 04-23 19:06:17.234915.234915 cuda_h.py:27] end restore2model cost 0.513 ms
+DEBUG 04-23 19:06:17.234427.234427 cuda_h.py:27] end sllm_worker_task cost 9.987 ms
+DEBUG 04-23 19:06:17.423682.423682 cuda_h.py:27] end self_attn cost 198.624 ms
+DEBUG 04-23 19:06:17.424384.424384 cuda_h.py:27] end iln_self_attn_paln cost 199.515 ms
+DEBUG 04-23 19:06:17.425506.425506 cuda_h.py:27] end gate cost 0.632 ms
+DEBUG 04-23 19:06:17.425801.425801 cuda_h.py:27] end experts_map_get cost 0.384 ms
+DEBUG 04-23 19:06:17.425957.425957 cuda_h.py:27] end cpu_experts_submit_fused_mp cost 0.038 ms
+DEBUG 04-23 19:06:17.427545.427545 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:17.427097.427097 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:17.428330.428330 cuda_h.py:27] end prepare_group_stack cost 0.710 ms
+DEBUG 04-23 19:06:17.431643.431643 cuda_h.py:27] end load_into_gpu_async_fused_experts_dual cost 3.727 ms
+DEBUG 04-23 19:06:17.431826.431826 cuda_h.py:27] end restore_tensors2_fused_experts_packed cost 0.067 ms
+DEBUG 04-23 19:06:17.431203.431203 cuda_h.py:27] end restore_tensors2_fused_experts_slices cost 0.340 ms
+DEBUG 04-23 19:06:17.431929.431929 cuda_h.py:27] end allocate_experts_cuda_memory_and_restore_model_multi_device_fused cost 5.450 ms
+DEBUG 04-23 19:06:17.431222.431222 cuda_h.py:27] end gpu_sexperts cost 0.004 ms
+DEBUG 04-23 19:06:17.431097.431097 cuda_h.py:27] end wait_load_qkvogn_s_weight cost 0.018 ms
+DEBUG 04-23 19:06:17.432516.432516 cuda_h.py:27] end group stack cost 3.729 ms
+DEBUG 04-23 19:06:17.432683.432683 cuda_h.py:27] end move_flatidxs_group_fused_mp cost 4.981 ms
+DEBUG 04-23 19:06:17.433481.433481 cuda_h.py:27] end get_fused_experts_names_w cost 0.038 ms
+DEBUG 04-23 19:06:17.436986.436986 cuda_h.py:27] end restore_fused_tensors cost 3.053 ms
+DEBUG 04-23 19:06:17.436693.436693 cuda_h.py:27] end group_fused_tensors_mp cost 3.431 ms
+DEBUG 04-23 19:06:17.453214.453214 cuda_h.py:27] end wait_experts_multi_device cost 21.570 ms
+DEBUG 04-23 19:06:17.455970.455970 mlpmodule.py:3370] [fused_group_bmm][steps] bmm1=13.696 ms split=0.088 ms act_mul=0.354 ms bmm2=4.551 ms
+DEBUG 04-23 19:06:17.455088.455088 cuda_h.py:27] end fused_group_bmm cost 18.867 ms
+DEBUG 04-23 19:06:17.456342.456342 cuda_h.py:27] end gather_outputs_group_fused_mp cost 0.779 ms
+DEBUG 04-23 19:06:17.456634.456634 cuda_h.py:27] end experts_func_gpu_einsum_mp cost 29.551 ms
+DEBUG 04-23 19:06:17.463716.463716 cuda_h.py:27] end gpu_experts_multi_device_fused cost 8.688 ms
+DEBUG 04-23 19:06:17.463085.463085 cuda_h.py:27] end cpu_thread_manager_mp_wait_fused cost 0.398 ms
+DEBUG 04-23 19:06:17.464704.464704 cuda_h.py:27] end layer_moe_generate_mp_multi_device_fused_l_6 cost 39.586 ms
+DEBUG 04-23 19:06:17.464963.464963 cuda_h.py:27] end prefill_layer cost 240.555 ms
+DEBUG 04-23 19:06:17.464158.464158 lmp.py:244] -------------------------------- end prefill layer 5 --------------------------------
+DEBUG 04-23 19:06:17.464437.464437 lmp.py:197] -------------------------------- start prefill layer 6 --------------------------------
+DEBUG 04-23 19:06:17.464115.464115 cuda_h.py:27] end start_load_qkvogn_s_weight_l_7 cost 0.042 ms
+DEBUG 04-23 19:06:17.465728.465728 cuda_h.py:27] end allocate_cuda_memory cost 0.206 ms
+DEBUG 04-23 19:06:17.465558.465558 cuda_h.py:27] end start_load_qkvogn_s_weight_l_7 cost 0.401 ms
+DEBUG 04-23 19:06:17.465270.465270 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:17.465751.465751 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:17.466685.466685 cuda_h.py:27] end load_into_gpu_async cost 1.712 ms
+DEBUG 04-23 19:06:17.467585.467585 cuda_h.py:27] end restore_tensors2 cost 0.097 ms
+DEBUG 04-23 19:06:17.467708.467708 cuda_h.py:27] end allocate_cuda_memory_and_load_into_gpu cost 2.630 ms
+DEBUG 04-23 19:06:17.467192.467192 cuda_h.py:27] end self_attn cost 2.070 ms
+DEBUG 04-23 19:06:17.468485.468485 cuda_h.py:27] end iln_self_attn_paln cost 2.844 ms
+DEBUG 04-23 19:06:17.468429.468429 cuda_h.py:27] end gate cost 0.459 ms
+DEBUG 04-23 19:06:17.469177.469177 cuda_h.py:27] end experts_map_get cost 0.291 ms
+DEBUG 04-23 19:06:17.469716.469716 cuda_h.py:27] end cpu_experts_submit_fused_mp cost 0.028 ms
+DEBUG 04-23 19:06:17.471921.471921 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:17.471964.471964 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:17.472243.472243 cuda_h.py:27] end prepare_group_stack cost 0.664 ms
+DEBUG 04-23 19:06:17.474898.474898 cuda_h.py:27] end group stack cost 1.643 ms
+DEBUG 04-23 19:06:17.474332.474332 cuda_h.py:27] end move_flatidxs_group_fused_mp cost 2.545 ms
+DEBUG 04-23 19:06:17.474036.474036 cuda_h.py:27] end get_fused_experts_names_w cost 0.020 ms
+DEBUG 04-23 19:06:17.474574.474574 cuda_h.py:27] end restore2model cost 0.621 ms
+DEBUG 04-23 19:06:17.474146.474146 cuda_h.py:27] end sllm_worker_task cost 10.154 ms
+DEBUG 04-23 19:06:17.475587.475587 cuda_h.py:27] end load_into_gpu_async_fused_experts_dual cost 3.685 ms
+DEBUG 04-23 19:06:17.475539.475539 cuda_h.py:27] end restore_tensors2_fused_experts_packed cost 0.059 ms
+DEBUG 04-23 19:06:17.475633.475633 cuda_h.py:27] end restore_fused_tensors cost 1.176 ms
+DEBUG 04-23 19:06:17.475712.475712 cuda_h.py:27] end group_fused_tensors_mp cost 1.434 ms
+DEBUG 04-23 19:06:17.476646.476646 cuda_h.py:27] end restore_tensors2_fused_experts_slices cost 0.393 ms
+DEBUG 04-23 19:06:17.476302.476302 cuda_h.py:27] end allocate_experts_cuda_memory_and_restore_model_multi_device_fused cost 6.527 ms
+DEBUG 04-23 19:06:17.476608.476608 cuda_h.py:27] end gpu_sexperts cost 0.010 ms
+DEBUG 04-23 19:06:17.476297.476297 cuda_h.py:27] end wait_load_qkvogn_s_weight cost 0.036 ms
+DEBUG 04-23 19:06:17.494001.494001 mlpmodule.py:3370] [fused_group_bmm][steps] bmm1=11.259 ms split=0.103 ms act_mul=0.401 ms bmm2=6.580 ms
+DEBUG 04-23 19:06:17.494041.494041 cuda_h.py:27] end fused_group_bmm cost 18.584 ms
+DEBUG 04-23 19:06:17.495853.495853 cuda_h.py:27] end gather_outputs_group_fused_mp cost 0.863 ms
+DEBUG 04-23 19:06:17.495550.495550 cuda_h.py:27] end experts_func_gpu_einsum_mp cost 25.040 ms
+DEBUG 04-23 19:06:17.497714.497714 cuda_h.py:27] end wait_experts_multi_device cost 20.806 ms
+DEBUG 04-23 19:06:17.506923.506923 cuda_h.py:27] end gpu_experts_multi_device_fused cost 8.773 ms
+DEBUG 04-23 19:06:17.507417.507417 cuda_h.py:27] end cpu_thread_manager_mp_wait_fused cost 0.393 ms
+DEBUG 04-23 19:06:17.507381.507381 cuda_h.py:27] end layer_moe_generate_mp_multi_device_fused_l_7 cost 39.368 ms
+DEBUG 04-23 19:06:17.508905.508905 cuda_h.py:27] end prefill_layer cost 43.630 ms
+DEBUG 04-23 19:06:17.508623.508623 lmp.py:244] -------------------------------- end prefill layer 6 --------------------------------
+DEBUG 04-23 19:06:17.508233.508233 lmp.py:197] -------------------------------- start prefill layer 7 --------------------------------
+DEBUG 04-23 19:06:17.508911.508911 cuda_h.py:27] end start_load_qkvogn_s_weight_l_8 cost 0.041 ms
+DEBUG 04-23 19:06:17.508238.508238 cuda_h.py:27] end allocate_cuda_memory cost 0.185 ms
+DEBUG 04-23 19:06:17.508346.508346 cuda_h.py:27] end start_load_qkvogn_s_weight_l_8 cost 0.360 ms
+DEBUG 04-23 19:06:17.508200.508200 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:17.509109.509109 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:17.510225.510225 cuda_h.py:27] end load_into_gpu_async cost 1.737 ms
+DEBUG 04-23 19:06:17.510475.510475 cuda_h.py:27] end restore_tensors2 cost 0.081 ms
+DEBUG 04-23 19:06:17.511631.511631 cuda_h.py:27] end allocate_cuda_memory_and_load_into_gpu cost 2.650 ms
+DEBUG 04-23 19:06:17.511124.511124 cuda_h.py:27] end self_attn cost 1.611 ms
+DEBUG 04-23 19:06:17.511712.511712 cuda_h.py:27] end iln_self_attn_paln cost 2.669 ms
+DEBUG 04-23 19:06:17.512703.512703 cuda_h.py:27] end gate cost 0.449 ms
+DEBUG 04-23 19:06:17.512020.512020 cuda_h.py:27] end experts_map_get cost 0.291 ms
+DEBUG 04-23 19:06:17.512083.512083 cuda_h.py:27] end cpu_experts_submit_fused_mp cost 0.027 ms
+DEBUG 04-23 19:06:17.515356.515356 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:17.515571.515571 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:17.515944.515944 cuda_h.py:27] end prepare_group_stack cost 0.493 ms
+DEBUG 04-23 19:06:17.517031.517031 cuda_h.py:27] end group stack cost 1.626 ms
+DEBUG 04-23 19:06:17.517696.517696 cuda_h.py:27] end move_flatidxs_group_fused_mp cost 2.400 ms
+DEBUG 04-23 19:06:17.517692.517692 cuda_h.py:27] end get_fused_experts_names_w cost 0.018 ms
+DEBUG 04-23 19:06:17.518220.518220 cuda_h.py:27] end restore2model cost 0.666 ms
+DEBUG 04-23 19:06:17.518653.518653 cuda_h.py:27] end sllm_worker_task cost 10.050 ms
+DEBUG 04-23 19:06:17.518234.518234 cuda_h.py:27] end load_into_gpu_async_fused_experts_dual cost 3.488 ms
+DEBUG 04-23 19:06:17.518844.518844 cuda_h.py:27] end restore_fused_tensors cost 1.130 ms
+DEBUG 04-23 19:06:17.518940.518940 cuda_h.py:27] end group_fused_tensors_mp cost 1.293 ms
+DEBUG 04-23 19:06:17.519432.519432 cuda_h.py:27] end restore_tensors2_fused_experts_packed cost 0.056 ms
+DEBUG 04-23 19:06:17.519294.519294 cuda_h.py:27] end restore_tensors2_fused_experts_slices cost 0.369 ms
+DEBUG 04-23 19:06:17.519409.519409 cuda_h.py:27] end allocate_experts_cuda_memory_and_restore_model_multi_device_fused cost 6.715 ms
+DEBUG 04-23 19:06:17.520925.520925 cuda_h.py:27] end gpu_sexperts cost 0.008 ms
+DEBUG 04-23 19:06:17.520180.520180 cuda_h.py:27] end wait_load_qkvogn_s_weight cost 0.033 ms
+DEBUG 04-23 19:06:17.538895.538895 mlpmodule.py:3370] [fused_group_bmm][steps] bmm1=12.285 ms split=0.099 ms act_mul=0.378 ms bmm2=6.258 ms
+DEBUG 04-23 19:06:17.538715.538715 cuda_h.py:27] end fused_group_bmm cost 19.227 ms
+DEBUG 04-23 19:06:17.539772.539772 cuda_h.py:27] end gather_outputs_group_fused_mp cost 0.834 ms
+DEBUG 04-23 19:06:17.539362.539362 cuda_h.py:27] end experts_func_gpu_einsum_mp cost 25.605 ms
+DEBUG 04-23 19:06:17.539105.539105 cuda_h.py:27] end wait_experts_multi_device cost 19.299 ms
+DEBUG 04-23 19:06:17.549817.549817 cuda_h.py:27] end gpu_experts_multi_device_fused cost 8.730 ms
+DEBUG 04-23 19:06:17.549933.549933 cuda_h.py:27] end cpu_thread_manager_mp_wait_fused cost 0.403 ms
+DEBUG 04-23 19:06:17.550657.550657 cuda_h.py:27] end layer_moe_generate_mp_multi_device_fused_l_8 cost 38.234 ms
+DEBUG 04-23 19:06:17.550896.550896 cuda_h.py:27] end prefill_layer cost 42.159 ms
+DEBUG 04-23 19:06:17.550429.550429 lmp.py:244] -------------------------------- end prefill layer 7 --------------------------------
+DEBUG 04-23 19:06:17.550754.550754 lmp.py:197] -------------------------------- start prefill layer 8 --------------------------------
+DEBUG 04-23 19:06:17.550333.550333 cuda_h.py:27] end start_load_qkvogn_s_weight_l_9 cost 0.041 ms
+DEBUG 04-23 19:06:17.551160.551160 cuda_h.py:27] end allocate_cuda_memory cost 0.250 ms
+DEBUG 04-23 19:06:17.551466.551466 cuda_h.py:27] end start_load_qkvogn_s_weight_l_9 cost 0.453 ms
+DEBUG 04-23 19:06:17.551106.551106 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:17.551199.551199 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:17.553782.553782 cuda_h.py:27] end load_into_gpu_async cost 2.010 ms
+DEBUG 04-23 19:06:17.553768.553768 cuda_h.py:27] end restore_tensors2 cost 0.093 ms
+DEBUG 04-23 19:06:17.553209.553209 cuda_h.py:27] end allocate_cuda_memory_and_load_into_gpu cost 2.980 ms
+DEBUG 04-23 19:06:17.553509.553509 cuda_h.py:27] end self_attn cost 2.256 ms
+DEBUG 04-23 19:06:17.554106.554106 cuda_h.py:27] end iln_self_attn_paln cost 2.994 ms
+DEBUG 04-23 19:06:17.554541.554541 cuda_h.py:27] end gate cost 0.461 ms
+DEBUG 04-23 19:06:17.555189.555189 cuda_h.py:27] end experts_map_get cost 0.289 ms
+DEBUG 04-23 19:06:17.555920.555920 cuda_h.py:27] end cpu_experts_submit_fused_mp cost 0.029 ms
+DEBUG 04-23 19:06:17.557895.557895 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:17.557210.557210 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:17.558310.558310 cuda_h.py:27] end prepare_group_stack cost 0.465 ms
+DEBUG 04-23 19:06:17.559775.559775 cuda_h.py:27] end group stack cost 1.725 ms
+DEBUG 04-23 19:06:17.560779.560779 cuda_h.py:27] end move_flatidxs_group_fused_mp cost 2.409 ms
+DEBUG 04-23 19:06:17.560291.560291 cuda_h.py:27] end get_fused_experts_names_w cost 0.019 ms
+DEBUG 04-23 19:06:17.560190.560190 cuda_h.py:27] end restore2model cost 0.644 ms
+DEBUG 04-23 19:06:17.560570.560570 cuda_h.py:27] end sllm_worker_task cost 10.202 ms
+DEBUG 04-23 19:06:17.561875.561875 cuda_h.py:27] end load_into_gpu_async_fused_experts_dual cost 3.531 ms
+DEBUG 04-23 19:06:17.561092.561092 cuda_h.py:27] end restore_fused_tensors cost 1.153 ms
+DEBUG 04-23 19:06:17.561028.561028 cuda_h.py:27] end group_fused_tensors_mp cost 1.268 ms
+DEBUG 04-23 19:06:17.561671.561671 cuda_h.py:27] end restore_tensors2_fused_experts_packed cost 0.055 ms
+DEBUG 04-23 19:06:17.561733.561733 cuda_h.py:27] end restore_tensors2_fused_experts_slices cost 0.294 ms
+DEBUG 04-23 19:06:17.561503.561503 cuda_h.py:27] end allocate_experts_cuda_memory_and_restore_model_multi_device_fused cost 6.251 ms
+DEBUG 04-23 19:06:17.562888.562888 cuda_h.py:27] end gpu_sexperts cost 0.004 ms
+DEBUG 04-23 19:06:17.562049.562049 cuda_h.py:27] end wait_load_qkvogn_s_weight cost 0.014 ms
+DEBUG 04-23 19:06:17.580756.580756 mlpmodule.py:3370] [fused_group_bmm][steps] bmm1=12.448 ms split=0.099 ms act_mul=0.351 ms bmm2=6.211 ms
+DEBUG 04-23 19:06:17.580478.580478 cuda_h.py:27] end fused_group_bmm cost 19.315 ms
+DEBUG 04-23 19:06:17.581779.581779 cuda_h.py:27] end gather_outputs_group_fused_mp cost 0.832 ms
+DEBUG 04-23 19:06:17.582304.582304 cuda_h.py:27] end wait_experts_multi_device cost 19.683 ms
+DEBUG 04-23 19:06:17.582025.582025 cuda_h.py:27] end experts_func_gpu_einsum_mp cost 25.538 ms
+DEBUG 04-23 19:06:17.592149.592149 cuda_h.py:27] end gpu_experts_multi_device_fused cost 9.469 ms
+DEBUG 04-23 19:06:17.592390.592390 cuda_h.py:27] end cpu_thread_manager_mp_wait_fused cost 0.374 ms
+DEBUG 04-23 19:06:17.593449.593449 cuda_h.py:27] end layer_moe_generate_mp_multi_device_fused_l_9 cost 38.668 ms
+DEBUG 04-23 19:06:17.593916.593916 cuda_h.py:27] end prefill_layer cost 42.980 ms
+DEBUG 04-23 19:06:17.593038.593038 lmp.py:244] -------------------------------- end prefill layer 8 --------------------------------
+DEBUG 04-23 19:06:17.593132.593132 lmp.py:197] -------------------------------- start prefill layer 9 --------------------------------
+DEBUG 04-23 19:06:17.594667.594667 cuda_h.py:27] end start_load_qkvogn_s_weight_l_10 cost 0.051 ms
+DEBUG 04-23 19:06:17.594201.594201 cuda_h.py:27] end allocate_cuda_memory cost 0.213 ms
+DEBUG 04-23 19:06:17.594130.594130 cuda_h.py:27] end start_load_qkvogn_s_weight_l_10 cost 0.425 ms
+DEBUG 04-23 19:06:17.594610.594610 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:17.594986.594986 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:17.595518.595518 cuda_h.py:27] end load_into_gpu_async cost 1.408 ms
+DEBUG 04-23 19:06:17.596643.596643 cuda_h.py:27] end restore_tensors2 cost 0.084 ms
+DEBUG 04-23 19:06:17.596324.596324 cuda_h.py:27] end allocate_cuda_memory_and_load_into_gpu cost 2.356 ms
+DEBUG 04-23 19:06:17.597546.597546 cuda_h.py:27] end self_attn cost 1.728 ms
+DEBUG 04-23 19:06:17.597535.597535 cuda_h.py:27] end iln_self_attn_paln cost 2.427 ms
+DEBUG 04-23 19:06:17.597868.597868 cuda_h.py:27] end gate cost 0.455 ms
+DEBUG 04-23 19:06:17.598708.598708 cuda_h.py:27] end experts_map_get cost 0.290 ms
+DEBUG 04-23 19:06:17.598494.598494 cuda_h.py:27] end cpu_experts_submit_fused_mp cost 0.028 ms
+DEBUG 04-23 19:06:17.600593.600593 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:17.600979.600979 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:17.601761.601761 cuda_h.py:27] end prepare_group_stack cost 0.577 ms
+DEBUG 04-23 19:06:17.603440.603440 cuda_h.py:27] end group stack cost 2.346 ms
+DEBUG 04-23 19:06:17.604498.604498 cuda_h.py:27] end move_flatidxs_group_fused_mp cost 3.212 ms
+DEBUG 04-23 19:06:17.604389.604389 cuda_h.py:27] end get_fused_experts_names_w cost 0.026 ms
+DEBUG 04-23 19:06:17.604687.604687 cuda_h.py:27] end restore2model cost 0.642 ms
+DEBUG 04-23 19:06:17.604119.604119 cuda_h.py:27] end load_into_gpu_async_fused_experts_dual cost 3.652 ms
+DEBUG 04-23 19:06:17.604988.604988 cuda_h.py:27] end sllm_worker_task cost 10.324 ms
+DEBUG 04-23 19:06:17.604459.604459 cuda_h.py:27] end restore_tensors2_fused_experts_packed cost 0.055 ms
+DEBUG 04-23 19:06:17.605984.605984 cuda_h.py:27] end restore_tensors2_fused_experts_slices cost 0.298 ms
+DEBUG 04-23 19:06:17.605563.605563 cuda_h.py:27] end allocate_experts_cuda_memory_and_restore_model_multi_device_fused cost 6.731 ms
+DEBUG 04-23 19:06:17.605756.605756 cuda_h.py:27] end gpu_sexperts cost 0.004 ms
+DEBUG 04-23 19:06:17.605948.605948 cuda_h.py:27] end wait_load_qkvogn_s_weight cost 0.014 ms
+DEBUG 04-23 19:06:17.606687.606687 cuda_h.py:27] end restore_fused_tensors cost 1.717 ms
+DEBUG 04-23 19:06:17.606570.606570 cuda_h.py:27] end group_fused_tensors_mp cost 2.096 ms
+DEBUG 04-23 19:06:17.626671.626671 cuda_h.py:27] end wait_experts_multi_device cost 20.555 ms
+DEBUG 04-23 19:06:17.626595.626595 mlpmodule.py:3370] [fused_group_bmm][steps] bmm1=14.282 ms split=0.098 ms act_mul=0.538 ms bmm2=4.924 ms
+DEBUG 04-23 19:06:17.626122.626122 cuda_h.py:27] end fused_group_bmm cost 20.182 ms
+DEBUG 04-23 19:06:17.627707.627707 cuda_h.py:27] end gather_outputs_group_fused_mp cost 0.796 ms
+DEBUG 04-23 19:06:17.628164.628164 cuda_h.py:27] end experts_func_gpu_einsum_mp cost 28.055 ms
+DEBUG 04-23 19:06:17.636431.636431 cuda_h.py:27] end gpu_experts_multi_device_fused cost 9.361 ms
+DEBUG 04-23 19:06:17.636700.636700 cuda_h.py:27] end cpu_thread_manager_mp_wait_fused cost 0.400 ms
+DEBUG 04-23 19:06:17.637580.637580 cuda_h.py:27] end layer_moe_generate_mp_multi_device_fused_l_10 cost 39.919 ms
+DEBUG 04-23 19:06:17.637723.637723 cuda_h.py:27] end prefill_layer cost 44.141 ms
+DEBUG 04-23 19:06:17.637030.637030 lmp.py:244] -------------------------------- end prefill layer 9 --------------------------------
+DEBUG 04-23 19:06:17.638362.638362 lmp.py:197] -------------------------------- start prefill layer 10 --------------------------------
+DEBUG 04-23 19:06:17.638481.638481 cuda_h.py:27] end start_load_qkvogn_s_weight_l_11 cost 0.046 ms
+DEBUG 04-23 19:06:17.638724.638724 cuda_h.py:27] end allocate_cuda_memory cost 0.212 ms
+DEBUG 04-23 19:06:17.638653.638653 cuda_h.py:27] end start_load_qkvogn_s_weight_l_11 cost 0.416 ms
+DEBUG 04-23 19:06:17.638226.638226 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:17.639744.639744 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:17.640428.640428 cuda_h.py:27] end load_into_gpu_async cost 1.695 ms
+DEBUG 04-23 19:06:17.640268.640268 cuda_h.py:27] end restore_tensors2 cost 0.096 ms
+DEBUG 04-23 19:06:17.640946.640946 cuda_h.py:27] end allocate_cuda_memory_and_load_into_gpu cost 2.532 ms
+DEBUG 04-23 19:06:17.641499.641499 cuda_h.py:27] end self_attn cost 1.731 ms
+DEBUG 04-23 19:06:17.641137.641137 cuda_h.py:27] end iln_self_attn_paln cost 2.532 ms
+DEBUG 04-23 19:06:17.642735.642735 cuda_h.py:27] end gate cost 0.476 ms
+DEBUG 04-23 19:06:17.642284.642284 cuda_h.py:27] end experts_map_get cost 0.284 ms
+DEBUG 04-23 19:06:17.642686.642686 cuda_h.py:27] end cpu_experts_submit_fused_mp cost 0.029 ms
+DEBUG 04-23 19:06:17.645905.645905 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:17.645053.645053 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:17.645433.645433 cuda_h.py:27] end prepare_group_stack cost 0.477 ms
+DEBUG 04-23 19:06:17.647909.647909 cuda_h.py:27] end group stack cost 1.858 ms
+DEBUG 04-23 19:06:17.647913.647913 cuda_h.py:27] end move_flatidxs_group_fused_mp cost 2.572 ms
+DEBUG 04-23 19:06:17.647140.647140 cuda_h.py:27] end get_fused_experts_names_w cost 0.019 ms
+DEBUG 04-23 19:06:17.649070.649070 cuda_h.py:27] end restore_fused_tensors cost 1.246 ms
+DEBUG 04-23 19:06:17.649298.649298 cuda_h.py:27] end group_fused_tensors_mp cost 1.367 ms
+DEBUG 04-23 19:06:17.651857.651857 cuda_h.py:27] end restore2model cost 1.203 ms
+DEBUG 04-23 19:06:17.651374.651374 cuda_h.py:27] end sllm_worker_task cost 13.723 ms
+DEBUG 04-23 19:06:17.652248.652248 cuda_h.py:27] end load_into_gpu_async_fused_experts_dual cost 7.851 ms
+DEBUG 04-23 19:06:17.653804.653804 cuda_h.py:27] end restore_tensors2_fused_experts_packed cost 0.186 ms
+DEBUG 04-23 19:06:17.654372.654372 cuda_h.py:27] end restore_tensors2_fused_experts_slices cost 0.783 ms
+DEBUG 04-23 19:06:17.654432.654432 cuda_h.py:27] end allocate_experts_cuda_memory_and_restore_model_multi_device_fused cost 11.715 ms
+DEBUG 04-23 19:06:17.654004.654004 cuda_h.py:27] end gpu_sexperts cost 0.010 ms
+DEBUG 04-23 19:06:17.655772.655772 cuda_h.py:27] end wait_load_qkvogn_s_weight cost 0.027 ms
+DEBUG 04-23 19:06:17.666411.666411 mlpmodule.py:3370] [fused_group_bmm][steps] bmm1=9.463 ms split=0.094 ms act_mul=0.388 ms bmm2=7.522 ms
+DEBUG 04-23 19:06:17.667430.667430 cuda_h.py:27] end fused_group_bmm cost 17.879 ms
+DEBUG 04-23 19:06:17.671839.671839 cuda_h.py:27] end gather_outputs_group_fused_mp cost 4.277 ms
+DEBUG 04-23 19:06:17.672220.672220 cuda_h.py:27] end experts_func_gpu_einsum_mp cost 27.776 ms
+DEBUG 04-23 19:06:17.673979.673979 cuda_h.py:27] end wait_experts_multi_device cost 18.432 ms
+DEBUG 04-23 19:06:17.683648.683648 cuda_h.py:27] end gpu_experts_multi_device_fused cost 8.924 ms
+DEBUG 04-23 19:06:17.683283.683283 cuda_h.py:27] end cpu_thread_manager_mp_wait_fused cost 0.473 ms
+DEBUG 04-23 19:06:17.684994.684994 cuda_h.py:27] end layer_moe_generate_mp_multi_device_fused_l_11 cost 42.419 ms
+DEBUG 04-23 19:06:17.684001.684001 cuda_h.py:27] end prefill_layer cost 46.566 ms
+DEBUG 04-23 19:06:17.684534.684534 lmp.py:244] -------------------------------- end prefill layer 10 --------------------------------
+DEBUG 04-23 19:06:17.684382.684382 lmp.py:197] -------------------------------- start prefill layer 11 --------------------------------
+DEBUG 04-23 19:06:17.684630.684630 cuda_h.py:27] end start_load_qkvogn_s_weight_l_12 cost 0.042 ms
+DEBUG 04-23 19:06:17.685348.685348 cuda_h.py:27] end allocate_cuda_memory cost 0.187 ms
+DEBUG 04-23 19:06:17.685648.685648 cuda_h.py:27] end start_load_qkvogn_s_weight_l_12 cost 0.369 ms
+DEBUG 04-23 19:06:17.685293.685293 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:17.685799.685799 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:17.686980.686980 cuda_h.py:27] end load_into_gpu_async cost 1.736 ms
+DEBUG 04-23 19:06:17.687594.687594 cuda_h.py:27] end restore_tensors2 cost 0.080 ms
+DEBUG 04-23 19:06:17.687755.687755 cuda_h.py:27] end allocate_cuda_memory_and_load_into_gpu cost 2.499 ms
+DEBUG 04-23 19:06:17.687530.687530 cuda_h.py:27] end self_attn cost 1.884 ms
+DEBUG 04-23 19:06:17.687981.687981 cuda_h.py:27] end iln_self_attn_paln cost 2.570 ms
+DEBUG 04-23 19:06:17.688016.688016 cuda_h.py:27] end gate cost 0.441 ms
+DEBUG 04-23 19:06:17.688227.688227 cuda_h.py:27] end experts_map_get cost 0.282 ms
+DEBUG 04-23 19:06:17.689098.689098 cuda_h.py:27] end cpu_experts_submit_fused_mp cost 0.028 ms
+DEBUG 04-23 19:06:17.691142.691142 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:17.691379.691379 cuda_h.py:27] end prepare_group_stack cost 0.691 ms
+DEBUG 04-23 19:06:17.692609.692609 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:17.694707.694707 cuda_h.py:27] end group stack cost 2.728 ms
+DEBUG 04-23 19:06:17.694759.694759 cuda_h.py:27] end move_flatidxs_group_fused_mp cost 3.743 ms
+DEBUG 04-23 19:06:17.695948.695948 cuda_h.py:27] end get_fused_experts_names_w cost 0.035 ms
+DEBUG 04-23 19:06:17.695074.695074 cuda_h.py:27] end restore2model cost 0.804 ms
+DEBUG 04-23 19:06:17.695766.695766 cuda_h.py:27] end sllm_worker_task cost 10.934 ms
+DEBUG 04-23 19:06:17.696949.696949 cuda_h.py:27] end load_into_gpu_async_fused_experts_dual cost 4.702 ms
+DEBUG 04-23 19:06:17.696118.696118 cuda_h.py:27] end restore_tensors2_fused_experts_packed cost 0.053 ms
+DEBUG 04-23 19:06:17.697763.697763 cuda_h.py:27] end restore_fused_tensors cost 1.700 ms
+DEBUG 04-23 19:06:17.697554.697554 cuda_h.py:27] end group_fused_tensors_mp cost 2.137 ms
+DEBUG 04-23 19:06:17.697304.697304 cuda_h.py:27] end restore_tensors2_fused_experts_slices cost 0.301 ms
+DEBUG 04-23 19:06:17.697885.697885 cuda_h.py:27] end allocate_experts_cuda_memory_and_restore_model_multi_device_fused cost 8.208 ms
+DEBUG 04-23 19:06:17.697494.697494 cuda_h.py:27] end gpu_sexperts cost 0.004 ms
+DEBUG 04-23 19:06:17.697701.697701 cuda_h.py:27] end wait_load_qkvogn_s_weight cost 0.013 ms
+DEBUG 04-23 19:06:17.717778.717778 mlpmodule.py:3370] [fused_group_bmm][steps] bmm1=12.918 ms split=0.092 ms act_mul=0.388 ms bmm2=6.808 ms
+DEBUG 04-23 19:06:17.717889.717889 cuda_h.py:27] end fused_group_bmm cost 20.382 ms
+DEBUG 04-23 19:06:17.718315.718315 cuda_h.py:27] end gather_outputs_group_fused_mp cost 0.627 ms
+DEBUG 04-23 19:06:17.718442.718442 cuda_h.py:27] end experts_func_gpu_einsum_mp cost 28.650 ms
+DEBUG 04-23 19:06:17.719409.719409 cuda_h.py:27] end wait_experts_multi_device cost 21.567 ms
+DEBUG 04-23 19:06:17.729510.729510 cuda_h.py:27] end gpu_experts_multi_device_fused cost 9.533 ms
+DEBUG 04-23 19:06:17.729568.729568 cuda_h.py:27] end cpu_thread_manager_mp_wait_fused cost 0.409 ms
+DEBUG 04-23 19:06:17.730264.730264 cuda_h.py:27] end layer_moe_generate_mp_multi_device_fused_l_12 cost 42.445 ms
+DEBUG 04-23 19:06:17.731108.731108 cuda_h.py:27] end prefill_layer cost 46.381 ms
+DEBUG 04-23 19:06:17.731462.731462 lmp.py:244] -------------------------------- end prefill layer 11 --------------------------------
+DEBUG 04-23 19:06:17.731840.731840 lmp.py:197] -------------------------------- start prefill layer 12 --------------------------------
+DEBUG 04-23 19:06:17.731308.731308 cuda_h.py:27] end start_load_qkvogn_s_weight_l_13 cost 0.049 ms
+DEBUG 04-23 19:06:17.731080.731080 cuda_h.py:27] end allocate_cuda_memory cost 0.207 ms
+DEBUG 04-23 19:06:17.731910.731910 cuda_h.py:27] end start_load_qkvogn_s_weight_l_13 cost 0.420 ms
+DEBUG 04-23 19:06:17.731039.731039 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:17.732006.732006 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:17.733471.733471 cuda_h.py:27] end load_into_gpu_async cost 1.652 ms
+DEBUG 04-23 19:06:17.733721.733721 cuda_h.py:27] end restore_tensors2 cost 0.086 ms
+DEBUG 04-23 19:06:17.734863.734863 cuda_h.py:27] end allocate_cuda_memory_and_load_into_gpu cost 2.494 ms
+DEBUG 04-23 19:06:17.734703.734703 cuda_h.py:27] end self_attn cost 1.606 ms
+DEBUG 04-23 19:06:17.734274.734274 cuda_h.py:27] end iln_self_attn_paln cost 2.357 ms
+DEBUG 04-23 19:06:17.734497.734497 cuda_h.py:27] end gate cost 0.449 ms
+DEBUG 04-23 19:06:17.735522.735522 cuda_h.py:27] end experts_map_get cost 0.286 ms
+DEBUG 04-23 19:06:17.735870.735870 cuda_h.py:27] end cpu_experts_submit_fused_mp cost 0.028 ms
+DEBUG 04-23 19:06:17.737774.737774 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:17.738684.738684 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:17.738913.738913 cuda_h.py:27] end prepare_group_stack cost 0.510 ms
+DEBUG 04-23 19:06:17.740399.740399 cuda_h.py:27] end group stack cost 1.939 ms
+DEBUG 04-23 19:06:17.740939.740939 cuda_h.py:27] end move_flatidxs_group_fused_mp cost 2.694 ms
+DEBUG 04-23 19:06:17.740618.740618 cuda_h.py:27] end get_fused_experts_names_w cost 0.023 ms
+DEBUG 04-23 19:06:17.741925.741925 cuda_h.py:27] end restore2model cost 0.617 ms
+DEBUG 04-23 19:06:17.741705.741705 cuda_h.py:27] end sllm_worker_task cost 9.823 ms
+DEBUG 04-23 19:06:17.741912.741912 cuda_h.py:27] end load_into_gpu_async_fused_experts_dual cost 3.715 ms
+DEBUG 04-23 19:06:17.741035.741035 cuda_h.py:27] end restore_tensors2_fused_experts_packed cost 0.051 ms
+DEBUG 04-23 19:06:17.742152.742152 cuda_h.py:27] end restore_tensors2_fused_experts_slices cost 0.298 ms
+DEBUG 04-23 19:06:17.742777.742777 cuda_h.py:27] end allocate_experts_cuda_memory_and_restore_model_multi_device_fused cost 6.536 ms
+DEBUG 04-23 19:06:17.742916.742916 cuda_h.py:27] end restore_fused_tensors cost 1.155 ms
+DEBUG 04-23 19:06:17.742970.742970 cuda_h.py:27] end gpu_sexperts cost 0.004 ms
+DEBUG 04-23 19:06:17.742051.742051 cuda_h.py:27] end group_fused_tensors_mp cost 1.680 ms
+DEBUG 04-23 19:06:17.742316.742316 cuda_h.py:27] end wait_load_qkvogn_s_weight cost 0.015 ms
+DEBUG 04-23 19:06:17.761055.761055 mlpmodule.py:3370] [fused_group_bmm][steps] bmm1=12.062 ms split=0.095 ms act_mul=0.589 ms bmm2=6.434 ms
+DEBUG 04-23 19:06:17.762353.762353 cuda_h.py:27] end fused_group_bmm cost 19.391 ms
+DEBUG 04-23 19:06:17.762923.762923 cuda_h.py:27] end gather_outputs_group_fused_mp cost 0.759 ms
+DEBUG 04-23 19:06:17.763015.763015 cuda_h.py:27] end experts_func_gpu_einsum_mp cost 26.262 ms
+DEBUG 04-23 19:06:17.763548.763548 cuda_h.py:27] end wait_experts_multi_device cost 20.965 ms
+DEBUG 04-23 19:06:17.773978.773978 cuda_h.py:27] end gpu_experts_multi_device_fused cost 9.093 ms
+DEBUG 04-23 19:06:17.773379.773379 cuda_h.py:27] end cpu_thread_manager_mp_wait_fused cost 0.393 ms
+DEBUG 04-23 19:06:17.774513.774513 cuda_h.py:27] end layer_moe_generate_mp_multi_device_fused_l_13 cost 39.895 ms
+DEBUG 04-23 19:06:17.774582.774582 cuda_h.py:27] end prefill_layer cost 43.690 ms
+DEBUG 04-23 19:06:17.774743.774743 lmp.py:244] -------------------------------- end prefill layer 12 --------------------------------
+DEBUG 04-23 19:06:17.775837.775837 lmp.py:197] -------------------------------- start prefill layer 13 --------------------------------
+DEBUG 04-23 19:06:17.775753.775753 cuda_h.py:27] end start_load_qkvogn_s_weight_l_14 cost 0.047 ms
+DEBUG 04-23 19:06:17.775029.775029 cuda_h.py:27] end allocate_cuda_memory cost 0.219 ms
+DEBUG 04-23 19:06:17.775005.775005 cuda_h.py:27] end start_load_qkvogn_s_weight_l_14 cost 0.441 ms
+DEBUG 04-23 19:06:17.775008.775008 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:17.776865.776865 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:17.777534.777534 cuda_h.py:27] end load_into_gpu_async cost 1.654 ms
+DEBUG 04-23 19:06:17.777631.777631 cuda_h.py:27] end restore_tensors2 cost 0.084 ms
+DEBUG 04-23 19:06:17.777553.777553 cuda_h.py:27] end allocate_cuda_memory_and_load_into_gpu cost 2.289 ms
+DEBUG 04-23 19:06:17.778282.778282 cuda_h.py:27] end self_attn cost 1.549 ms
+DEBUG 04-23 19:06:17.778526.778526 cuda_h.py:27] end iln_self_attn_paln cost 2.410 ms
+DEBUG 04-23 19:06:17.778510.778510 cuda_h.py:27] end gate cost 0.447 ms
+DEBUG 04-23 19:06:17.779019.779019 cuda_h.py:27] end experts_map_get cost 0.293 ms
+DEBUG 04-23 19:06:17.779558.779558 cuda_h.py:27] end cpu_experts_submit_fused_mp cost 0.030 ms
+DEBUG 04-23 19:06:17.781091.781091 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:17.781445.781445 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:17.782366.782366 cuda_h.py:27] end prepare_group_stack cost 0.430 ms
+DEBUG 04-23 19:06:17.784393.784393 cuda_h.py:27] end group stack cost 2.096 ms
+DEBUG 04-23 19:06:17.784046.784046 cuda_h.py:27] end move_flatidxs_group_fused_mp cost 2.776 ms
+DEBUG 04-23 19:06:17.784912.784912 cuda_h.py:27] end get_fused_experts_names_w cost 0.022 ms
+DEBUG 04-23 19:06:17.785865.785865 cuda_h.py:27] end restore2model cost 0.622 ms
+DEBUG 04-23 19:06:17.785331.785331 cuda_h.py:27] end sllm_worker_task cost 9.888 ms
+DEBUG 04-23 19:06:17.785146.785146 cuda_h.py:27] end load_into_gpu_async_fused_experts_dual cost 3.618 ms
+DEBUG 04-23 19:06:17.785592.785592 cuda_h.py:27] end restore_tensors2_fused_experts_packed cost 0.058 ms
+DEBUG 04-23 19:06:17.786687.786687 cuda_h.py:27] end restore_tensors2_fused_experts_slices cost 0.317 ms
+DEBUG 04-23 19:06:17.786769.786769 cuda_h.py:27] end allocate_experts_cuda_memory_and_restore_model_multi_device_fused cost 6.646 ms
+DEBUG 04-23 19:06:17.786116.786116 cuda_h.py:27] end gpu_sexperts cost 0.005 ms
+DEBUG 04-23 19:06:17.786098.786098 cuda_h.py:27] end wait_load_qkvogn_s_weight cost 0.016 ms
+DEBUG 04-23 19:06:17.786261.786261 cuda_h.py:27] end restore_fused_tensors cost 1.480 ms
+DEBUG 04-23 19:06:17.786255.786255 cuda_h.py:27] end group_fused_tensors_mp cost 1.964 ms
+DEBUG 04-23 19:06:17.806716.806716 mlpmodule.py:3370] [fused_group_bmm][steps] bmm1=12.671 ms split=0.097 ms act_mul=0.408 ms bmm2=6.436 ms
+DEBUG 04-23 19:06:17.806146.806146 cuda_h.py:27] end fused_group_bmm cost 19.809 ms
+DEBUG 04-23 19:06:17.807157.807157 cuda_h.py:27] end gather_outputs_group_fused_mp cost 0.871 ms
+DEBUG 04-23 19:06:17.808210.808210 cuda_h.py:27] end experts_func_gpu_einsum_mp cost 27.393 ms
+DEBUG 04-23 19:06:17.808589.808589 cuda_h.py:27] end wait_experts_multi_device cost 22.056 ms
+DEBUG 04-23 19:06:17.817398.817398 cuda_h.py:27] end gpu_experts_multi_device_fused cost 8.522 ms
+DEBUG 04-23 19:06:17.818818.818818 cuda_h.py:27] end cpu_thread_manager_mp_wait_fused cost 1.154 ms
+DEBUG 04-23 19:06:17.819993.819993 cuda_h.py:27] end layer_moe_generate_mp_multi_device_fused_l_14 cost 40.973 ms
+DEBUG 04-23 19:06:17.819339.819339 cuda_h.py:27] end prefill_layer cost 44.850 ms
+DEBUG 04-23 19:06:17.819640.819640 lmp.py:244] -------------------------------- end prefill layer 13 --------------------------------
+DEBUG 04-23 19:06:17.819204.819204 lmp.py:197] -------------------------------- start prefill layer 14 --------------------------------
+DEBUG 04-23 19:06:17.820213.820213 cuda_h.py:27] end start_load_qkvogn_s_weight_l_15 cost 0.041 ms
+DEBUG 04-23 19:06:17.820310.820310 cuda_h.py:27] end allocate_cuda_memory cost 0.213 ms
+DEBUG 04-23 19:06:17.820331.820331 cuda_h.py:27] end start_load_qkvogn_s_weight_l_15 cost 0.407 ms
+DEBUG 04-23 19:06:17.820136.820136 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:17.820679.820679 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:17.822253.822253 cuda_h.py:27] end load_into_gpu_async cost 1.702 ms
+DEBUG 04-23 19:06:17.822357.822357 cuda_h.py:27] end restore_tensors2 cost 0.082 ms
+DEBUG 04-23 19:06:17.822512.822512 cuda_h.py:27] end allocate_cuda_memory_and_load_into_gpu cost 2.553 ms
+DEBUG 04-23 19:06:17.823600.823600 cuda_h.py:27] end self_attn cost 2.089 ms
+DEBUG 04-23 19:06:17.823065.823065 cuda_h.py:27] end iln_self_attn_paln cost 2.638 ms
+DEBUG 04-23 19:06:17.823083.823083 cuda_h.py:27] end gate cost 0.472 ms
+DEBUG 04-23 19:06:17.824023.824023 cuda_h.py:27] end experts_map_get cost 0.292 ms
+DEBUG 04-23 19:06:17.824754.824754 cuda_h.py:27] end cpu_experts_submit_fused_mp cost 0.029 ms
+DEBUG 04-23 19:06:17.826266.826266 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:17.826746.826746 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:17.827617.827617 cuda_h.py:27] end prepare_group_stack cost 0.518 ms
+DEBUG 04-23 19:06:17.829985.829985 cuda_h.py:27] end group stack cost 1.795 ms
+DEBUG 04-23 19:06:17.829703.829703 cuda_h.py:27] end move_flatidxs_group_fused_mp cost 2.533 ms
+DEBUG 04-23 19:06:17.829023.829023 cuda_h.py:27] end get_fused_experts_names_w cost 0.018 ms
+DEBUG 04-23 19:06:17.829999.829999 cuda_h.py:27] end restore2model cost 0.495 ms
+DEBUG 04-23 19:06:17.829174.829174 cuda_h.py:27] end sllm_worker_task cost 9.647 ms
+DEBUG 04-23 19:06:17.830935.830935 cuda_h.py:27] end load_into_gpu_async_fused_experts_dual cost 3.548 ms
+DEBUG 04-23 19:06:17.830748.830748 cuda_h.py:27] end restore_tensors2_fused_experts_packed cost 0.083 ms
+DEBUG 04-23 19:06:17.830553.830553 cuda_h.py:27] end restore_fused_tensors cost 1.163 ms
+DEBUG 04-23 19:06:17.830251.830251 cuda_h.py:27] end group_fused_tensors_mp cost 1.278 ms
+DEBUG 04-23 19:06:17.830099.830099 cuda_h.py:27] end restore_tensors2_fused_experts_slices cost 0.240 ms
+DEBUG 04-23 19:06:17.830165.830165 cuda_h.py:27] end allocate_experts_cuda_memory_and_restore_model_multi_device_fused cost 6.224 ms
+DEBUG 04-23 19:06:17.831270.831270 cuda_h.py:27] end gpu_sexperts cost 0.005 ms
+DEBUG 04-23 19:06:17.831206.831206 cuda_h.py:27] end wait_load_qkvogn_s_weight cost 0.024 ms
+DEBUG 04-23 19:06:17.850021.850021 mlpmodule.py:3370] [fused_group_bmm][steps] bmm1=12.522 ms split=0.097 ms act_mul=0.579 ms bmm2=6.395 ms
+DEBUG 04-23 19:06:17.850974.850974 cuda_h.py:27] end fused_group_bmm cost 19.793 ms
+DEBUG 04-23 19:06:17.851838.851838 cuda_h.py:27] end gather_outputs_group_fused_mp cost 0.834 ms
+DEBUG 04-23 19:06:17.851853.851853 cuda_h.py:27] end experts_func_gpu_einsum_mp cost 26.122 ms
+DEBUG 04-23 19:06:17.852351.852351 cuda_h.py:27] end wait_experts_multi_device cost 20.978 ms
+DEBUG 04-23 19:06:17.861712.861712 cuda_h.py:27] end gpu_experts_multi_device_fused cost 8.622 ms
+DEBUG 04-23 19:06:17.861956.861956 cuda_h.py:27] end cpu_thread_manager_mp_wait_fused cost 0.463 ms
+DEBUG 04-23 19:06:17.862548.862548 cuda_h.py:27] end layer_moe_generate_mp_multi_device_fused_l_15 cost 38.879 ms
+DEBUG 04-23 19:06:17.862616.862616 cuda_h.py:27] end prefill_layer cost 42.745 ms
+DEBUG 04-23 19:06:17.862062.862062 lmp.py:244] -------------------------------- end prefill layer 14 --------------------------------
+DEBUG 04-23 19:06:17.862626.862626 lmp.py:197] -------------------------------- start prefill layer 15 --------------------------------
+DEBUG 04-23 19:06:17.862258.862258 cuda_h.py:27] end start_load_qkvogn_s_weight_l_16 cost 0.041 ms
+DEBUG 04-23 19:06:17.863811.863811 cuda_h.py:27] end allocate_cuda_memory cost 0.205 ms
+DEBUG 04-23 19:06:17.863111.863111 cuda_h.py:27] end start_load_qkvogn_s_weight_l_16 cost 0.387 ms
+DEBUG 04-23 19:06:17.863663.863663 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:17.863123.863123 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:17.864743.864743 cuda_h.py:27] end load_into_gpu_async cost 1.390 ms
+DEBUG 04-23 19:06:17.864511.864511 cuda_h.py:27] end restore_tensors2 cost 0.096 ms
+DEBUG 04-23 19:06:17.865972.865972 cuda_h.py:27] end allocate_cuda_memory_and_load_into_gpu cost 2.088 ms
+DEBUG 04-23 19:06:17.865879.865879 cuda_h.py:27] end self_attn cost 1.813 ms
+DEBUG 04-23 19:06:17.866052.866052 cuda_h.py:27] end iln_self_attn_paln cost 2.534 ms
+DEBUG 04-23 19:06:17.866319.866319 cuda_h.py:27] end gate cost 0.456 ms
+DEBUG 04-23 19:06:17.867729.867729 cuda_h.py:27] end experts_map_get cost 0.287 ms
+DEBUG 04-23 19:06:17.867745.867745 cuda_h.py:27] end cpu_experts_submit_fused_mp cost 0.029 ms
+DEBUG 04-23 19:06:17.869274.869274 cuda_h.py:27] end prepare_group_stack cost 0.447 ms
+DEBUG 04-23 19:06:17.870603.870603 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:17.870413.870413 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:17.871356.871356 cuda_h.py:27] end group stack cost 1.558 ms
+DEBUG 04-23 19:06:17.871637.871637 cuda_h.py:27] end move_flatidxs_group_fused_mp cost 2.204 ms
+DEBUG 04-23 19:06:17.871196.871196 cuda_h.py:27] end get_fused_experts_names_w cost 0.019 ms
+DEBUG 04-23 19:06:17.872470.872470 cuda_h.py:27] end restore2model cost 0.652 ms
+DEBUG 04-23 19:06:17.872234.872234 cuda_h.py:27] end sllm_worker_task cost 9.728 ms
+DEBUG 04-23 19:06:17.872851.872851 cuda_h.py:27] end load_into_gpu_async_fused_experts_dual cost 2.640 ms
+DEBUG 04-23 19:06:17.873695.873695 cuda_h.py:27] end restore_fused_tensors cost 1.082 ms
+DEBUG 04-23 19:06:17.873254.873254 cuda_h.py:27] end group_fused_tensors_mp cost 1.574 ms
+DEBUG 04-23 19:06:17.873693.873693 cuda_h.py:27] end restore_tensors2_fused_experts_packed cost 0.050 ms
+DEBUG 04-23 19:06:17.873646.873646 cuda_h.py:27] end restore_tensors2_fused_experts_slices cost 0.242 ms
+DEBUG 04-23 19:06:17.873986.873986 cuda_h.py:27] end allocate_experts_cuda_memory_and_restore_model_multi_device_fused cost 6.093 ms
+DEBUG 04-23 19:06:17.873842.873842 cuda_h.py:27] end gpu_sexperts cost 0.003 ms
+DEBUG 04-23 19:06:17.873608.873608 cuda_h.py:27] end wait_load_qkvogn_s_weight cost 0.013 ms
+DEBUG 04-23 19:06:17.891732.891732 mlpmodule.py:3370] [fused_group_bmm][steps] bmm1=10.828 ms split=0.098 ms act_mul=0.387 ms bmm2=6.770 ms
+DEBUG 04-23 19:06:17.891786.891786 cuda_h.py:27] end fused_group_bmm cost 18.332 ms
+DEBUG 04-23 19:06:17.892768.892768 cuda_h.py:27] end gather_outputs_group_fused_mp cost 0.816 ms
+DEBUG 04-23 19:06:17.892935.892935 cuda_h.py:27] end experts_func_gpu_einsum_mp cost 24.517 ms
+DEBUG 04-23 19:06:17.896110.896110 cuda_h.py:27] end wait_experts_multi_device cost 22.092 ms
+DEBUG 04-23 19:06:17.905991.905991 cuda_h.py:27] end gpu_experts_multi_device_fused cost 8.899 ms
+DEBUG 04-23 19:06:17.905823.905823 cuda_h.py:27] end cpu_thread_manager_mp_wait_fused cost 0.403 ms
+DEBUG 04-23 19:06:17.906854.906854 cuda_h.py:27] end layer_moe_generate_mp_multi_device_fused_l_16 cost 40.179 ms
+DEBUG 04-23 19:06:17.906961.906961 cuda_h.py:27] end prefill_layer cost 44.024 ms
+DEBUG 04-23 19:06:17.906024.906024 lmp.py:244] -------------------------------- end prefill layer 15 --------------------------------
+DEBUG 04-23 19:06:17.907064.907064 lmp.py:197] -------------------------------- start prefill layer 16 --------------------------------
+DEBUG 04-23 19:06:17.907742.907742 cuda_h.py:27] end start_load_qkvogn_s_weight_l_17 cost 0.039 ms
+DEBUG 04-23 19:06:17.907834.907834 cuda_h.py:27] end allocate_cuda_memory cost 0.219 ms
+DEBUG 04-23 19:06:17.907425.907425 cuda_h.py:27] end start_load_qkvogn_s_weight_l_17 cost 0.434 ms
+DEBUG 04-23 19:06:17.907190.907190 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:17.908926.908926 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:17.909253.909253 cuda_h.py:27] end load_into_gpu_async cost 1.696 ms
+DEBUG 04-23 19:06:17.909524.909524 cuda_h.py:27] end restore_tensors2 cost 0.094 ms
+DEBUG 04-23 19:06:17.909050.909050 cuda_h.py:27] end allocate_cuda_memory_and_load_into_gpu cost 2.784 ms
+DEBUG 04-23 19:06:17.910099.910099 cuda_h.py:27] end self_attn cost 1.818 ms
+DEBUG 04-23 19:06:17.910286.910286 cuda_h.py:27] end iln_self_attn_paln cost 2.537 ms
+DEBUG 04-23 19:06:17.911042.911042 cuda_h.py:27] end gate cost 0.453 ms
+DEBUG 04-23 19:06:17.911260.911260 cuda_h.py:27] end experts_map_get cost 0.288 ms
+DEBUG 04-23 19:06:17.911969.911969 cuda_h.py:27] end cpu_experts_submit_fused_mp cost 0.030 ms
+DEBUG 04-23 19:06:17.914007.914007 cuda_h.py:27] end prepare_group_stack cost 0.475 ms
+DEBUG 04-23 19:06:17.914075.914075 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:17.914396.914396 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:17.916130.916130 cuda_h.py:27] end group stack cost 1.777 ms
+DEBUG 04-23 19:06:17.916385.916385 cuda_h.py:27] end move_flatidxs_group_fused_mp cost 2.493 ms
+DEBUG 04-23 19:06:17.916242.916242 cuda_h.py:27] end get_fused_experts_names_w cost 0.021 ms
+DEBUG 04-23 19:06:17.917110.917110 cuda_h.py:27] end restore_fused_tensors cost 1.254 ms
+DEBUG 04-23 19:06:17.917344.917344 cuda_h.py:27] end group_fused_tensors_mp cost 1.679 ms
+DEBUG 04-23 19:06:17.920691.920691 cuda_h.py:27] end restore2model cost 0.975 ms
+DEBUG 04-23 19:06:17.920035.920035 cuda_h.py:27] end sllm_worker_task cost 13.796 ms
+DEBUG 04-23 19:06:17.922359.922359 cuda_h.py:27] end load_into_gpu_async_fused_experts_dual cost 7.886 ms
+DEBUG 04-23 19:06:17.922312.922312 cuda_h.py:27] end restore_tensors2_fused_experts_packed cost 0.187 ms
+DEBUG 04-23 19:06:17.923847.923847 cuda_h.py:27] end restore_tensors2_fused_experts_slices cost 0.850 ms
+DEBUG 04-23 19:06:17.923206.923206 cuda_h.py:27] end allocate_experts_cuda_memory_and_restore_model_multi_device_fused cost 11.920 ms
+DEBUG 04-23 19:06:17.924341.924341 cuda_h.py:27] end gpu_sexperts cost 0.010 ms
+DEBUG 04-23 19:06:17.924528.924528 cuda_h.py:27] end wait_load_qkvogn_s_weight cost 0.023 ms
+DEBUG 04-23 19:06:17.936338.936338 mlpmodule.py:3370] [fused_group_bmm][steps] bmm1=10.405 ms split=0.091 ms act_mul=0.403 ms bmm2=7.179 ms
+DEBUG 04-23 19:06:17.936246.936246 cuda_h.py:27] end fused_group_bmm cost 18.316 ms
+DEBUG 04-23 19:06:17.937181.937181 cuda_h.py:27] end gather_outputs_group_fused_mp cost 0.781 ms
+DEBUG 04-23 19:06:17.937514.937514 cuda_h.py:27] end experts_func_gpu_einsum_mp cost 25.000 ms
+DEBUG 04-23 19:06:17.941184.941184 cuda_h.py:27] end wait_experts_multi_device cost 17.003 ms
+DEBUG 04-23 19:06:17.951440.951440 cuda_h.py:27] end gpu_experts_multi_device_fused cost 9.215 ms
+DEBUG 04-23 19:06:17.951530.951530 cuda_h.py:27] end cpu_thread_manager_mp_wait_fused cost 0.414 ms
+DEBUG 04-23 19:06:17.952746.952746 cuda_h.py:27] end layer_moe_generate_mp_multi_device_fused_l_17 cost 41.635 ms
+DEBUG 04-23 19:06:17.952674.952674 cuda_h.py:27] end prefill_layer cost 45.702 ms
+DEBUG 04-23 19:06:17.952121.952121 lmp.py:244] -------------------------------- end prefill layer 16 --------------------------------
+DEBUG 04-23 19:06:17.952731.952731 lmp.py:197] -------------------------------- start prefill layer 17 --------------------------------
+DEBUG 04-23 19:06:17.952548.952548 cuda_h.py:27] end start_load_qkvogn_s_weight_l_18 cost 0.040 ms
+DEBUG 04-23 19:06:17.953010.953010 cuda_h.py:27] end allocate_cuda_memory cost 0.216 ms
+DEBUG 04-23 19:06:17.953833.953833 cuda_h.py:27] end start_load_qkvogn_s_weight_l_18 cost 0.423 ms
+DEBUG 04-23 19:06:17.953816.953816 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:17.953573.953573 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:17.955939.955939 cuda_h.py:27] end load_into_gpu_async cost 1.707 ms
+DEBUG 04-23 19:06:17.955414.955414 cuda_h.py:27] end restore_tensors2 cost 0.082 ms
+DEBUG 04-23 19:06:17.955846.955846 cuda_h.py:27] end allocate_cuda_memory_and_load_into_gpu cost 2.280 ms
+DEBUG 04-23 19:06:17.955843.955843 cuda_h.py:27] end self_attn cost 1.928 ms
+DEBUG 04-23 19:06:17.956486.956486 cuda_h.py:27] end iln_self_attn_paln cost 2.622 ms
+DEBUG 04-23 19:06:17.956364.956364 cuda_h.py:27] end gate cost 0.441 ms
+DEBUG 04-23 19:06:17.957906.957906 cuda_h.py:27] end experts_map_get cost 0.283 ms
+DEBUG 04-23 19:06:17.957346.957346 cuda_h.py:27] end cpu_experts_submit_fused_mp cost 0.027 ms
+DEBUG 04-23 19:06:17.959575.959575 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:17.959367.959367 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:17.959163.959163 cuda_h.py:27] end prepare_group_stack cost 0.491 ms
+DEBUG 04-23 19:06:17.961916.961916 cuda_h.py:27] end group stack cost 1.848 ms
+DEBUG 04-23 19:06:17.962383.962383 cuda_h.py:27] end move_flatidxs_group_fused_mp cost 2.529 ms
+DEBUG 04-23 19:06:17.962995.962995 cuda_h.py:27] end get_fused_experts_names_w cost 0.019 ms
+DEBUG 04-23 19:06:17.962544.962544 cuda_h.py:27] end restore2model cost 0.678 ms
+DEBUG 04-23 19:06:17.962169.962169 cuda_h.py:27] end sllm_worker_task cost 9.962 ms
+DEBUG 04-23 19:06:17.963433.963433 cuda_h.py:27] end load_into_gpu_async_fused_experts_dual cost 3.863 ms
+DEBUG 04-23 19:06:17.963343.963343 cuda_h.py:27] end restore_fused_tensors cost 1.274 ms
+DEBUG 04-23 19:06:17.963756.963756 cuda_h.py:27] end group_fused_tensors_mp cost 1.391 ms
+DEBUG 04-23 19:06:17.963664.963664 cuda_h.py:27] end restore_tensors2_fused_experts_packed cost 0.098 ms
+DEBUG 04-23 19:06:17.964085.964085 cuda_h.py:27] end restore_tensors2_fused_experts_slices cost 0.299 ms
+DEBUG 04-23 19:06:17.964061.964061 cuda_h.py:27] end allocate_experts_cuda_memory_and_restore_model_multi_device_fused cost 6.798 ms
+DEBUG 04-23 19:06:17.964801.964801 cuda_h.py:27] end gpu_sexperts cost 0.007 ms
+DEBUG 04-23 19:06:17.964068.964068 cuda_h.py:27] end wait_load_qkvogn_s_weight cost 0.017 ms
+DEBUG 04-23 19:06:17.983510.983510 cuda_h.py:27] end wait_experts_multi_device cost 18.685 ms
+DEBUG 04-23 19:06:17.984452.984452 mlpmodule.py:3370] [fused_group_bmm][steps] bmm1=13.823 ms split=0.098 ms act_mul=0.440 ms bmm2=5.725 ms
+DEBUG 04-23 19:06:17.984352.984352 cuda_h.py:27] end fused_group_bmm cost 20.277 ms
+DEBUG 04-23 19:06:17.985542.985542 cuda_h.py:27] end gather_outputs_group_fused_mp cost 0.744 ms
+DEBUG 04-23 19:06:17.985616.985616 cuda_h.py:27] end experts_func_gpu_einsum_mp cost 27.027 ms
+DEBUG 04-23 19:06:17.992371.992371 cuda_h.py:27] end gpu_experts_multi_device_fused cost 8.269 ms
+DEBUG 04-23 19:06:17.992415.992415 cuda_h.py:27] end cpu_thread_manager_mp_wait_fused cost 0.422 ms
+DEBUG 04-23 19:06:17.993391.993391 cuda_h.py:27] end layer_moe_generate_mp_multi_device_fused_l_18 cost 37.052 ms
+DEBUG 04-23 19:06:17.993320.993320 cuda_h.py:27] end prefill_layer cost 40.909 ms
+DEBUG 04-23 19:06:17.993289.993289 lmp.py:244] -------------------------------- end prefill layer 17 --------------------------------
+DEBUG 04-23 19:06:17.993092.993092 lmp.py:197] -------------------------------- start prefill layer 18 --------------------------------
+DEBUG 04-23 19:06:17.994960.994960 cuda_h.py:27] end start_load_qkvogn_s_weight_l_19 cost 0.042 ms
+DEBUG 04-23 19:06:17.994407.994407 cuda_h.py:27] end allocate_cuda_memory cost 0.199 ms
+DEBUG 04-23 19:06:17.994952.994952 cuda_h.py:27] end start_load_qkvogn_s_weight_l_19 cost 0.385 ms
+DEBUG 04-23 19:06:17.994220.994220 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:17.994554.994554 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:17.996548.996548 cuda_h.py:27] end load_into_gpu_async cost 1.506 ms
+DEBUG 04-23 19:06:17.996460.996460 cuda_h.py:27] end restore_tensors2 cost 0.088 ms
+DEBUG 04-23 19:06:17.996551.996551 cuda_h.py:27] end allocate_cuda_memory_and_load_into_gpu cost 2.173 ms
+DEBUG 04-23 19:06:17.997496.997496 cuda_h.py:27] end self_attn cost 1.844 ms
+DEBUG 04-23 19:06:17.997525.997525 cuda_h.py:27] end iln_self_attn_paln cost 2.597 ms
+DEBUG 04-23 19:06:17.997107.997107 cuda_h.py:27] end gate cost 0.499 ms
+DEBUG 04-23 19:06:17.998842.998842 cuda_h.py:27] end experts_map_get cost 0.311 ms
+DEBUG 04-23 19:06:17.998666.998666 cuda_h.py:27] end cpu_experts_submit_fused_mp cost 0.027 ms
+DEBUG 04-23 19:06:18.000258.000258 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:18.000373.000373 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:18.000566.000566 cuda_h.py:27] end prepare_group_stack cost 0.452 ms
+DEBUG 04-23 19:06:18.002775.002775 cuda_h.py:27] end group stack cost 1.783 ms
+DEBUG 04-23 19:06:18.002394.002394 cuda_h.py:27] end move_flatidxs_group_fused_mp cost 2.450 ms
+DEBUG 04-23 19:06:18.002668.002668 cuda_h.py:27] end get_fused_experts_names_w cost 0.019 ms
+DEBUG 04-23 19:06:18.003683.003683 cuda_h.py:27] end restore2model cost 0.728 ms
+DEBUG 04-23 19:06:18.003236.003236 cuda_h.py:27] end sllm_worker_task cost 9.772 ms
+DEBUG 04-23 19:06:18.003458.003458 cuda_h.py:27] end load_into_gpu_async_fused_experts_dual cost 3.586 ms
+DEBUG 04-23 19:06:18.004286.004286 cuda_h.py:27] end restore_tensors2_fused_experts_packed cost 0.059 ms
+DEBUG 04-23 19:06:18.004705.004705 cuda_h.py:27] end restore_fused_tensors cost 1.464 ms
+DEBUG 04-23 19:06:18.004601.004601 cuda_h.py:27] end group_fused_tensors_mp cost 1.589 ms
+DEBUG 04-23 19:06:18.004206.004206 cuda_h.py:27] end restore_tensors2_fused_experts_slices cost 0.311 ms
+DEBUG 04-23 19:06:18.004788.004788 cuda_h.py:27] end allocate_experts_cuda_memory_and_restore_model_multi_device_fused cost 6.364 ms
+DEBUG 04-23 19:06:18.005177.005177 cuda_h.py:27] end gpu_sexperts cost 0.009 ms
+DEBUG 04-23 19:06:18.005443.005443 cuda_h.py:27] end wait_load_qkvogn_s_weight cost 0.030 ms
+DEBUG 04-23 19:06:18.023198.023198 mlpmodule.py:3370] [fused_group_bmm][steps] bmm1=12.533 ms split=0.101 ms act_mul=0.413 ms bmm2=5.769 ms
+DEBUG 04-23 19:06:18.023125.023125 cuda_h.py:27] end fused_group_bmm cost 19.031 ms
+DEBUG 04-23 19:06:18.024566.024566 cuda_h.py:27] end wait_experts_multi_device cost 18.730 ms
+DEBUG 04-23 19:06:18.024425.024425 cuda_h.py:27] end gather_outputs_group_fused_mp cost 0.806 ms
+DEBUG 04-23 19:06:18.024684.024684 cuda_h.py:27] end experts_func_gpu_einsum_mp cost 25.488 ms
+DEBUG 04-23 19:06:18.033367.033367 cuda_h.py:27] end gpu_experts_multi_device_fused cost 9.271 ms
+DEBUG 04-23 19:06:18.034788.034788 cuda_h.py:27] end cpu_thread_manager_mp_wait_fused cost 0.395 ms
+DEBUG 04-23 19:06:18.035894.035894 cuda_h.py:27] end layer_moe_generate_mp_multi_device_fused_l_19 cost 37.844 ms
+DEBUG 04-23 19:06:18.035878.035878 cuda_h.py:27] end prefill_layer cost 41.861 ms
+DEBUG 04-23 19:06:18.035715.035715 lmp.py:244] -------------------------------- end prefill layer 18 --------------------------------
+DEBUG 04-23 19:06:18.035048.035048 lmp.py:197] -------------------------------- start prefill layer 19 --------------------------------
+DEBUG 04-23 19:06:18.036367.036367 cuda_h.py:27] end start_load_qkvogn_s_weight_l_20 cost 0.049 ms
+DEBUG 04-23 19:06:18.036450.036450 cuda_h.py:27] end allocate_cuda_memory cost 0.202 ms
+DEBUG 04-23 19:06:18.036087.036087 cuda_h.py:27] end start_load_qkvogn_s_weight_l_20 cost 0.402 ms
+DEBUG 04-23 19:06:18.036077.036077 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:18.037378.037378 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:18.038102.038102 cuda_h.py:27] end load_into_gpu_async cost 2.123 ms
+DEBUG 04-23 19:06:18.038187.038187 cuda_h.py:27] end restore_tensors2 cost 0.097 ms
+DEBUG 04-23 19:06:18.039547.039547 cuda_h.py:27] end allocate_cuda_memory_and_load_into_gpu cost 2.954 ms
+DEBUG 04-23 19:06:18.039872.039872 cuda_h.py:27] end self_attn cost 2.759 ms
+DEBUG 04-23 19:06:18.040756.040756 cuda_h.py:27] end iln_self_attn_paln cost 3.473 ms
+DEBUG 04-23 19:06:18.040493.040493 cuda_h.py:27] end gate cost 0.564 ms
+DEBUG 04-23 19:06:18.041243.041243 cuda_h.py:27] end experts_map_get cost 0.343 ms
+DEBUG 04-23 19:06:18.041809.041809 cuda_h.py:27] end cpu_experts_submit_fused_mp cost 0.034 ms
+DEBUG 04-23 19:06:18.043851.043851 cuda_h.py:27] end prepare_group_stack cost 0.491 ms
+DEBUG 04-23 19:06:18.044949.044949 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:18.044727.044727 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:18.045605.045605 cuda_h.py:27] end group stack cost 1.450 ms
+DEBUG 04-23 19:06:18.045887.045887 cuda_h.py:27] end move_flatidxs_group_fused_mp cost 2.149 ms
+DEBUG 04-23 19:06:18.045399.045399 cuda_h.py:27] end get_fused_experts_names_w cost 0.019 ms
+DEBUG 04-23 19:06:18.046823.046823 cuda_h.py:27] end restore_fused_tensors cost 0.981 ms
+DEBUG 04-23 19:06:18.046236.046236 cuda_h.py:27] end group_fused_tensors_mp cost 1.095 ms
+DEBUG 04-23 19:06:18.046527.046527 cuda_h.py:27] end restore2model cost 0.653 ms
+DEBUG 04-23 19:06:18.046715.046715 cuda_h.py:27] end sllm_worker_task cost 10.350 ms
+DEBUG 04-23 19:06:18.046541.046541 cuda_h.py:27] end load_into_gpu_async_fused_experts_dual cost 2.473 ms
+DEBUG 04-23 19:06:18.046848.046848 cuda_h.py:27] end restore_tensors2_fused_experts_packed cost 0.063 ms
+DEBUG 04-23 19:06:18.047381.047381 cuda_h.py:27] end restore_tensors2_fused_experts_slices cost 0.366 ms
+DEBUG 04-23 19:06:18.047340.047340 cuda_h.py:27] end allocate_experts_cuda_memory_and_restore_model_multi_device_fused cost 5.839 ms
+DEBUG 04-23 19:06:18.047842.047842 cuda_h.py:27] end gpu_sexperts cost 0.008 ms
+DEBUG 04-23 19:06:18.047379.047379 cuda_h.py:27] end wait_load_qkvogn_s_weight cost 0.030 ms
+DEBUG 04-23 19:06:18.063752.063752 mlpmodule.py:3370] [fused_group_bmm][steps] bmm1=10.957 ms split=0.100 ms act_mul=0.414 ms bmm2=5.584 ms
+DEBUG 04-23 19:06:18.063804.063804 cuda_h.py:27] end fused_group_bmm cost 17.273 ms
+DEBUG 04-23 19:06:18.064150.064150 cuda_h.py:27] end wait_experts_multi_device cost 16.157 ms
+DEBUG 04-23 19:06:18.064128.064128 cuda_h.py:27] end gather_outputs_group_fused_mp cost 0.717 ms
+DEBUG 04-23 19:06:18.064115.064115 cuda_h.py:27] end experts_func_gpu_einsum_mp cost 22.780 ms
+DEBUG 04-23 19:06:18.072900.072900 cuda_h.py:27] end gpu_experts_multi_device_fused cost 7.978 ms
+DEBUG 04-23 19:06:18.073831.073831 cuda_h.py:27] end cpu_thread_manager_mp_wait_fused cost 0.403 ms
+DEBUG 04-23 19:06:18.073136.073136 cuda_h.py:27] end layer_moe_generate_mp_multi_device_fused_l_20 cost 33.208 ms
+DEBUG 04-23 19:06:18.073495.073495 cuda_h.py:27] end prefill_layer cost 38.067 ms
+DEBUG 04-23 19:06:18.074458.074458 lmp.py:244] -------------------------------- end prefill layer 19 --------------------------------
+DEBUG 04-23 19:06:18.074260.074260 lmp.py:197] -------------------------------- start prefill layer 20 --------------------------------
+DEBUG 04-23 19:06:18.074433.074433 cuda_h.py:27] end start_load_qkvogn_s_weight_l_21 cost 0.041 ms
+DEBUG 04-23 19:06:18.074410.074410 cuda_h.py:27] end allocate_cuda_memory cost 0.201 ms
+DEBUG 04-23 19:06:18.074379.074379 cuda_h.py:27] end start_load_qkvogn_s_weight_l_21 cost 0.386 ms
+DEBUG 04-23 19:06:18.074984.074984 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:18.074483.074483 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:18.076885.076885 cuda_h.py:27] end load_into_gpu_async cost 1.578 ms
+DEBUG 04-23 19:06:18.076320.076320 cuda_h.py:27] end restore_tensors2 cost 0.082 ms
+DEBUG 04-23 19:06:18.076170.076170 cuda_h.py:27] end allocate_cuda_memory_and_load_into_gpu cost 2.175 ms
+DEBUG 04-23 19:06:18.077649.077649 cuda_h.py:27] end self_attn cost 2.004 ms
+DEBUG 04-23 19:06:18.077585.077585 cuda_h.py:27] end iln_self_attn_paln cost 2.723 ms
+DEBUG 04-23 19:06:18.078994.078994 cuda_h.py:27] end gate cost 0.472 ms
+DEBUG 04-23 19:06:18.078781.078781 cuda_h.py:27] end experts_map_get cost 0.283 ms
+DEBUG 04-23 19:06:18.078843.078843 cuda_h.py:27] end cpu_experts_submit_fused_mp cost 0.028 ms
+DEBUG 04-23 19:06:18.081288.081288 cuda_h.py:27] end prepare_group_stack cost 0.391 ms
+DEBUG 04-23 19:06:18.081023.081023 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:18.081503.081503 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:18.082052.082052 cuda_h.py:27] end group stack cost 1.357 ms
+DEBUG 04-23 19:06:18.082565.082565 cuda_h.py:27] end move_flatidxs_group_fused_mp cost 1.946 ms
+DEBUG 04-23 19:06:18.082507.082507 cuda_h.py:27] end get_fused_experts_names_w cost 0.019 ms
+DEBUG 04-23 19:06:18.084641.084641 cuda_h.py:27] end restore2model cost 0.713 ms
+DEBUG 04-23 19:06:18.084262.084262 cuda_h.py:27] end restore_fused_tensors cost 0.992 ms
+DEBUG 04-23 19:06:18.084314.084314 cuda_h.py:27] end load_into_gpu_async_fused_experts_dual cost 2.358 ms
+DEBUG 04-23 19:06:18.084512.084512 cuda_h.py:27] end group_fused_tensors_mp cost 1.360 ms
+DEBUG 04-23 19:06:18.084991.084991 cuda_h.py:27] end sllm_worker_task cost 9.872 ms
+DEBUG 04-23 19:06:18.084355.084355 cuda_h.py:27] end restore_tensors2_fused_experts_packed cost 0.050 ms
+DEBUG 04-23 19:06:18.084977.084977 cuda_h.py:27] end restore_tensors2_fused_experts_slices cost 0.212 ms
+DEBUG 04-23 19:06:18.085217.085217 cuda_h.py:27] end allocate_experts_cuda_memory_and_restore_model_multi_device_fused cost 6.140 ms
+DEBUG 04-23 19:06:18.085941.085941 cuda_h.py:27] end gpu_sexperts cost 0.004 ms
+DEBUG 04-23 19:06:18.085247.085247 cuda_h.py:27] end wait_load_qkvogn_s_weight cost 0.020 ms
+DEBUG 04-23 19:06:18.100042.100042 mlpmodule.py:3370] [fused_group_bmm][steps] bmm1=10.091 ms split=0.096 ms act_mul=0.347 ms bmm2=5.771 ms
+DEBUG 04-23 19:06:18.100439.100439 cuda_h.py:27] end fused_group_bmm cost 16.520 ms
+DEBUG 04-23 19:06:18.101909.101909 cuda_h.py:27] end gather_outputs_group_fused_mp cost 0.720 ms
+DEBUG 04-23 19:06:18.102771.102771 cuda_h.py:27] end experts_func_gpu_einsum_mp cost 22.200 ms
+DEBUG 04-23 19:06:18.105627.105627 cuda_h.py:27] end wait_experts_multi_device cost 20.812 ms
+DEBUG 04-23 19:06:18.114368.114368 cuda_h.py:27] end gpu_experts_multi_device_fused cost 8.125 ms
+DEBUG 04-23 19:06:18.294050.294050 cuda_h.py:27] end cpu_thread_manager_mp_wait_fused cost 179.671 ms
+DEBUG 04-23 19:06:18.294280.294280 cuda_h.py:27] end layer_moe_generate_mp_multi_device_fused_l_21 cost 217.066 ms
+DEBUG 04-23 19:06:18.295234.295234 cuda_h.py:27] end prefill_layer cost 221.319 ms
+DEBUG 04-23 19:06:18.295025.295025 lmp.py:244] -------------------------------- end prefill layer 20 --------------------------------
+DEBUG 04-23 19:06:18.295827.295827 lmp.py:197] -------------------------------- start prefill layer 21 --------------------------------
+DEBUG 04-23 19:06:18.295651.295651 cuda_h.py:27] end start_load_qkvogn_s_weight_l_22 cost 0.042 ms
+DEBUG 04-23 19:06:18.296545.296545 cuda_h.py:27] end allocate_cuda_memory cost 1.203 ms
+DEBUG 04-23 19:06:18.297939.297939 cuda_h.py:27] end start_load_qkvogn_s_weight_l_22 cost 1.515 ms
+DEBUG 04-23 19:06:18.297847.297847 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:18.297214.297214 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:18.299174.299174 cuda_h.py:27] end self_attn cost 2.101 ms
+DEBUG 04-23 19:06:18.300463.300463 cuda_h.py:27] end load_into_gpu_async cost 2.769 ms
+DEBUG 04-23 19:06:18.300811.300811 cuda_h.py:27] end restore_tensors2 cost 0.176 ms
+DEBUG 04-23 19:06:18.300113.300113 cuda_h.py:27] end allocate_cuda_memory_and_load_into_gpu cost 4.798 ms
+DEBUG 04-23 19:06:18.300249.300249 cuda_h.py:27] end iln_self_attn_paln cost 3.238 ms
+DEBUG 04-23 19:06:18.301787.301787 cuda_h.py:27] end gate cost 0.559 ms
+DEBUG 04-23 19:06:18.301786.301786 cuda_h.py:27] end experts_map_get cost 0.294 ms
+DEBUG 04-23 19:06:18.302610.302610 cuda_h.py:27] end cpu_experts_submit_fused_mp cost 0.028 ms
+DEBUG 04-23 19:06:18.304324.304324 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:18.304327.304327 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:18.305014.305014 cuda_h.py:27] end prepare_group_stack cost 0.628 ms
+DEBUG 04-23 19:06:18.308224.308224 cuda_h.py:27] end group stack cost 3.271 ms
+DEBUG 04-23 19:06:18.309603.309603 cuda_h.py:27] end move_flatidxs_group_fused_mp cost 4.402 ms
+DEBUG 04-23 19:06:18.309010.309010 cuda_h.py:27] end load_into_gpu_async_fused_experts_dual cost 4.650 ms
+DEBUG 04-23 19:06:18.309443.309443 cuda_h.py:27] end restore_tensors2_fused_experts_packed cost 0.048 ms
+DEBUG 04-23 19:06:18.309635.309635 cuda_h.py:27] end get_fused_experts_names_w cost 0.037 ms
+DEBUG 04-23 19:06:18.310249.310249 cuda_h.py:27] end restore_tensors2_fused_experts_slices cost 0.206 ms
+DEBUG 04-23 19:06:18.310256.310256 cuda_h.py:27] end restore2model cost 2.070 ms
+DEBUG 04-23 19:06:18.310702.310702 cuda_h.py:27] end allocate_experts_cuda_memory_and_restore_model_multi_device_fused cost 8.189 ms
+DEBUG 04-23 19:06:18.310892.310892 cuda_h.py:27] end sllm_worker_task cost 15.206 ms
+DEBUG 04-23 19:06:18.311127.311127 cuda_h.py:27] end gpu_sexperts cost 0.004 ms
+DEBUG 04-23 19:06:18.311242.311242 cuda_h.py:27] end wait_load_qkvogn_s_weight cost 0.015 ms
+DEBUG 04-23 19:06:18.311045.311045 cuda_h.py:27] end restore_fused_tensors cost 1.964 ms
+DEBUG 04-23 19:06:18.311715.311715 cuda_h.py:27] end group_fused_tensors_mp cost 2.424 ms
+DEBUG 04-23 19:06:18.329701.329701 cuda_h.py:27] end wait_experts_multi_device cost 17.417 ms
+DEBUG 04-23 19:06:18.329013.329013 mlpmodule.py:3370] [fused_group_bmm][steps] bmm1=12.157 ms split=0.098 ms act_mul=0.360 ms bmm2=4.506 ms
+DEBUG 04-23 19:06:18.329474.329474 cuda_h.py:27] end fused_group_bmm cost 17.446 ms
+DEBUG 04-23 19:06:18.330537.330537 cuda_h.py:27] end gather_outputs_group_fused_mp cost 0.646 ms
+DEBUG 04-23 19:06:18.330094.330094 cuda_h.py:27] end experts_func_gpu_einsum_mp cost 27.059 ms
+DEBUG 04-23 19:06:18.337484.337484 cuda_h.py:27] end gpu_experts_multi_device_fused cost 8.144 ms
+DEBUG 04-23 19:06:18.338693.338693 cuda_h.py:27] end cpu_thread_manager_mp_wait_fused cost 0.399 ms
+DEBUG 04-23 19:06:18.338150.338150 cuda_h.py:27] end layer_moe_generate_mp_multi_device_fused_l_22 cost 37.524 ms
+DEBUG 04-23 19:06:18.338343.338343 cuda_h.py:27] end prefill_layer cost 43.490 ms
+DEBUG 04-23 19:06:18.339320.339320 lmp.py:244] -------------------------------- end prefill layer 21 --------------------------------
+DEBUG 04-23 19:06:18.339599.339599 lmp.py:197] -------------------------------- start prefill layer 22 --------------------------------
+DEBUG 04-23 19:06:18.339268.339268 cuda_h.py:27] end start_load_qkvogn_s_weight_l_23 cost 0.040 ms
+DEBUG 04-23 19:06:18.339545.339545 cuda_h.py:27] end allocate_cuda_memory cost 0.245 ms
+DEBUG 04-23 19:06:18.339606.339606 cuda_h.py:27] end start_load_qkvogn_s_weight_l_23 cost 0.428 ms
+DEBUG 04-23 19:06:18.339212.339212 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:18.340134.340134 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:18.341646.341646 cuda_h.py:27] end load_into_gpu_async cost 1.687 ms
+DEBUG 04-23 19:06:18.341638.341638 cuda_h.py:27] end restore_tensors2 cost 0.097 ms
+DEBUG 04-23 19:06:18.341486.341486 cuda_h.py:27] end allocate_cuda_memory_and_load_into_gpu cost 2.492 ms
+DEBUG 04-23 19:06:18.342007.342007 cuda_h.py:27] end self_attn cost 1.940 ms
+DEBUG 04-23 19:06:18.342792.342792 cuda_h.py:27] end iln_self_attn_paln cost 2.714 ms
+DEBUG 04-23 19:06:18.343981.343981 cuda_h.py:27] end gate cost 0.453 ms
+DEBUG 04-23 19:06:18.343523.343523 cuda_h.py:27] end experts_map_get cost 0.278 ms
+DEBUG 04-23 19:06:18.343129.343129 cuda_h.py:27] end cpu_experts_submit_fused_mp cost 0.029 ms
+DEBUG 04-23 19:06:18.346089.346089 cuda_h.py:27] end prepare_group_stack cost 0.405 ms
+DEBUG 04-23 19:06:18.346139.346139 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:18.346572.346572 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:18.347448.347448 cuda_h.py:27] end group stack cost 1.336 ms
+DEBUG 04-23 19:06:18.347584.347584 cuda_h.py:27] end move_flatidxs_group_fused_mp cost 1.947 ms
+DEBUG 04-23 19:06:18.347598.347598 cuda_h.py:27] end get_fused_experts_names_w cost 0.018 ms
+DEBUG 04-23 19:06:18.348273.348273 cuda_h.py:27] end restore_fused_tensors cost 0.975 ms
+DEBUG 04-23 19:06:18.348400.348400 cuda_h.py:27] end group_fused_tensors_mp cost 1.246 ms
+DEBUG 04-23 19:06:18.352076.352076 cuda_h.py:27] end restore2model cost 0.838 ms
+DEBUG 04-23 19:06:18.352228.352228 cuda_h.py:27] end sllm_worker_task cost 13.575 ms
+DEBUG 04-23 19:06:18.353648.353648 cuda_h.py:27] end load_into_gpu_async_fused_experts_dual cost 7.274 ms
+DEBUG 04-23 19:06:18.353268.353268 cuda_h.py:27] end restore_tensors2_fused_experts_packed cost 0.152 ms
+DEBUG 04-23 19:06:18.354573.354573 cuda_h.py:27] end restore_tensors2_fused_experts_slices cost 0.449 ms
+DEBUG 04-23 19:06:18.354770.354770 cuda_h.py:27] end allocate_experts_cuda_memory_and_restore_model_multi_device_fused cost 10.495 ms
+DEBUG 04-23 19:06:18.354704.354704 cuda_h.py:27] end gpu_sexperts cost 0.007 ms
+DEBUG 04-23 19:06:18.354931.354931 cuda_h.py:27] end wait_load_qkvogn_s_weight cost 0.021 ms
+DEBUG 04-23 19:06:18.362604.362604 mlpmodule.py:3370] [fused_group_bmm][steps] bmm1=7.454 ms split=0.086 ms act_mul=0.348 ms bmm2=5.578 ms
+DEBUG 04-23 19:06:18.362929.362929 cuda_h.py:27] end fused_group_bmm cost 13.698 ms
+DEBUG 04-23 19:06:18.363325.363325 cuda_h.py:27] end gather_outputs_group_fused_mp cost 0.701 ms
+DEBUG 04-23 19:06:18.364441.364441 cuda_h.py:27] end experts_func_gpu_einsum_mp cost 19.733 ms
+DEBUG 04-23 19:06:18.370435.370435 cuda_h.py:27] end wait_experts_multi_device cost 15.890 ms
+DEBUG 04-23 19:06:18.379502.379502 cuda_h.py:27] end gpu_experts_multi_device_fused cost 8.332 ms
+DEBUG 04-23 19:06:18.380990.380990 cuda_h.py:27] end cpu_thread_manager_mp_wait_fused cost 0.428 ms
+DEBUG 04-23 19:06:18.380017.380017 cuda_h.py:27] end layer_moe_generate_mp_multi_device_fused_l_23 cost 37.700 ms
+DEBUG 04-23 19:06:18.380892.380892 cuda_h.py:27] end prefill_layer cost 41.781 ms
+DEBUG 04-23 19:06:18.380093.380093 lmp.py:244] -------------------------------- end prefill layer 22 --------------------------------
+DEBUG 04-23 19:06:18.380942.380942 lmp.py:197] -------------------------------- start prefill layer 23 --------------------------------
+DEBUG 04-23 19:06:18.381998.381998 cuda_h.py:27] end start_load_qkvogn_s_weight_l_24 cost 0.040 ms
+DEBUG 04-23 19:06:18.381658.381658 cuda_h.py:27] end allocate_cuda_memory cost 0.217 ms
+DEBUG 04-23 19:06:18.381057.381057 cuda_h.py:27] end start_load_qkvogn_s_weight_l_24 cost 0.433 ms
+DEBUG 04-23 19:06:18.381723.381723 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:18.381625.381625 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:18.383623.383623 cuda_h.py:27] end load_into_gpu_async cost 1.752 ms
+DEBUG 04-23 19:06:18.383277.383277 cuda_h.py:27] end restore_tensors2 cost 0.095 ms
+DEBUG 04-23 19:06:18.383528.383528 cuda_h.py:27] end allocate_cuda_memory_and_load_into_gpu cost 2.515 ms
+DEBUG 04-23 19:06:18.384487.384487 cuda_h.py:27] end self_attn cost 2.249 ms
+DEBUG 04-23 19:06:18.384468.384468 cuda_h.py:27] end iln_self_attn_paln cost 2.925 ms
+DEBUG 04-23 19:06:18.385591.385591 cuda_h.py:27] end gate cost 0.447 ms
+DEBUG 04-23 19:06:18.385511.385511 cuda_h.py:27] end experts_map_get cost 0.278 ms
+DEBUG 04-23 19:06:18.385096.385096 cuda_h.py:27] end cpu_experts_submit_fused_mp cost 0.027 ms
+DEBUG 04-23 19:06:18.387723.387723 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:18.387746.387746 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:18.388355.388355 cuda_h.py:27] end prepare_group_stack cost 0.410 ms
+DEBUG 04-23 19:06:18.389724.389724 cuda_h.py:27] end group stack cost 1.446 ms
+DEBUG 04-23 19:06:18.389290.389290 cuda_h.py:27] end move_flatidxs_group_fused_mp cost 2.066 ms
+DEBUG 04-23 19:06:18.389372.389372 cuda_h.py:27] end get_fused_experts_names_w cost 0.019 ms
+DEBUG 04-23 19:06:18.390802.390802 cuda_h.py:27] end restore_fused_tensors cost 0.950 ms
+DEBUG 04-23 19:06:18.390168.390168 cuda_h.py:27] end group_fused_tensors_mp cost 1.065 ms
+DEBUG 04-23 19:06:18.391240.391240 cuda_h.py:27] end restore2model cost 0.636 ms
+DEBUG 04-23 19:06:18.391071.391071 cuda_h.py:27] end sllm_worker_task cost 10.012 ms
+DEBUG 04-23 19:06:18.391716.391716 cuda_h.py:27] end load_into_gpu_async_fused_experts_dual cost 3.539 ms
+DEBUG 04-23 19:06:18.391859.391859 cuda_h.py:27] end restore_tensors2_fused_experts_packed cost 0.052 ms
+DEBUG 04-23 19:06:18.392164.392164 cuda_h.py:27] end restore_tensors2_fused_experts_slices cost 0.416 ms
+DEBUG 04-23 19:06:18.392872.392872 cuda_h.py:27] end allocate_experts_cuda_memory_and_restore_model_multi_device_fused cost 6.479 ms
+DEBUG 04-23 19:06:18.392601.392601 cuda_h.py:27] end gpu_sexperts cost 0.010 ms
+DEBUG 04-23 19:06:18.392630.392630 cuda_h.py:27] end wait_load_qkvogn_s_weight cost 0.033 ms
+DEBUG 04-23 19:06:18.407376.407376 mlpmodule.py:3370] [fused_group_bmm][steps] bmm1=9.842 ms split=0.097 ms act_mul=0.334 ms bmm2=6.075 ms
+DEBUG 04-23 19:06:18.407344.407344 cuda_h.py:27] end fused_group_bmm cost 16.576 ms
+DEBUG 04-23 19:06:18.408555.408555 cuda_h.py:27] end gather_outputs_group_fused_mp cost 0.738 ms
+DEBUG 04-23 19:06:18.408312.408312 cuda_h.py:27] end experts_func_gpu_einsum_mp cost 22.054 ms
+DEBUG 04-23 19:06:18.411259.411259 cuda_h.py:27] end wait_experts_multi_device cost 18.010 ms
+DEBUG 04-23 19:06:18.419178.419178 cuda_h.py:27] end gpu_experts_multi_device_fused cost 8.299 ms
+DEBUG 04-23 19:06:18.420095.420095 cuda_h.py:27] end cpu_thread_manager_mp_wait_fused cost 0.392 ms
+DEBUG 04-23 19:06:18.420779.420779 cuda_h.py:27] end layer_moe_generate_mp_multi_device_fused_l_24 cost 35.912 ms
+DEBUG 04-23 19:06:18.421780.421780 cuda_h.py:27] end prefill_layer cost 40.040 ms
+DEBUG 04-23 19:06:18.421796.421796 lmp.py:244] -------------------------------- end prefill layer 23 --------------------------------
+DEBUG 04-23 19:06:18.421360.421360 lmp.py:197] -------------------------------- start prefill layer 24 --------------------------------
+DEBUG 04-23 19:06:18.421607.421607 cuda_h.py:27] end start_load_qkvogn_s_weight_l_25 cost 0.041 ms
+DEBUG 04-23 19:06:18.421545.421545 cuda_h.py:27] end allocate_cuda_memory cost 0.210 ms
+DEBUG 04-23 19:06:18.421772.421772 cuda_h.py:27] end start_load_qkvogn_s_weight_l_25 cost 0.399 ms
+DEBUG 04-23 19:06:18.421053.421053 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:18.421665.421665 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:18.423777.423777 cuda_h.py:27] end load_into_gpu_async cost 1.447 ms
+DEBUG 04-23 19:06:18.423355.423355 cuda_h.py:27] end restore_tensors2 cost 0.081 ms
+DEBUG 04-23 19:06:18.423938.423938 cuda_h.py:27] end allocate_cuda_memory_and_load_into_gpu cost 2.296 ms
+DEBUG 04-23 19:06:18.424113.424113 cuda_h.py:27] end self_attn cost 2.071 ms
+DEBUG 04-23 19:06:18.424269.424269 cuda_h.py:27] end iln_self_attn_paln cost 2.905 ms
+DEBUG 04-23 19:06:18.425608.425608 cuda_h.py:27] end gate cost 0.554 ms
+DEBUG 04-23 19:06:18.425650.425650 cuda_h.py:27] end experts_map_get cost 0.349 ms
+DEBUG 04-23 19:06:18.425355.425355 cuda_h.py:27] end cpu_experts_submit_fused_mp cost 0.032 ms
+DEBUG 04-23 19:06:18.428471.428471 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:18.428766.428766 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:18.429427.429427 cuda_h.py:27] end prepare_group_stack cost 0.422 ms
+DEBUG 04-23 19:06:18.430417.430417 cuda_h.py:27] end group stack cost 1.491 ms
+DEBUG 04-23 19:06:18.430784.430784 cuda_h.py:27] end move_flatidxs_group_fused_mp cost 2.212 ms
+DEBUG 04-23 19:06:18.430012.430012 cuda_h.py:27] end get_fused_experts_names_w cost 0.019 ms
+DEBUG 04-23 19:06:18.431679.431679 cuda_h.py:27] end restore2model cost 0.679 ms
+DEBUG 04-23 19:06:18.431955.431955 cuda_h.py:27] end load_into_gpu_async_fused_experts_dual cost 2.570 ms
+DEBUG 04-23 19:06:18.431051.431051 cuda_h.py:27] end sllm_worker_task cost 10.034 ms
+DEBUG 04-23 19:06:18.431025.431025 cuda_h.py:27] end restore_tensors2_fused_experts_packed cost 0.058 ms
+DEBUG 04-23 19:06:18.431172.431172 cuda_h.py:27] end restore_fused_tensors cost 0.996 ms
+DEBUG 04-23 19:06:18.432733.432733 cuda_h.py:27] end group_fused_tensors_mp cost 1.186 ms
+DEBUG 04-23 19:06:18.432615.432615 cuda_h.py:27] end restore_tensors2_fused_experts_slices cost 0.280 ms
+DEBUG 04-23 19:06:18.432780.432780 cuda_h.py:27] end allocate_experts_cuda_memory_and_restore_model_multi_device_fused cost 6.039 ms
+DEBUG 04-23 19:06:18.432973.432973 cuda_h.py:27] end gpu_sexperts cost 0.004 ms
+DEBUG 04-23 19:06:18.432847.432847 cuda_h.py:27] end wait_load_qkvogn_s_weight cost 0.012 ms
+DEBUG 04-23 19:06:18.450705.450705 mlpmodule.py:3370] [fused_group_bmm][steps] bmm1=11.301 ms split=0.110 ms act_mul=0.379 ms bmm2=6.037 ms
+DEBUG 04-23 19:06:18.450671.450671 cuda_h.py:27] end fused_group_bmm cost 18.037 ms
+DEBUG 04-23 19:06:18.451632.451632 cuda_h.py:27] end gather_outputs_group_fused_mp cost 0.766 ms
+DEBUG 04-23 19:06:18.451220.451220 cuda_h.py:27] end experts_func_gpu_einsum_mp cost 23.599 ms
+DEBUG 04-23 19:06:18.454823.454823 cuda_h.py:27] end wait_experts_multi_device cost 22.197 ms
+DEBUG 04-23 19:06:18.463938.463938 cuda_h.py:27] end gpu_experts_multi_device_fused cost 8.221 ms
+DEBUG 04-23 19:06:18.463499.463499 cuda_h.py:27] end cpu_thread_manager_mp_wait_fused cost 0.414 ms
+DEBUG 04-23 19:06:18.464150.464150 cuda_h.py:27] end layer_moe_generate_mp_multi_device_fused_l_25 cost 39.478 ms
+DEBUG 04-23 19:06:18.464740.464740 cuda_h.py:27] end prefill_layer cost 43.600 ms
+DEBUG 04-23 19:06:18.464478.464478 lmp.py:244] -------------------------------- end prefill layer 24 --------------------------------
+DEBUG 04-23 19:06:18.464519.464519 lmp.py:197] -------------------------------- start prefill layer 25 --------------------------------
+DEBUG 04-23 19:06:18.464966.464966 cuda_h.py:27] end start_load_qkvogn_s_weight_l_26 cost 0.040 ms
+DEBUG 04-23 19:06:18.465764.465764 cuda_h.py:27] end allocate_cuda_memory cost 0.216 ms
+DEBUG 04-23 19:06:18.465792.465792 cuda_h.py:27] end start_load_qkvogn_s_weight_l_26 cost 0.402 ms
+DEBUG 04-23 19:06:18.465868.465868 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:18.465161.465161 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:18.466285.466285 cuda_h.py:27] end load_into_gpu_async cost 1.572 ms
+DEBUG 04-23 19:06:18.467671.467671 cuda_h.py:27] end restore_tensors2 cost 0.188 ms
+DEBUG 04-23 19:06:18.467673.467673 cuda_h.py:27] end allocate_cuda_memory_and_load_into_gpu cost 2.299 ms
+DEBUG 04-23 19:06:18.467092.467092 cuda_h.py:27] end self_attn cost 1.722 ms
+DEBUG 04-23 19:06:18.467113.467113 cuda_h.py:27] end iln_self_attn_paln cost 2.402 ms
+DEBUG 04-23 19:06:18.468329.468329 cuda_h.py:27] end gate cost 0.445 ms
+DEBUG 04-23 19:06:18.468023.468023 cuda_h.py:27] end experts_map_get cost 0.287 ms
+DEBUG 04-23 19:06:18.468086.468086 cuda_h.py:27] end cpu_experts_submit_fused_mp cost 0.029 ms
+DEBUG 04-23 19:06:18.471091.471091 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:18.471478.471478 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:18.471287.471287 cuda_h.py:27] end prepare_group_stack cost 0.440 ms
+DEBUG 04-23 19:06:18.473159.473159 cuda_h.py:27] end group stack cost 1.414 ms
+DEBUG 04-23 19:06:18.473725.473725 cuda_h.py:27] end move_flatidxs_group_fused_mp cost 2.083 ms
+DEBUG 04-23 19:06:18.473814.473814 cuda_h.py:27] end get_fused_experts_names_w cost 0.020 ms
+DEBUG 04-23 19:06:18.474634.474634 cuda_h.py:27] end restore_fused_tensors cost 1.130 ms
+DEBUG 04-23 19:06:18.474669.474669 cuda_h.py:27] end group_fused_tensors_mp cost 1.251 ms
+DEBUG 04-23 19:06:18.475576.475576 cuda_h.py:27] end restore2model cost 0.869 ms
+DEBUG 04-23 19:06:18.475394.475394 cuda_h.py:27] end sllm_worker_task cost 10.762 ms
+DEBUG 04-23 19:06:18.476377.476377 cuda_h.py:27] end load_into_gpu_async_fused_experts_dual cost 5.366 ms
+DEBUG 04-23 19:06:18.476582.476582 cuda_h.py:27] end restore_tensors2_fused_experts_packed cost 0.104 ms
+DEBUG 04-23 19:06:18.477916.477916 cuda_h.py:27] end restore_tensors2_fused_experts_slices cost 0.610 ms
+DEBUG 04-23 19:06:18.477951.477951 cuda_h.py:27] end allocate_experts_cuda_memory_and_restore_model_multi_device_fused cost 8.557 ms
+DEBUG 04-23 19:06:18.477116.477116 cuda_h.py:27] end gpu_sexperts cost 0.013 ms
+DEBUG 04-23 19:06:18.478204.478204 cuda_h.py:27] end wait_load_qkvogn_s_weight cost 0.044 ms
+DEBUG 04-23 19:06:18.490929.490929 mlpmodule.py:3370] [fused_group_bmm][steps] bmm1=8.836 ms split=0.094 ms act_mul=0.695 ms bmm2=6.517 ms
+DEBUG 04-23 19:06:18.490976.490976 cuda_h.py:27] end fused_group_bmm cost 16.377 ms
+DEBUG 04-23 19:06:18.491693.491693 cuda_h.py:27] end gather_outputs_group_fused_mp cost 0.795 ms
+DEBUG 04-23 19:06:18.492438.492438 cuda_h.py:27] end experts_func_gpu_einsum_mp cost 22.119 ms
+DEBUG 04-23 19:06:18.498538.498538 cuda_h.py:27] end wait_experts_multi_device cost 19.722 ms
+DEBUG 04-23 19:06:18.506306.506306 cuda_h.py:27] end gpu_experts_multi_device_fused cost 8.358 ms
+DEBUG 04-23 19:06:18.507358.507358 cuda_h.py:27] end cpu_thread_manager_mp_wait_fused cost 0.462 ms
+DEBUG 04-23 19:06:18.507539.507539 cuda_h.py:27] end layer_moe_generate_mp_multi_device_fused_l_26 cost 39.752 ms
+DEBUG 04-23 19:06:18.508865.508865 cuda_h.py:27] end prefill_layer cost 43.365 ms
+DEBUG 04-23 19:06:18.508696.508696 lmp.py:244] -------------------------------- end prefill layer 25 --------------------------------
+DEBUG 04-23 19:06:18.508783.508783 lmp.py:197] -------------------------------- start prefill layer 26 --------------------------------
+DEBUG 04-23 19:06:18.508031.508031 cuda_h.py:27] end start_load_qkvogn_s_weight_l_27 cost 0.041 ms
+DEBUG 04-23 19:06:18.508764.508764 cuda_h.py:27] end allocate_cuda_memory cost 0.202 ms
+DEBUG 04-23 19:06:18.508348.508348 cuda_h.py:27] end start_load_qkvogn_s_weight_l_27 cost 0.414 ms
+DEBUG 04-23 19:06:18.508662.508662 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:18.509539.509539 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:18.510319.510319 cuda_h.py:27] end load_into_gpu_async cost 1.609 ms
+DEBUG 04-23 19:06:18.510595.510595 cuda_h.py:27] end restore_tensors2 cost 0.079 ms
+DEBUG 04-23 19:06:18.510839.510839 cuda_h.py:27] end allocate_cuda_memory_and_load_into_gpu cost 2.300 ms
+DEBUG 04-23 19:06:18.511237.511237 cuda_h.py:27] end self_attn cost 1.554 ms
+DEBUG 04-23 19:06:18.511332.511332 cuda_h.py:27] end iln_self_attn_paln cost 2.211 ms
+DEBUG 04-23 19:06:18.511331.511331 cuda_h.py:27] end gate cost 0.495 ms
+DEBUG 04-23 19:06:18.512926.512926 cuda_h.py:27] end experts_map_get cost 0.284 ms
+DEBUG 04-23 19:06:18.512081.512081 cuda_h.py:27] end cpu_experts_submit_fused_mp cost 0.027 ms
+DEBUG 04-23 19:06:18.514266.514266 cuda_h.py:27] end prepare_group_stack cost 0.428 ms
+DEBUG 04-23 19:06:18.514777.514777 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:18.514991.514991 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:18.516596.516596 cuda_h.py:27] end group stack cost 1.653 ms
+DEBUG 04-23 19:06:18.516044.516044 cuda_h.py:27] end move_flatidxs_group_fused_mp cost 2.319 ms
+DEBUG 04-23 19:06:18.516781.516781 cuda_h.py:27] end get_fused_experts_names_w cost 0.022 ms
+DEBUG 04-23 19:06:18.518532.518532 cuda_h.py:27] end restore_fused_tensors cost 1.279 ms
+DEBUG 04-23 19:06:18.518488.518488 cuda_h.py:27] end group_fused_tensors_mp cost 1.564 ms
+DEBUG 04-23 19:06:18.518559.518559 cuda_h.py:27] end restore2model cost 0.830 ms
+DEBUG 04-23 19:06:18.518999.518999 cuda_h.py:27] end sllm_worker_task cost 10.041 ms
+DEBUG 04-23 19:06:18.518599.518599 cuda_h.py:27] end load_into_gpu_async_fused_experts_dual cost 3.802 ms
+DEBUG 04-23 19:06:18.518199.518199 cuda_h.py:27] end restore_tensors2_fused_experts_packed cost 0.045 ms
+DEBUG 04-23 19:06:18.519651.519651 cuda_h.py:27] end restore_tensors2_fused_experts_slices cost 0.294 ms
+DEBUG 04-23 19:06:18.519502.519502 cuda_h.py:27] end allocate_experts_cuda_memory_and_restore_model_multi_device_fused cost 6.818 ms
+DEBUG 04-23 19:06:18.519753.519753 cuda_h.py:27] end gpu_sexperts cost 0.005 ms
+DEBUG 04-23 19:06:18.519511.519511 cuda_h.py:27] end wait_load_qkvogn_s_weight cost 0.031 ms
+DEBUG 04-23 19:06:18.534207.534207 mlpmodule.py:3370] [fused_group_bmm][steps] bmm1=9.685 ms split=0.092 ms act_mul=0.340 ms bmm2=6.241 ms
+DEBUG 04-23 19:06:18.534068.534068 cuda_h.py:27] end fused_group_bmm cost 16.602 ms
+DEBUG 04-23 19:06:18.535447.535447 cuda_h.py:27] end gather_outputs_group_fused_mp cost 0.790 ms
+DEBUG 04-23 19:06:18.536842.536842 cuda_h.py:27] end experts_func_gpu_einsum_mp cost 23.140 ms
+DEBUG 04-23 19:06:18.539012.539012 cuda_h.py:27] end wait_experts_multi_device cost 19.542 ms
+DEBUG 04-23 19:06:18.548292.548292 cuda_h.py:27] end gpu_experts_multi_device_fused cost 8.382 ms
+DEBUG 04-23 19:06:18.548575.548575 cuda_h.py:27] end cpu_thread_manager_mp_wait_fused cost 0.413 ms
+DEBUG 04-23 19:06:18.549795.549795 cuda_h.py:27] end layer_moe_generate_mp_multi_device_fused_l_27 cost 37.706 ms
+DEBUG 04-23 19:06:18.549830.549830 cuda_h.py:27] end prefill_layer cost 41.142 ms
+DEBUG 04-23 19:06:18.549806.549806 lmp.py:244] -------------------------------- end prefill layer 26 --------------------------------
+DEBUG 04-23 19:06:18.549893.549893 lmp.py:197] -------------------------------- start prefill layer 27 --------------------------------
+DEBUG 04-23 19:06:18.549287.549287 cuda_h.py:27] end start_load_qkvogn_s_weight_l_28 cost 0.042 ms
+DEBUG 04-23 19:06:18.550039.550039 cuda_h.py:27] end allocate_cuda_memory cost 0.215 ms
+DEBUG 04-23 19:06:18.550431.550431 cuda_h.py:27] end start_load_qkvogn_s_weight_l_28 cost 0.393 ms
+DEBUG 04-23 19:06:18.550507.550507 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:18.550807.550807 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:18.551489.551489 cuda_h.py:27] end load_into_gpu_async cost 1.637 ms
+DEBUG 04-23 19:06:18.552485.552485 cuda_h.py:27] end restore_tensors2 cost 0.084 ms
+DEBUG 04-23 19:06:18.552335.552335 cuda_h.py:27] end allocate_cuda_memory_and_load_into_gpu cost 2.372 ms
+DEBUG 04-23 19:06:18.552789.552789 cuda_h.py:27] end self_attn cost 1.473 ms
+DEBUG 04-23 19:06:18.552376.552376 cuda_h.py:27] end iln_self_attn_paln cost 2.260 ms
+DEBUG 04-23 19:06:18.553500.553500 cuda_h.py:27] end gate cost 0.445 ms
+DEBUG 04-23 19:06:18.553280.553280 cuda_h.py:27] end experts_map_get cost 0.281 ms
+DEBUG 04-23 19:06:18.553150.553150 cuda_h.py:27] end cpu_experts_submit_fused_mp cost 0.028 ms
+DEBUG 04-23 19:06:18.556449.556449 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:18.556433.556433 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:18.556577.556577 cuda_h.py:27] end prepare_group_stack cost 0.393 ms
+DEBUG 04-23 19:06:18.558876.558876 cuda_h.py:27] end group stack cost 1.541 ms
+DEBUG 04-23 19:06:18.558390.558390 cuda_h.py:27] end move_flatidxs_group_fused_mp cost 2.132 ms
+DEBUG 04-23 19:06:18.558855.558855 cuda_h.py:27] end get_fused_experts_names_w cost 0.019 ms
+DEBUG 04-23 19:06:18.559693.559693 cuda_h.py:27] end restore_fused_tensors cost 1.040 ms
+DEBUG 04-23 19:06:18.559675.559675 cuda_h.py:27] end group_fused_tensors_mp cost 1.153 ms
+DEBUG 04-23 19:06:18.559376.559376 cuda_h.py:27] end restore2model cost 0.652 ms
+DEBUG 04-23 19:06:18.559604.559604 cuda_h.py:27] end sllm_worker_task cost 9.806 ms
+DEBUG 04-23 19:06:18.559832.559832 cuda_h.py:27] end load_into_gpu_async_fused_experts_dual cost 3.724 ms
+DEBUG 04-23 19:06:18.560111.560111 cuda_h.py:27] end restore_tensors2_fused_experts_packed cost 0.046 ms
+DEBUG 04-23 19:06:18.560293.560293 cuda_h.py:27] end restore_tensors2_fused_experts_slices cost 0.335 ms
+DEBUG 04-23 19:06:18.560111.560111 cuda_h.py:27] end allocate_experts_cuda_memory_and_restore_model_multi_device_fused cost 6.869 ms
+DEBUG 04-23 19:06:18.560700.560700 cuda_h.py:27] end gpu_sexperts cost 0.006 ms
+DEBUG 04-23 19:06:18.560073.560073 cuda_h.py:27] end wait_load_qkvogn_s_weight cost 0.027 ms
+DEBUG 04-23 19:06:18.576550.576550 mlpmodule.py:3370] [fused_group_bmm][steps] bmm1=9.770 ms split=0.098 ms act_mul=0.344 ms bmm2=6.305 ms
+DEBUG 04-23 19:06:18.576796.576796 cuda_h.py:27] end fused_group_bmm cost 16.759 ms
+DEBUG 04-23 19:06:18.577333.577333 cuda_h.py:27] end gather_outputs_group_fused_mp cost 0.768 ms
+DEBUG 04-23 19:06:18.577999.577999 cuda_h.py:27] end experts_func_gpu_einsum_mp cost 22.451 ms
+DEBUG 04-23 19:06:18.579835.579835 cuda_h.py:27] end wait_experts_multi_device cost 18.817 ms
+DEBUG 04-23 19:06:18.588101.588101 cuda_h.py:27] end gpu_experts_multi_device_fused cost 8.209 ms
+DEBUG 04-23 19:06:18.589430.589430 cuda_h.py:27] end cpu_thread_manager_mp_wait_fused cost 0.416 ms
+DEBUG 04-23 19:06:18.589483.589483 cuda_h.py:27] end layer_moe_generate_mp_multi_device_fused_l_28 cost 36.953 ms
+DEBUG 04-23 19:06:18.590285.590285 cuda_h.py:27] end prefill_layer cost 40.379 ms
+DEBUG 04-23 19:06:18.590301.590301 lmp.py:244] -------------------------------- end prefill layer 27 --------------------------------
+DEBUG 04-23 19:06:18.590627.590627 lmp.py:197] -------------------------------- start prefill layer 28 --------------------------------
+DEBUG 04-23 19:06:18.590974.590974 cuda_h.py:27] end start_load_qkvogn_s_weight_l_29 cost 0.040 ms
+DEBUG 04-23 19:06:18.590759.590759 cuda_h.py:27] end allocate_cuda_memory cost 0.208 ms
+DEBUG 04-23 19:06:18.590389.590389 cuda_h.py:27] end start_load_qkvogn_s_weight_l_29 cost 0.380 ms
+DEBUG 04-23 19:06:18.590796.590796 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:18.590309.590309 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:18.592341.592341 cuda_h.py:27] end load_into_gpu_async cost 1.630 ms
+DEBUG 04-23 19:06:18.592899.592899 cuda_h.py:27] end restore_tensors2 cost 0.171 ms
+DEBUG 04-23 19:06:18.592119.592119 cuda_h.py:27] end allocate_cuda_memory_and_load_into_gpu cost 2.305 ms
+DEBUG 04-23 19:06:18.593366.593366 cuda_h.py:27] end self_attn cost 1.750 ms
+DEBUG 04-23 19:06:18.593010.593010 cuda_h.py:27] end iln_self_attn_paln cost 2.426 ms
+DEBUG 04-23 19:06:18.593206.593206 cuda_h.py:27] end gate cost 0.452 ms
+DEBUG 04-23 19:06:18.594894.594894 cuda_h.py:27] end experts_map_get cost 0.284 ms
+DEBUG 04-23 19:06:18.594003.594003 cuda_h.py:27] end cpu_experts_submit_fused_mp cost 0.028 ms
+DEBUG 04-23 19:06:18.596825.596825 cuda_h.py:27] end prepare_group_stack cost 0.419 ms
+DEBUG 04-23 19:06:18.596550.596550 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:18.597109.597109 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:18.598190.598190 cuda_h.py:27] end group stack cost 1.527 ms
+DEBUG 04-23 19:06:18.598226.598226 cuda_h.py:27] end move_flatidxs_group_fused_mp cost 2.132 ms
+DEBUG 04-23 19:06:18.598004.598004 cuda_h.py:27] end get_fused_experts_names_w cost 0.020 ms
+DEBUG 04-23 19:06:18.599949.599949 cuda_h.py:27] end restore_fused_tensors cost 1.195 ms
+DEBUG 04-23 19:06:18.600991.600991 cuda_h.py:27] end group_fused_tensors_mp cost 1.418 ms
+DEBUG 04-23 19:06:18.603898.603898 cuda_h.py:27] end restore2model cost 0.851 ms
+DEBUG 04-23 19:06:18.603924.603924 cuda_h.py:27] end sllm_worker_task cost 13.290 ms
+DEBUG 04-23 19:06:18.604128.604128 cuda_h.py:27] end load_into_gpu_async_fused_experts_dual cost 8.130 ms
+DEBUG 04-23 19:06:18.605063.605063 cuda_h.py:27] end restore_tensors2_fused_experts_packed cost 0.105 ms
+DEBUG 04-23 19:06:18.605702.605702 cuda_h.py:27] end restore_tensors2_fused_experts_slices cost 0.306 ms
+DEBUG 04-23 19:06:18.605190.605190 cuda_h.py:27] end allocate_experts_cuda_memory_and_restore_model_multi_device_fused cost 11.229 ms
+DEBUG 04-23 19:06:18.606637.606637 cuda_h.py:27] end gpu_sexperts cost 0.007 ms
+DEBUG 04-23 19:06:18.606579.606579 cuda_h.py:27] end wait_load_qkvogn_s_weight cost 0.020 ms
+DEBUG 04-23 19:06:18.615819.615819 mlpmodule.py:3370] [fused_group_bmm][steps] bmm1=8.470 ms split=0.087 ms act_mul=0.366 ms bmm2=6.373 ms
+DEBUG 04-23 19:06:18.615932.615932 cuda_h.py:27] end fused_group_bmm cost 15.545 ms
+DEBUG 04-23 19:06:18.616053.616053 cuda_h.py:27] end gather_outputs_group_fused_mp cost 0.775 ms
+DEBUG 04-23 19:06:18.616511.616511 cuda_h.py:27] end experts_func_gpu_einsum_mp cost 21.809 ms
+DEBUG 04-23 19:06:18.623740.623740 cuda_h.py:27] end wait_experts_multi_device cost 17.309 ms
+DEBUG 04-23 19:06:18.632897.632897 cuda_h.py:27] end gpu_experts_multi_device_fused cost 8.250 ms
+DEBUG 04-23 19:06:18.632311.632311 cuda_h.py:27] end cpu_thread_manager_mp_wait_fused cost 0.383 ms
+DEBUG 04-23 19:06:18.633525.633525 cuda_h.py:27] end layer_moe_generate_mp_multi_device_fused_l_29 cost 39.839 ms
+DEBUG 04-23 19:06:18.633268.633268 cuda_h.py:27] end prefill_layer cost 43.477 ms
+DEBUG 04-23 19:06:18.633662.633662 lmp.py:244] -------------------------------- end prefill layer 28 --------------------------------
+DEBUG 04-23 19:06:18.633656.633656 lmp.py:197] -------------------------------- start prefill layer 29 --------------------------------
+DEBUG 04-23 19:06:18.635023.635023 cuda_h.py:27] end self_attn cost 1.635 ms
+DEBUG 04-23 19:06:18.636005.636005 cuda_h.py:27] end iln_self_attn_paln cost 2.087 ms
+DEBUG 04-23 19:06:18.636702.636702 cuda_h.py:27] end gate cost 0.458 ms
+DEBUG 04-23 19:06:18.637078.637078 cuda_h.py:27] end experts_map_get cost 0.265 ms
+DEBUG 04-23 19:06:18.637379.637379 cuda_h.py:27] end cpu_experts_submit_fused_mp cost 0.029 ms
+DEBUG 04-23 19:06:18.638396.638396 sllm_store_c.py:27] get device uuid map
+DEBUG 04-23 19:06:18.638856.638856 sllm_store_c.py:29] call client load into gpu
+DEBUG 04-23 19:06:18.638305.638305 cuda_h.py:27] end prepare_group_stack cost 0.413 ms
+DEBUG 04-23 19:06:18.640046.640046 cuda_h.py:27] end group stack cost 1.689 ms
+DEBUG 04-23 19:06:18.640094.640094 cuda_h.py:27] end load_into_gpu_async_fused_experts_dual cost 2.063 ms
+DEBUG 04-23 19:06:18.640566.640566 cuda_h.py:27] end move_flatidxs_group_fused_mp cost 2.309 ms
+DEBUG 04-23 19:06:18.640475.640475 cuda_h.py:27] end restore_tensors2_fused_experts_packed cost 0.054 ms
+DEBUG 04-23 19:06:18.640150.640150 cuda_h.py:27] end get_fused_experts_names_w cost 0.020 ms
+DEBUG 04-23 19:06:18.640594.640594 cuda_h.py:27] end restore_tensors2_fused_experts_slices cost 0.237 ms
+DEBUG 04-23 19:06:18.640934.640934 cuda_h.py:27] end allocate_experts_cuda_memory_and_restore_model_multi_device_fused cost 3.499 ms
+DEBUG 04-23 19:06:18.640505.640505 cuda_h.py:27] end gpu_sexperts cost 0.003 ms
+DEBUG 04-23 19:06:18.641249.641249 cuda_h.py:27] end restore_fused_tensors cost 1.024 ms
+DEBUG 04-23 19:06:18.641616.641616 cuda_h.py:27] end group_fused_tensors_mp cost 1.279 ms
+DEBUG 04-23 19:06:18.660509.660509 mlpmodule.py:3370] [fused_group_bmm][steps] bmm1=11.913 ms split=0.093 ms act_mul=0.335 ms bmm2=6.096 ms
+DEBUG 04-23 19:06:18.660131.660131 cuda_h.py:27] end fused_group_bmm cost 18.639 ms
+DEBUG 04-23 19:06:18.661900.661900 cuda_h.py:27] end gather_outputs_group_fused_mp cost 0.763 ms
+DEBUG 04-23 19:06:18.661595.661595 cuda_h.py:27] end experts_func_gpu_einsum_mp cost 23.969 ms
+DEBUG 04-23 19:06:18.661108.661108 cuda_h.py:27] end wait_experts_multi_device cost 20.939 ms
+DEBUG 04-23 19:06:18.670645.670645 cuda_h.py:27] end gpu_experts_multi_device_fused cost 8.465 ms
+DEBUG 04-23 19:06:18.671397.671397 cuda_h.py:27] end cpu_thread_manager_mp_wait_fused cost 0.406 ms
+DEBUG 04-23 19:06:18.671029.671029 cuda_h.py:27] end layer_moe_generate_mp_multi_device_fused_l_30 cost 35.533 ms
+DEBUG 04-23 19:06:18.672950.672950 cuda_h.py:27] end prefill_layer cost 38.445 ms
+DEBUG 04-23 19:06:18.672342.672342 lmp.py:244] -------------------------------- end prefill layer 29 --------------------------------
+DEBUG 04-23 19:06:18.672244.672244 cuda_h.py:27] end prefill cost 2851.332 ms
+INFO 04-23 19:06:18.672622.672622 lmp.py:246] prefill time: 2.8513569831848145 seconds
+[W423 19:06:25.050701981 CudaIPCTypes.cpp:16] Producer process has been terminated before all shared CUDA tensors released. See Note [Sharing CUDA tensors]

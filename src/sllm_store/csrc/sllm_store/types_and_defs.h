@@ -17,9 +17,12 @@
 //  ----------------------------------------------------------------------------
 #pragma once
 
+#include <atomic>
+#include <cstdint>
 #include <iostream>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "concurrent_queue.h"
 #include "concurrent_vector.h"
@@ -32,6 +35,7 @@ struct Batch {
 typedef ConcurrentVector<Batch> BatchVector;
 
 struct GpuBatch {
+  uint64_t task_id_ = 0;
   size_t chunk_id_ = 0;
   size_t chunk_offset_ = 0;
   size_t size_ = 0;
@@ -58,6 +62,9 @@ struct MemCopyChunk {
   size_t size_ = 0;
   size_t dst_offset_ = 0;
   size_t handle_idx_ = 0;
+  uint64_t task_id_ = 0;
+  uint8_t priority_ = 0;
+  bool reorder_hint_ = false;
 };
 using MemCopyChunkList = std::vector<MemCopyChunk>;
 
@@ -69,9 +76,6 @@ using MemCopyHandleList = std::vector<MemCopyHandle>;
 typedef std::unordered_map<std::string, MemCopyHandleList> MemCopyHandleListMap;
 typedef std::unordered_map<std::string, MemCopyChunkList> MemCopyChunkListMap;
 typedef std::unordered_map<int, std::vector<void*>> MemPtrListMap;
-typedef std::unordered_map<std::string, void*> StringMemPtrMap;
-typedef std::unordered_map<int, StringMemPtrMap> DeviceStringMemPtrMap;
-
 
 // tensor_index
 // INSERT_YOUR_CODE
@@ -90,3 +94,72 @@ typedef std::unordered_map<std::string, TensorIndexInfo> TensorIndexResizeMap;
 
 // device_id, chunk_offset, size, gpu_offset. handle_idx
 typedef std::tuple<int, size_t, size_t, size_t, size_t> GpuChunk;
+
+enum class CopyPriority : uint8_t { LOW = 0, HIGH = 1 };
+
+inline uint64_t HashCombine64(uint64_t seed, uint64_t v) {
+  seed ^= v + 0x9E3779B97F4A7C15ULL + (seed << 6) + (seed >> 2);
+  return seed;
+}
+
+inline uint64_t BuildCopyTaskId(size_t src_offset, size_t size, size_t dst_offset,
+                                int device_id, size_t handle_idx) {
+  uint64_t seed = 0;
+  seed = HashCombine64(seed, static_cast<uint64_t>(src_offset));
+  seed = HashCombine64(seed, static_cast<uint64_t>(size));
+  seed = HashCombine64(seed, static_cast<uint64_t>(dst_offset));
+  seed = HashCombine64(seed, static_cast<uint64_t>(device_id));
+  seed = HashCombine64(seed, static_cast<uint64_t>(handle_idx));
+  return seed;
+}
+
+class LockFreeBitmap {
+ public:
+  explicit LockFreeBitmap(size_t num_bits)
+      : num_bits_(num_bits), words_((num_bits + 63) / 64) {
+    for (auto& word : words_) {
+      word.store(0, std::memory_order_relaxed);
+    }
+  }
+
+  bool test(size_t bit) const {
+    const size_t idx = bit / 64;
+    if (idx >= words_.size()) {
+      return false;
+    }
+    const uint64_t mask = 1ULL << (bit % 64);
+    return (words_[idx].load(std::memory_order_acquire) & mask) != 0;
+  }
+
+  bool test_and_set(size_t bit) {
+    const size_t idx = bit / 64;
+    if (idx >= words_.size()) {
+      return false;
+    }
+    const uint64_t mask = 1ULL << (bit % 64);
+    const uint64_t old =
+        words_[idx].fetch_or(mask, std::memory_order_acq_rel);
+    return (old & mask) != 0;
+  }
+
+  void clear(size_t bit) {
+    const size_t idx = bit / 64;
+    if (idx >= words_.size()) {
+      return;
+    }
+    const uint64_t mask = ~(1ULL << (bit % 64));
+    words_[idx].fetch_and(mask, std::memory_order_acq_rel);
+  }
+
+  void reset() {
+    for (auto& word : words_) {
+      word.store(0, std::memory_order_release);
+    }
+  }
+
+  size_t num_bits() const { return num_bits_; }
+
+ private:
+  size_t num_bits_;
+  std::vector<std::atomic<uint64_t>> words_;
+};

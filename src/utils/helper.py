@@ -414,7 +414,7 @@ def generate_input_ids_full(tokenizer, batch_size, seq_len, tdevice):
     # 从数据集中获取 batch_size 个样本，并用数据集中的文本补充到指定长度
     batch_input_ids = []
     # 220
-    dataset_idx = 16  # 从数据集的某个位置开始取样本
+    dataset_idx = 42  # 从数据集的某个位置开始取样本
     for i in range(batch_size):
         # 收集足够的文本来达到 seq_len 长度
         combined_text = ""

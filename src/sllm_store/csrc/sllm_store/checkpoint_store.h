@@ -17,10 +17,6 @@
 //  ----------------------------------------------------------------------------
 #pragma once
 
-// Include glog BEFORE model.h to ensure glog's LOG macro takes precedence
-// over PyTorch's LOG macro (which is included via model.h -> torch headers)
-#include <glog/logging.h>
-
 #include <condition_variable>
 #include <filesystem>
 #include <future>
@@ -28,7 +24,6 @@
 #include <queue>
 #include <string>
 #include <unordered_map>
-#include <utility>
 #include <vector>
 
 // Third-party library headers
@@ -40,7 +35,6 @@
 #include "model.h"
 #include "pinned_memory.h"
 #include "pinned_memory_pool.h"
-#include "pinned_memory_pool_shared.h"
 #include "types_and_defs.h"
 
 class CheckpointStore {
@@ -51,41 +45,37 @@ class CheckpointStore {
                   const std::string& shm_name_prefix = "/sllm_pinned_pool");
   ~CheckpointStore();
 
-  int64_t RegisterModelInfo(const std::string& model_path,
-                            const TensorIndexMap& tensor_index,
-                            const TensorIndexResizeMap& tensor_index_resize);
+  int64_t RegisterModelInfo(const std::string& model_path);
   int LoadModelFromDisk(const std::string& model_path);
   int LoadModelFromDiskAsync(const std::string& model_path);
   int LoadModelFromMem(const std::string& model_path,
                        const std::string& replica_uuid,
                        const MemCopyHandleListMap& gpu_memory_handles,
-                       const MemCopyChunkListMap& mem_copy_chunks,
-                       const bool& use_fixed_gpu_ptrs);
+                       const MemCopyChunkListMap& mem_copy_chunks);
   int LoadModelFromMemAsync(const std::string& model_path,
                             const std::string& replica_uuid,
                             const MemCopyHandleListMap& gpu_memory_handles,
-                            const MemCopyChunkListMap& mem_copy_chunks,
-                            const bool& use_fixed_gpu_ptrs);
+                            const MemCopyChunkListMap& mem_copy_chunks);
+  int SubmitHighPriorityTasks(const std::string& model_path,
+                              const std::string& replica_uuid,
+                              const std::vector<uint64_t>& task_ids,
+                              std::vector<uint64_t>* pending_task_ids);
+  int SetReorderBitmap(const std::string& model_path,
+                       const std::string& replica_uuid,
+                       const std::vector<uint64_t>& task_ids);
+  int WaitCopyTasks(const std::string& model_path,
+                    const std::string& replica_uuid,
+                    const std::vector<uint64_t>& task_ids, uint64_t timeout_ms,
+                    std::vector<uint64_t>* pending_task_ids);
   int WaitModelInGpu(const std::string& model_path,
                      const std::string& replica_uuid);
   int UnloadModelFromHost(const std::string& model_path);
   int ClearMem();
 
-  int RegisterFixedGpuPtrs(
-    const MemCopyHandleListMap& memory_handles);
-    int ReleaseRegisteredFixedGpuPtrsAll();
-    int ReleaseRegisteredFixedGpuPtrs(
-      const MemCopyHandleListMap& memory_handles);
-  
-  // Get shared memory names for a model
-  // Returns a pair of (shared memory names, chunk_size)
-  std::pair<std::vector<std::string>, size_t> GetModelSharedMemoryNames(const std::string& model_path);
-
  public:
   // Get methods
   size_t GetMemPoolSize() const { return memory_pool_size_; }
   size_t GetChunkSize() const { return chunk_size_; }
-  bool IsUsingSharedMemory() const { return use_shared_memory_; }
 
  private:
   // A GPU info struct
@@ -116,11 +106,6 @@ class CheckpointStore {
 
   std::queue<std::future<int>> async_tasks_;
 
-  // add memory handles
-  MemPtrListMap registered_fixed_gpu_ptrs_;
-  // map string to ptr, string -> handle -> ptr
-  DeviceStringMemPtrMap registered_device_string_mem_ptr_map_;
-
   size_t GetNumChunkFromTensorSize(size_t tensor_size);
   ModelPtr GetModelPtr(const std::string& model_path);
   GpuReplicaPtr NewGpuReplica(const std::shared_ptr<Model>& model,
@@ -136,7 +121,4 @@ class CheckpointStore {
   ModelPtr GetModelByName(const std::string& model_path);
   MemPtrListMap GetDevicePtrsFromMemHandles(
       const MemCopyHandleListMap& memory_handles);
-  
-  MemPtrListMap GetFixedDevicePtrsFromMemHandles(
-    const MemCopyHandleListMap& memory_handles);
 };

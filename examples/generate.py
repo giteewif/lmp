@@ -2,7 +2,7 @@ import sys
 import os
 from time import sleep
 import torch
-
+import time
 # 获取项目根目录和必要的路径
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 src_dir = os.path.join(project_root, 'src')
@@ -47,9 +47,9 @@ def warm_up():
 from lmp.lmp import MLPLLM
 from models.mlpmodule import DEEPSEEK_MODEL_NAME_TYPE, QWEN2_MODEL_NAME_TYPE, MIXTRAL_MODEL_NAME_TYPE, QWEN3_MODEL_NAME_TYPE, GEMMA4_MODEL_NAME_TYPE
 def test():
-    # warm up
-    # for i in range(3):
-    #     warm_up()
+    #warm up
+    for i in range(3):
+        warm_up()
 
     # model_path = "deepseek-moe-16b-base-bfloat16" or Qwen1.5-MoE-A2.7B Mixtral-8x7B "DeepSeek-V2-Lite"
     # Qwen3-30B-A3B
@@ -62,10 +62,16 @@ def test():
     # only for mp process, mp process for cpu experts thread
 
 
-    # mlpllm.init_mp_process()
+    mlpllm.init_mp_process()
+
+    mlpllm.test_mp_cpu_tensor()
+    
+
+    mlpllm.test_mp_cpu_tensor()
+
     # mlpllm.test_mp_process()
 
-
+    # mlpllm.test_mp_generate_multi_device_layer()
 
     # def print_layer_parameters(layer):
     #     print("=" * 60)
@@ -82,16 +88,19 @@ def test():
 
     # mlpllm.hmv._test_group_gmm_fused_experts()
 
-    # times=1
+    # times=2
     # for i in range(times):
     #     mlpllm.free_cmv()
     #     torch.cuda.empty_cache()
     #     sleep(2)
+    #     t0 = time.perf_counter()
     #     mlpllm.test_mp_generate_multi_device_layer()
+    #     t1 = time.perf_counter()
+    #     print(f"Time taken: {t1 - t0} seconds")
     # sleep(2)
     
     # mlpllm.imm.stop()
     
-    # mlpllm.mp_stop()
+    mlpllm.mp_stop()
 if __name__ == "__main__":
     test()

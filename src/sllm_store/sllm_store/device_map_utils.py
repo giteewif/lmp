@@ -17,20 +17,12 @@
 # ---------------------------------------------------------------------------- #
 from typing import Dict, List, Optional, Tuple, Union
 
-import os
 import torch
 from accelerate import infer_auto_device_map
 from accelerate.utils import get_balanced_memory, get_max_memory
 from sllm_store.logger import init_logger
 
 logger = init_logger(__name__)
-
-try:
-    import pynvml
-    PYNVML_AVAILABLE = True
-except ImportError:
-    PYNVML_AVAILABLE = False
-    logger.warning("pynvml not available, will use torch.cuda for memory info")
 
 DeviceMapType = Union[
     str, Dict[str, Union[int, str, torch.device]], int, torch.device
@@ -155,34 +147,9 @@ def _compute_device_placement_from_map_fast(
                 "'sequential'."
             )
 
-        # 获取当前可用显存（总显存 - 已使用显存），而不是最大显存
         max_memory = get_max_memory()
         # we don't support loading to cpu
-        max_memory.pop("cpu", None)
-        # 预留些空间（默认对最后一张 GPU 预留 7GiB，可用环境变量覆盖）
-        reserve_gb = float(os.environ.get("SLLM_GPU_MEM_RESERVE_GB", "0"))
-        reserve_bytes = int(reserve_gb * 1024**3)
-        gpu_keys = sorted([k for k in max_memory.keys() if isinstance(k, int)])
-        if gpu_keys and reserve_bytes > 0:
-            default_reserve_device = gpu_keys[-1]
-            reserve_device_str = os.environ.get(
-                "SLLM_GPU_MEM_RESERVE_DEVICE", str(default_reserve_device)
-            )
-            try:
-                reserve_device = int(reserve_device_str)
-            except ValueError:
-                reserve_device = default_reserve_device
-            if reserve_device not in max_memory:
-                reserve_device = default_reserve_device
-
-            logger.info("max_memory(before reserve)=%s", max_memory)
-            max_memory[reserve_device] = max(0, max_memory[reserve_device] - reserve_bytes)
-            logger.info(
-                "max_memory(after reserve device=%s reserve_gb=%s)=%s",
-                reserve_device,
-                reserve_gb,
-                max_memory,
-            )
+        max_memory.pop("cpu")
 
         # tied modules are treated as a single module
         for tied_groups, shared_size in tied_modules:

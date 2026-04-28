@@ -18,7 +18,6 @@
 #pragma once
 
 #include <memory>
-#include <string>
 #include <vector>
 
 #include "pinned_memory_pool.h"
@@ -35,16 +34,12 @@ class PinnedMemory {
   PinnedMemory(PinnedMemory&&) = delete;
   PinnedMemory& operator=(PinnedMemory&&) = delete;
 
-  // Allocate from regular pinned memory pool
   int Allocate(size_t size, std::shared_ptr<PinnedMemoryPool> mempool);
-  
-  // Allocate from shared pinned memory pool
   int Allocate(size_t size, std::shared_ptr<PinnedMemoryPoolShared> mempool);
-  
   std::vector<char*>& get();
   const std::vector<std::string>& get_shm_names() const { return shm_names_; }
   size_t num_chunks() const { return buffers_.size(); }
-  size_t chunk_size() const;
+  size_t chunk_size() const { return mempool_->chunk_size(); }
 
  private:
   std::vector<char*> buffers_;

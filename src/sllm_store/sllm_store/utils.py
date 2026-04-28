@@ -30,51 +30,6 @@ from transformers.utils.quantization_config import (
 
 from sllm_store.client import SllmStoreClient
 
-# PyTorch grouped_mm and some fused kernels require tensor storage pointers aligned
-# to 16 bytes. Packing weights back-to-back by raw byte size can break alignment
-# when cumulative sizes are not multiples of 16.
-GPU_SLAB_TENSOR_ALIGN_BYTES = 16
-
-
-def _align_up(n: int, align: int) -> int:
-    return (n + align - 1) // align * align
-
-
-def _packed_device_layout(device_map, tensor_index):
-    """
-    Lay out each GPU slab: unique file (offset, size) regions get a device-local byte
-    offset. Consecutive regions are padded so each region starts at a multiple of
-    GPU_SLAB_TENSOR_ALIGN_BYTES (required for grouped_mm / strict GPU kernels).
-
-    Deduplication must be per-device: the same file (offset, size) is often copied to
-    multiple GPUs; reusing another GPU's slab byte offset produces invalid pointers
-    (illegal memory access on read).
-    """
-    tensor_device_offsets = {}
-    tensor_copy_chunks = {}
-    device_offset = {}
-    # (device_id, file_offset, file_size) -> byte offset within that device's slab
-    tensor_record = {}
-    for tensor_name, device in device_map.items():
-        if tensor_name not in tensor_index:
-            raise ValueError(f"Tensor {tensor_name} not found in tensor_index.")
-        if device not in tensor_device_offsets:
-            tensor_device_offsets[device] = {}
-            tensor_copy_chunks[device] = []
-            device_offset[device] = 0
-        offset, size = tensor_index[tensor_name]
-        record_key = (device, offset, size)
-        if record_key in tensor_record:
-            tensor_device_offsets[device][tensor_name] = tensor_record[record_key]
-        else:
-            start = _align_up(device_offset[device], GPU_SLAB_TENSOR_ALIGN_BYTES)
-            tensor_record[record_key] = start
-            tensor_device_offsets[device][tensor_name] = start
-            tensor_copy_chunks[device].append((offset, size, start, 0))
-            device_offset[device] = start + size
-    device_memory = {d: device_offset[d] for d in device_offset}
-    return device_memory, tensor_device_offsets, tensor_copy_chunks
-
 
 def set_module_buffer_to_device(
     module: nn.Module,
@@ -115,14 +70,51 @@ def send_module_buffers_to_device(
 
 
 def calculate_device_memory(device_map, tensor_index):
-    device_memory, _, _ = _packed_device_layout(device_map, tensor_index)
+    device_memory = {}
+    tensor_record = {}
+    for tensor_name, device in device_map.items():
+        if tensor_name in tensor_index:
+            if device not in device_memory:
+                device_memory[device] = 0
+            offset, size = tensor_index[tensor_name]
+            if (offset, size) in tensor_record:
+                continue  # Skip duplicate tensors
+            tensor_record[(offset, size)] = True
+            device_memory[device] += tensor_index[tensor_name][1]
+        else:
+            raise ValueError(f"Tensor {tensor_name} not found in tensor_index.")
+
     return device_memory
 
 
 def calculate_tensor_device_offsets(device_map, tensor_index):
-    _, tensor_device_offsets, tensor_copy_chunks = _packed_device_layout(
-        device_map, tensor_index
-    )
+    tensor_device_offsets = {}
+    tensor_copy_chunks = {}
+    device_offset = {}
+    tensor_record = {}
+    for tensor_name, device in device_map.items():
+        if device not in tensor_device_offsets:
+            tensor_device_offsets[device] = {}
+            tensor_copy_chunks[device] = []
+            device_offset[device] = 0
+        if tensor_name in tensor_index:
+            offset, size = tensor_index[tensor_name]
+            if (offset, size) in tensor_record:
+                tensor_device_offsets[device][tensor_name] = tensor_record[
+                    (offset, size)
+                ]
+            else:
+                tensor_record[(offset, size)] = device_offset[device]
+                tensor_device_offsets[device][tensor_name] = device_offset[
+                    device
+                ]
+                tensor_copy_chunks[device].append(
+                    (offset, size, device_offset[device], 0)
+                )
+                device_offset[device] += size
+        else:
+            raise ValueError(f"Tensor {tensor_name} not found in tensor_index.")
+
     return tensor_device_offsets, tensor_copy_chunks
 
 

@@ -9,21 +9,15 @@ import torch  # noqa: F401
 
 import ctypes
 import os
-import sys
 
-# Load glog library (required for C++ extensions that use glog)
-# Note: glog will be initialized in the C++ pybind11 module initialization
-# (see checkpoint_store_py.cpp), so we don't need to initialize it here
 ctypes.CDLL(os.path.join(sllm_store.__path__[0], "libglog.so"))
-
-logger = init_logger(__name__)
 
 from sllm_store._checkpoint_store import (  # noqa: E402
     CheckpointStore,
     MemCopyChunk,
 )
-import torch
-import threading
+
+logger = init_logger(__name__)
 
 
 class StorageServicer(storage_pb2_grpc.StorageServicer):
@@ -49,9 +43,7 @@ class StorageServicer(storage_pb2_grpc.StorageServicer):
             f"StorageServicer: storage_path={storage_path}, "
             f"mem_pool_size={mem_pool_size}, num_thread={num_thread}, "
             f"chunk_size={chunk_size}, "
-            f"registration_required={registration_required}, "
-            f"use_shared_memory={use_shared_memory}, "
-            f"shm_name_prefix={shm_name_prefix}, "
+            f"registration_required={registration_required}"
         )
 
         self.storage = CheckpointStore(
@@ -59,7 +51,6 @@ class StorageServicer(storage_pb2_grpc.StorageServicer):
             use_shared_memory, shm_name_prefix
         )
         self.registration_required = registration_required
-        self.storage_path = storage_path
 
     async def LoadModelAsync(self, request, context):
         model_path = request.model_path
@@ -68,16 +59,20 @@ class StorageServicer(storage_pb2_grpc.StorageServicer):
             context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
             return storage_pb2.LoadModelResponse()
 
+        if not self.registration_required:
+            model_size = self.storage.register_model_info(model_path)
+            if model_size < 0:
+                logger.error("RegisterModel failed")
+                context.set_code(grpc.StatusCode.INTERNAL)
+                return storage_pb2.LoadModelResponse()
+
         device_type = request.target_device_type
         if device_type == storage_pb2.DEVICE_TYPE_CPU:
             if not self.registration_required:
-                # INSERT_YOUR_CODE
                 import json
                 import os
-
                 tensor_index_path = os.path.join(self.storage_path, model_path, "tensor_index.json")
                 tensor_index_resize_path = os.path.join(self.storage_path, model_path, "tensor_index_resize.json")
-
                 tensor_index = {}
                 tensor_index_resize = {}
                 try:
@@ -89,13 +84,11 @@ class StorageServicer(storage_pb2_grpc.StorageServicer):
                     logger.error(f"Failed to load {tensor_index_path}: {e}")
                     context.set_code(grpc.StatusCode.INTERNAL)
                     return storage_pb2.LoadModelResponse()
-
                 model_size = self.storage.register_model_info(model_path, tensor_index, tensor_index_resize)
                 if model_size < 0:
-                    logger.error("LoadModel failed")
+                    logger.error("RegisterModel failed")
                     context.set_code(grpc.StatusCode.INTERNAL)
                     return storage_pb2.LoadModelResponse()
-            
             ret = self.storage.load_model_from_disk_async(model_path)
         elif device_type == storage_pb2.DEVICE_TYPE_GPU:
             replica_uuid = request.replica_uuid
@@ -104,7 +97,6 @@ class StorageServicer(storage_pb2_grpc.StorageServicer):
                 context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
                 return storage_pb2.LoadModelResponse()
 
-            # 快速处理数据转换，避免阻塞
             gpu_memory_handles = {
                 device_uuid: [
                     handle.cuda_ipc_handle for handle in handle_list.handles
@@ -118,6 +110,13 @@ class StorageServicer(storage_pb2_grpc.StorageServicer):
                 mem_copy_chunk.size = chunk.size
                 mem_copy_chunk.dst_offset = chunk.dst_offset
                 mem_copy_chunk.handle_idx = chunk.handle_idx
+                mem_copy_chunk.task_id = chunk.task_id
+                mem_copy_chunk.priority = (
+                    1
+                    if chunk.priority == storage_pb2.COPY_PRIORITY_HIGH
+                    else 0
+                )
+                mem_copy_chunk.reorder_hint = chunk.reorder_hint
                 return mem_copy_chunk
 
             mem_copy_chunks = {
@@ -126,12 +125,12 @@ class StorageServicer(storage_pb2_grpc.StorageServicer):
                 ]
                 for device_uuid, chunk_list in request.chunks.items()
             }
-            
-            # 立即调用异步加载，不等待完成
-            logger.debug(f"call load_model_from_mem_async")
+            # logger.debug(
+            #     f"LoadModelAsync: {model_path}, {replica_uuid}, "
+            #     f"{gpu_memory_handles}, {mem_copy_chunks}"
+            # )
             ret = self.storage.load_model_from_mem_async(
-                model_path, replica_uuid, gpu_memory_handles, mem_copy_chunks, 
-                request.use_fixed_gpu_ptrs
+                model_path, replica_uuid, gpu_memory_handles, mem_copy_chunks
             )
         else:
             logger.error(f"Unsupported device type: {device_type}")
@@ -147,6 +146,98 @@ class StorageServicer(storage_pb2_grpc.StorageServicer):
             f"LoadModel: success {model_path} with target {device_type}"
         )
         return storage_pb2.LoadModelResponse(model_path=model_path)
+
+    async def SubmitHighPriorityTasks(self, request, context):
+        model_path = request.model_path
+        replica_uuid = request.replica_uuid
+        task_ids = list(dict.fromkeys(request.task_ids))
+        if not model_path or not replica_uuid:
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details("model_path and replica_uuid are required")
+            return storage_pb2.SubmitHighPriorityTasksResponse()
+
+        try:
+            code, pending_task_ids = self.storage.submit_high_priority_tasks(
+                model_path, replica_uuid, task_ids
+            )
+        except ValueError as e:
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details(str(e))
+            return storage_pb2.SubmitHighPriorityTasksResponse()
+        except Exception as e:
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details(str(e))
+            return storage_pb2.SubmitHighPriorityTasksResponse()
+
+        if code != 0:
+            context.set_code(grpc.StatusCode.NOT_FOUND)
+        return storage_pb2.SubmitHighPriorityTasksResponse(
+            code=code, pending_task_ids=pending_task_ids
+        )
+
+    async def SetReorderBitmap(self, request, context):
+        model_path = request.model_path
+        replica_uuid = request.replica_uuid
+        if not model_path or not replica_uuid:
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details("model_path and replica_uuid are required")
+            return storage_pb2.SetReorderBitmapResponse()
+
+        try:
+            code = self.storage.set_reorder_bitmap(
+                model_path, replica_uuid, list(dict.fromkeys(request.task_ids))
+            )
+        except ValueError as e:
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details(str(e))
+            return storage_pb2.SetReorderBitmapResponse()
+        except Exception as e:
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details(str(e))
+            return storage_pb2.SetReorderBitmapResponse()
+
+        if code != 0:
+            context.set_code(grpc.StatusCode.NOT_FOUND)
+        return storage_pb2.SetReorderBitmapResponse(code=code)
+
+    async def WaitCopyTasks(self, request, context):
+        model_path = request.model_path
+        replica_uuid = request.replica_uuid
+        task_ids = list(dict.fromkeys(request.task_ids))
+        if not model_path or not replica_uuid:
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details("model_path and replica_uuid are required")
+            return storage_pb2.WaitCopyTasksResponse()
+
+        for task_id in task_ids:
+            if task_id < 0:
+                context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+                context.set_details("task_ids must be uint64")
+                return storage_pb2.WaitCopyTasksResponse()
+        timeout_ms = request.timeout_ms if request.timeout_ms > 0 else 1
+        try:
+            code, pending_task_ids = self.storage.wait_copy_tasks(
+                model_path,
+                replica_uuid,
+                task_ids,
+                timeout_ms,
+            )
+        except ValueError as e:
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details(str(e))
+            return storage_pb2.WaitCopyTasksResponse()
+        except Exception as e:
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details(str(e))
+            return storage_pb2.WaitCopyTasksResponse()
+
+        if code == 1:
+            context.set_code(grpc.StatusCode.DEADLINE_EXCEEDED)
+        elif code != 0:
+            context.set_code(grpc.StatusCode.NOT_FOUND)
+        return storage_pb2.WaitCopyTasksResponse(
+            code=code, pending_task_ids=pending_task_ids
+        )
 
     async def ConfirmModel(self, request, context):
         model_path = request.model_path
@@ -220,26 +311,8 @@ class StorageServicer(storage_pb2_grpc.StorageServicer):
             logger.error("model_path is empty")
             context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
             return storage_pb2.RegisterModelResponse()
-        # INSERT_YOUR_CODE
-        import json
-        import os
 
-        tensor_index_path = os.path.join(self.storage_path, model_path, "tensor_index.json")
-        tensor_index_resize_path = os.path.join(self.storage_path, model_path, "tensor_index_resize.json")
-
-        tensor_index = {}
-        tensor_index_resize = {}
-        try:
-            with open(tensor_index_path, "r") as f:
-                tensor_index = json.load(f)
-            with open(tensor_index_resize_path, "r") as f:
-                tensor_index_resize = json.load(f)
-        except Exception as e:
-            logger.error(f"Failed to load {tensor_index_path}: {e}")
-            context.set_code(grpc.StatusCode.INTERNAL)
-            return storage_pb2.RegisterModelResponse()
-
-        model_size = self.storage.register_model_info(model_path, tensor_index, tensor_index_resize)
+        model_size = self.storage.register_model_info(model_path)
         if model_size < 0:
             logger.error("RegisterModel failed")
             context.set_code(grpc.StatusCode.INTERNAL)
@@ -248,79 +321,13 @@ class StorageServicer(storage_pb2_grpc.StorageServicer):
         return storage_pb2.RegisterModelResponse(
             model_path=model_path, model_size=model_size
         )
+
     async def GetServerConfig(self, request, context):
         return storage_pb2.GetServerConfigResponse(
             mem_pool_size=self.storage.get_mem_pool_size(),
             chunk_size=self.storage.get_chunk_size(),
         )
-    async def RegisterFixedGpuPtrs(self, request, context):
-        handles = request.handles
-        if not handles:
-            logger.error("mem_copy_handle_list_map is empty")
-            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
-            return storage_pb2.RegisterFixedGpuPtrsResponse()
-        gpu_memory_handles = {
-            device_uuid: [
-                handle.cuda_ipc_handle for handle in handle_list.handles
-            ]
-            for device_uuid, handle_list in request.handles.items()
-        }
-        
-        ret = self.storage.register_fixed_gpu_ptrs(gpu_memory_handles)
-        if ret != 0:
-            logger.error("RegisterFixedGpuPtrs failed")
-            context.set_code(grpc.StatusCode.INTERNAL)
-            return storage_pb2.RegisterFixedGpuPtrsResponse()
-        return storage_pb2.RegisterFixedGpuPtrsResponse()
-    async def ReleaseRegisteredFixedGpuPtrs(self, request, context):
-        handles = request.handles
-        if not handles:
-            logger.error("handles is empty")
-            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
-            return storage_pb2.ReleaseRegisteredFixedGpuPtrsResponse()
-        cuda_memory_handles_need_released = {
-            device_uuid: [
-                handle.cuda_ipc_handle for handle in handle_list.handles
-            ]
-            for device_uuid, handle_list in handles.items()
-        }
-        ret = self.storage.release_registered_fixed_gpu_ptrs(cuda_memory_handles_need_released)
-        if ret != 0:
-            logger.error("ReleaseRegisteredFixedGpuPtrs failed")
-            context.set_code(grpc.StatusCode.INTERNAL)
-            return storage_pb2.ReleaseRegisteredFixedGpuPtrsResponse()
-        return storage_pb2.ReleaseRegisteredFixedGpuPtrsResponse()
-    async def ReleaseAllRegisteredFixedGpuPtrs(self, request, context):
-        ret = self.storage.release_all_registered_fixed_gpu_ptrs()
-        if ret != 0:
-            logger.error("ReleaseAllRegisteredFixedGpuPtrs failed")
-            context.set_code(grpc.StatusCode.INTERNAL)
-            return storage_pb2.ReleaseAllRegisteredFixedGpuPtrsResponse()
-    
-    async def GetModelSharedMemoryNames(self, request, context):
-        model_path = request.model_path
-        if not model_path:
-            logger.error("model_path is empty")
-            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
-            return storage_pb2.GetModelSharedMemoryNamesResponse()
-        
-        if not self.storage.is_using_shared_memory():
-            logger.error("Not using shared memory pool")
-            context.set_code(grpc.StatusCode.FAILED_PRECONDITION)
-            return storage_pb2.GetModelSharedMemoryNamesResponse()
-        
-        shm_names, chunk_size = self.storage.get_model_shared_memory_names(model_path)
-        if not shm_names:
-            logger.error(f"Failed to get shared memory names for model {model_path}")
-            context.set_code(grpc.StatusCode.INTERNAL)
-            return storage_pb2.GetModelSharedMemoryNamesResponse()
-        
-        logger.info(f"GetModelSharedMemoryNames: {model_path}, {len(shm_names)} names")
-        return storage_pb2.GetModelSharedMemoryNamesResponse(
-            model_path=model_path,
-            shm_names=shm_names,
-            chunk_size=chunk_size
-        )
+
 
 async def serve(
     host,

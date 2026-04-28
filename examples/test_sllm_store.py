@@ -46,13 +46,8 @@ gmodel_path = "gemma4-26B-A4B"
 # seq_len 64 128
 # SLLM_VERIFY_WEIGHTS 会保留 _sllm_state_dict_keepalive，MoE 长序列下峰值显存更高；
 # 未显式设置 SLLM_TEST_BATCH / SLLM_TEST_SEQ 时自动用小一点的形状，避免第三次 generate OOM。
-_default_batch = 64
+_default_batch = 4
 _default_seq = 128
-if os.environ.get("SLLM_VERIFY_WEIGHTS", "") == "1":
-    if "SLLM_TEST_BATCH" not in os.environ:
-        _default_batch = 32
-    if "SLLM_TEST_SEQ" not in os.environ:
-        _default_seq = 32
 batch_size = int(os.environ.get("SLLM_TEST_BATCH", str(_default_batch)))
 seq_len = int(os.environ.get("SLLM_TEST_SEQ", str(_default_seq)))
 max_new_tokens = 32
@@ -239,7 +234,9 @@ if __name__ == "__main__":
     fully_parallel = True
     # 第一次运行
     # test_load_model(fully_parallel=fully_parallel)
-    test_load_and_generate_model(fully_parallel=fully_parallel)
+    for i in range(3):
+        test_load_and_generate_model(fully_parallel=fully_parallel)
+    # test_load_and_generate_model(fully_parallel=fully_parallel)
     
     # # 等待资源完全释放
     # print("\nWaiting for resources to be fully released...")

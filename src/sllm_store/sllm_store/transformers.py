@@ -52,7 +52,7 @@ from sllm_store.utils import (
     quantize,
 )
 from torch import nn
-from transformers import AutoConfig, GenerationConfig
+from transformers import AutoConfig
 import importlib
 from peft import (
     PeftModel,
@@ -70,40 +70,6 @@ logger = init_logger(__name__)
 
 def _get_uuid():
     return str(uuid.uuid4())
-
-
-def _sanitize_generation_config_for_save(gen_cfg: GenerationConfig) -> GenerationConfig:
-    """
-    Transformers v5+ validates `GenerationConfig` strictly on save. Some hub models ship
-    sampling-related defaults (e.g. temperature/top_p) while `do_sample` is not True; those
-    values are ignored in greedy/beam modes but will make `save_pretrained()` fail.
-
-    We normalize those fields to the library defaults when not in sampling mode so the
-    saved JSON matches actual generation behavior.
-    """
-    cfg = gen_cfg.to_dict()
-    defaults = GenerationConfig._get_default_generation_params()
-
-    if cfg.get("do_sample") is not True:
-        for key in (
-            "temperature",
-            "top_p",
-            "top_k",
-            "typical_p",
-            "min_p",
-            "top_h",
-            "epsilon_cutoff",
-            "eta_cutoff",
-        ):
-            if key in defaults:
-                cfg[key] = defaults[key]
-
-    if cfg.get("num_beams") in (None, 1):
-        for key in ("early_stopping", "length_penalty"):
-            if key in defaults:
-                cfg[key] = defaults[key]
-
-    return GenerationConfig.from_dict(cfg)
 
 
 def save_model(model: nn.Module, model_path: str):
@@ -129,10 +95,7 @@ def save_model(model: nn.Module, model_path: str):
     # Save the config
     model.config.save_pretrained(model_path)
     if model.can_generate():
-        gen_cfg = getattr(model, "generation_config", None)
-        if gen_cfg is not None:
-            gen_cfg = _sanitize_generation_config_for_save(gen_cfg)
-            gen_cfg.save_pretrained(model_path)
+        model.generation_config.save_pretrained(model_path)
 
     # save module index
     no_split_modules = get_no_split_modules(model, model._no_split_modules)
@@ -235,14 +198,14 @@ def fully_parallel_load(
         device_map = _compute_device_placement_from_map_fast(
             no_split_modules, tied_no_split_modules, device_map
         )
-    print("device_map", device_map)
+
     # TODO: offload `load_dict_non_blocking` to c++ for real parallelism
     with concurrent.futures.ThreadPoolExecutor() as executor:
         future = executor.submit(
             load_dict_non_blocking, model_path, device_map, storage_path
         )
         logger.debug(
-            f"async call load_dict_non_blocking takes {time.time() - start} seconds"
+            f"load_dict_non_blocking takes {time.time() - start} seconds"
         )
 
         start = time.time()
@@ -252,7 +215,7 @@ def fully_parallel_load(
         if torch_dtype is not None:
             config.torch_dtype = torch_dtype
         logger.debug(f"load config takes {time.time() - start} seconds")
-        
+
         start = time.time()
         with init_empty_weights():
             module = importlib.import_module("transformers")
@@ -262,7 +225,7 @@ def fully_parallel_load(
                 trust_remote_code=True,
             ).to(config.torch_dtype)
         model.tie_weights()
-        logger.debug(f"init empty model takes {time.time() - start} seconds")
+        logger.debug(f"load model takes {time.time() - start} seconds")
 
         replica_uuid, state_dict = future.result()
 
@@ -288,20 +251,13 @@ def fully_parallel_load(
                 set_module_tensor_to_device(model, name, param.device, param)
         send_module_buffers_to_device(model, device_map)
 
-    start_time = time.time()
     dispatch_model(
         model, device_map, skip_keys=model._skip_keys_device_placement
     )
-    end_time = time.time()
-    print(f"dispatch_model takes {end_time - start_time} seconds")
-    # 8074 Qwen1.5-MoE-A2.7B 8073 Gemma4
     client = SllmStoreClient("127.0.0.1:8073")
     client.confirm_model_loaded(model_path, replica_uuid)
     model.hf_device_map = device_map
     model.eval()
-    # Keep restore_tensors slab alive: parameters may alias it; dropping state_dict
-    # can cudaFree the slab while weights still point into it.
-    model._sllm_state_dict_keepalive = state_dict
     return model
 
 
@@ -348,7 +304,7 @@ def best_effort_load(
         )
 
     model.tie_weights()
-    logger.debug(f"init empty model takes {time.time() - start} seconds")
+    logger.debug(f"load model takes {time.time() - start} seconds")
 
     start = time.time()
     if isinstance(device_map, str):
@@ -393,7 +349,7 @@ def best_effort_load(
     tensor_device_offsets, tensor_copy_chunks = calculate_tensor_device_offsets(
         expanded_device_map, tensor_data_index
     )
-    logger.debug(f"allocate_cuda_memory for all devices memory takes {time.time() - start} seconds")
+    logger.debug(f"allocate_cuda_memory takes {time.time() - start} seconds")
 
     ret = client.load_into_gpu(
         model_path,
@@ -446,8 +402,6 @@ def best_effort_load(
     client.confirm_model_loaded(model_path, replica_uuid)
     model.eval()
     model.hf_device_map = device_map
-    # keep ref
-    model._sllm_state_dict_keepalive = state_dict
 
     return model
 
@@ -479,7 +433,7 @@ def load_lora(
 
     lora_config.inference_mode = not is_trainable
 
-    client = SllmStoreClient()
+    client = SllmStoreClient("127.0.0.1:8073")
     client.register_model(adapter_path)
 
     model.add_adapter(lora_config, adapter_name=adapter_name)

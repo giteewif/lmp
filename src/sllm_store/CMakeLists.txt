@@ -52,7 +52,7 @@ include(${CMAKE_CURRENT_LIST_DIR}/cmake/utils.cmake)
 # Supported python versions.  These versions will be searched in order, the
 # first match will be selected.  These should be kept in sync with setup.py.
 #
-set(PYTHON_SUPPORTED_VERSIONS "3.8" "3.9" "3.10" "3.11")
+set(PYTHON_SUPPORTED_VERSIONS "3.9" "3.10" "3.11" "3.12")
 
 #
 # Try to find python package with an executable that exactly matches
@@ -123,7 +123,6 @@ get_torch_gpu_compiler_flags(SLLM_STORE_GPU_FLAGS ${SLLM_STORE_GPU_LANG})
 set(SLLM_STORE_EXT_SRC
   "csrc/checkpoint/aligned_buffer.cpp"
   "csrc/checkpoint/checkpoint.cpp"
-  "csrc/checkpoint/cuda_memcpy.cpp"
   "csrc/checkpoint/checkpoint_py.cpp"
   "csrc/checkpoint/tensor_writer.cpp"
 )
@@ -139,7 +138,6 @@ set(SLLM_STORE_EXT_SRC
 
 set(SLLM_STORE_CXX_EXT_SRC
   "csrc/checkpoint/aligned_buffer.cpp"
-  "csrc/checkpoint/cuda_memcpy.cpp"
   "csrc/checkpoint/checkpoint_py.cpp"
   "csrc/checkpoint/tensor_writer.cpp"
 )
@@ -208,6 +206,35 @@ define_gpu_extension_target(
 # Enable testing if the option is ON
 if(BUILD_SLLM_TESTS)
     enable_testing()
+
+    # Create a static library for testing (without Python bindings)
+    add_library(sllm_store_static STATIC
+        ${CHECKPOINT_STORE_CXX_SOURCES}
+        "csrc/sllm_store/checkpoint_store.cpp"
+        "csrc/sllm_store/cuda_memory.cpp"
+        "csrc/sllm_store/cuda_memory_pool.cpp"
+        "csrc/sllm_store/gpu_replica.cpp"
+        "csrc/sllm_store/model.cpp"
+        "csrc/sllm_store/pinned_memory_pool.cpp"
+        "csrc/sllm_store/pinned_memory_pool_shared.cpp"
+    )
+
+    target_include_directories(sllm_store_static PUBLIC
+        ${CMAKE_SOURCE_DIR}/csrc/sllm_store
+        ${CMAKE_SOURCE_DIR}/csrc/checkpoint
+    )
+
+    target_link_libraries(sllm_store_static
+        ${CHECKPOINT_STORE_LIBRARIES}
+        ${TORCH_LIBRARIES}
+    )
+
+    # Set target properties for CUDA if available
+    if (CUDAToolkit_FOUND)
+        set_target_properties(sllm_store_static PROPERTIES
+            CUDA_SEPARABLE_COMPILATION ON
+        )
+    endif()
 
     add_subdirectory(tests/cpp)
 endif()

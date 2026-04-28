@@ -2,7 +2,7 @@ import os
 import time
 import torch
 import torch.nn.functional as F
-from typing import Dict
+from typing import Dict, Optional
 from transformers import AutoConfig
 from transformers.activations import ACT2FN
 from accelerate.utils import set_module_tensor_to_device
@@ -119,6 +119,146 @@ def _group_fused_select_half_experts(
     return expert_half_list, window_tokens, max_tokens
 
 
+def _mask_topk_weights_outside_expert_half(
+    topk_ids: torch.Tensor,
+    topk_weights: torch.Tensor,
+    expert_half_list: list[int],
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Half-set 内的槽位保持原 ``topk_ids`` / ``topk_weights``；半套外槽位：
+
+    - ``topk_ids`` 置为 **-1**（与 ``kt_kernel_ext`` 中 ``should_skip_expert`` 一致：``id < 0`` 整槽不参与
+      gate/up/down，不占用该专家的激活计数）。勿用 **0**：0 是合法专家下标，会误路由到 0 号专家。
+    - ``topk_weights`` 置 0，行不做归一化。
+
+    返回的 ``topk_ids`` 为 **新张量**（clone 后改槽位），shape 与输入相同。
+    """
+    device = topk_ids.device
+    half_t = torch.tensor(expert_half_list, dtype=torch.int64, device=device)
+    if int(half_t.numel()) == 0:
+        raise ValueError("expert_half_list must be non-empty")
+    in_half = torch.isin(topk_ids, half_t)
+    skip_id = torch.tensor(-1, dtype=topk_ids.dtype, device=device)
+    new_ids = torch.where(in_half, topk_ids, skip_id).contiguous()
+    new_w = (topk_weights * in_half.to(dtype=topk_weights.dtype)).contiguous()
+    return new_ids, new_w
+
+
+def _log_kt_kernel_topk_activation(
+    topk_ids: torch.Tensor,
+    num_experts_total: int,
+    expert_half_list: list[int],
+    tokens_num: int,
+    tok_k: int,
+    *,
+    log_prefix: str = "kt-kernel infer",
+) -> None:
+    """掩码后 top-k 槽位统计：``id >= 0`` 计入激活，``id < 0`` 为禁用槽位。"""
+    slots_i = topk_ids.reshape(-1).to(torch.int64)
+    active_m = slots_i >= 0
+    n_slots = int(slots_i.numel())
+    n_active = int(active_m.sum().item())
+    n_masked = n_slots - n_active
+    if n_active > 0:
+        act_counts = torch.bincount(slots_i[active_m], minlength=num_experts_total)
+    else:
+        act_counts = torch.zeros(num_experts_total, dtype=torch.int64, device=slots_i.device)
+    experts_used = int((act_counts > 0).sum().item())
+    busiest = int(torch.argmax(act_counts).item()) if n_active > 0 else -1
+    half_t = torch.tensor(expert_half_list, dtype=torch.int64, device=act_counts.device)
+    half_counts = act_counts[half_t]
+    logger.info(
+        "%s: topk activation (post-mask): T=%d K=%d slots=%d active=%d masked=%d "
+        "experts_hit=%d/%d per_expert_slots min/mean/max(in_half)=%d/%.2f/%d busiest_e=%d "
+        "half_expert_slot_sum=%d",
+        log_prefix,
+        tokens_num,
+        tok_k,
+        n_slots,
+        n_active,
+        n_masked,
+        experts_used,
+        num_experts_total,
+        int(half_counts.min().item()) if half_counts.numel() else 0,
+        float(half_counts.float().mean().item()) if half_counts.numel() else 0.0,
+        int(half_counts.max().item()) if half_counts.numel() else 0,
+        busiest,
+        int(half_counts.sum().item()),
+    )
+
+
+def _log_topk_activation_distribution(
+    topk_ids: torch.Tensor,
+    num_experts_total: int,
+    *,
+    log_prefix: str,
+    ignore_negative: bool = False,
+    log_cumulative: bool = True,
+) -> None:
+    """
+    通用 top-k 激活统计：
+    - 按槽位统计每个专家激活次数（支持 ``ignore_negative`` 跳过 ``id < 0``）
+    - 输出按激活次数升序的专家分布
+    - 可选输出累计覆盖占比（与 ``test_gate_experts`` 风格一致）
+    """
+    flat_ids = topk_ids.reshape(-1).to(torch.int64).cpu()
+    if ignore_negative:
+        flat_ids = flat_ids[flat_ids >= 0]
+
+    counts = torch.bincount(flat_ids, minlength=num_experts_total)
+    total_activations = int(counts.sum().item())
+    active_experts = int((counts > 0).sum().item())
+    top_k = int(topk_ids.shape[-1]) if topk_ids.dim() > 1 else 1
+
+    stats: list[tuple[int, int, float]] = []
+    for expert_id in range(num_experts_total):
+        cnt = int(counts[expert_id].item())
+        pct = (cnt / total_activations * 100.0) if total_activations > 0 else 0.0
+        stats.append((expert_id, cnt, pct))
+    stats.sort(key=lambda item: (item[1], item[0]))
+
+    logger.info(
+        "%s: top_k=%d experts=%d active_experts=%d total_activations=%d",
+        log_prefix,
+        top_k,
+        num_experts_total,
+        active_experts,
+        total_activations,
+    )
+    logger.info("%s: expert activation distribution (sorted by token count asc):", log_prefix)
+    for expert_id, cnt, pct in stats:
+        logger.info(
+            "%s: expert=%d tokens=%d pct=%.4f%%",
+            log_prefix,
+            expert_id,
+            cnt,
+            pct,
+        )
+
+    if not log_cumulative:
+        return
+
+    cumulative_tokens = 0
+    logger.info(
+        "%s: cumulative token ratio by ascending experts "
+        "(k/%d experts -> cumulative_tokens/total_activations)",
+        log_prefix,
+        num_experts_total,
+    )
+    for k, (_expert_id, cnt, _pct) in enumerate(stats, start=1):
+        cumulative_tokens += cnt
+        cumulative_pct = (cumulative_tokens / total_activations * 100.0) if total_activations > 0 else 0.0
+        expert_pct = k / num_experts_total * 100.0
+        logger.info(
+            "%s: k=%d expert_pct=%.4f%% cumulative_tokens=%d cumulative_pct=%.4f%%",
+            log_prefix,
+            k,
+            expert_pct,
+            cumulative_tokens,
+            cumulative_pct,
+        )
+
+
 class CudaMemoryView:
     def __init__(
         self,
@@ -155,8 +295,11 @@ class CudaMemoryView:
         # 跟踪每层参数是否已全部加载到 GPU
         # {layer_idx: bool} - True 表示该层参数已全部加载到 GPU
         self._layer_loaded_to_gpu = {}
+        # fused experts dual-restore: {layer_idx: {device_id: {"gate_up": [...], "down": [...], ...}}}
+        self._layer_experts_map_by_device = {}
 
     def load_general_and_init(self):     
+        cuda_hook_time("load_general")
         tensor_index_general_names = self.mlpm.get_tensor_index_general_names()
         # tensor_index_attention_names = self.mlpm.get_attention_names(layer_idx=0)
         # tensor_index_layernorm_names = self.mlpm.get_layernorm_names(layer_idx=0)
@@ -171,11 +314,12 @@ class CudaMemoryView:
 
         self.restore2model(state_dict1, self.mlpm_ci)
         self.wait_load_into_gpu(replica_uuid1)
-        
+        cuda_hook_time_end("load_general")
+
     def start_init_meta_model(self):
         cm = self.mlpm.init_chmv_meta_model(device=self.device1)
         self.mlpm_ci = cm
-        
+
     def start_load_qkvogn_s_weight(self, layer_idx: int, device: str):
         """
         异步发起加载请求，使用 SLLMTM 线程管理器
@@ -667,6 +811,20 @@ class CudaMemoryView:
             return
         self.sllmtm.get_result_wait()
 
+    def load_qkvgon_weight_onetime(self):
+        device1_idx_int = self.device1
+        time_start_init_qkvogn_weight = time.time()
+        cuda_hook_time("init qkvogn weight one time")
+        layer_num = self.mlpm.config.num_hidden_layers
+        tensor_names = []
+        for layer_idx in range(layer_num):
+            tensor_al1_names = self.mlpm.get_attention_names(layer_idx=layer_idx)
+            tensor_ln1_names = self.mlpm.get_layernorm_names(layer_idx=layer_idx)
+            tensor_gate_names = self.mlpm.get_gate_names(layer_idx=layer_idx)
+            tensor_index_names = tensor_al1_names + tensor_ln1_names + tensor_gate_names
+            tensor_names = tensor_names + tensor_index_names
+        self.allocate_cuda_memory_load_wait(tensor_names, device_index_int=device1_idx_int)
+        cuda_hook_time_end("init qkvogn weight one time")
 
     def load_all_qkvogn_weight(self):
         device1_idx_int = self.device1
@@ -682,10 +840,12 @@ class CudaMemoryView:
         logger.debug(f"init qkvogn weight time: {time.time() - time_start_init_qkvogn_weight}")
         cuda_hook_end("init qkvogn weight")
 
+    
+
     def init_load_qkvogn_es_weight(self, layer_idx: int = 0):
         layer_idx = layer_idx
-        if layer_idx != 0:
-            raise ValueError(f"layer_idx must be 0")
+        # if layer_idx != 0:
+        #     raise ValueError(f"layer_idx must be 0")
         device1_idx_int = self.device1
         cuda_hook_time(f"load_qkvogns_weight_l_{layer_idx}")
         tensor_al1_names = self.mlpm.get_attention_names(layer_idx=layer_idx)
@@ -1010,8 +1170,13 @@ class CudaMemoryView:
         self.cuda_memory_ptrs_allocated.append(cuda_memory_ptrs_device_map)
         cuda_memory_handles_device_map = get_cuda_memory_handles(cuda_memory_ptrs_device_map)
 
-        # Save naming info for callers
-        self._layer_experts_map_by_device[layer_idx] = tensor_slice_names_by_device
+        # Save naming info for callers (incremental merge; do not overwrite other devices/layers).
+        prev_layer_map = self._layer_experts_map_by_device.get(layer_idx)
+        if isinstance(prev_layer_map, dict):
+            # per-device dict merge; new entries override per-device keys (expected: newer mapping for same device)
+            prev_layer_map.update(tensor_slice_names_by_device)
+        else:
+            self._layer_experts_map_by_device[layer_idx] = tensor_slice_names_by_device
 
         cuda_hook_time("load_into_gpu_async_fused_experts_dual")
         ret, replica_uuid = load_into_gpu_async(
@@ -1091,6 +1256,7 @@ class CudaMemoryView:
             device_index_int: tensor_device_size
         }
         cuda_hook_time("allocate_cuda_memory")
+        logger.debug(f"allocate cuda memory {device_memory}")
         cuda_memory_ptrs = allocate_cuda_memory(device_memory)
         cuda_hook_time_end("allocate_cuda_memory")
         self.cuda_memory_ptrs_allocated.append(cuda_memory_ptrs)
@@ -1139,6 +1305,69 @@ class CudaMemoryView:
         self._layer_experts_map_by_device = {}
         self._layer_cpu_experts_need_load_map = {}
 
+
+    def test_init_onelayer_experts_weight(self, layer_idx: int = 0):
+        cuda_hook_time("test_init_onelayer_experts_weight")
+        if layer_idx >= self.mlpm.config.num_hidden_layers:
+            return
+        device1_idx_int = self.device1
+        tensor_index_names = self.mlpm.get_experts_names(layer_idx=layer_idx, expert_idx_list=[])
+        self.allocate_cuda_memory_load_wait(tensor_index_names, device_index_int=device1_idx_int)
+        cuda_hook_time_end("test_init_onelayer_experts_weight")
+
+import sys
+from pathlib import Path
+# 添加 kt-kernel 路径 - 使用固定路径 /mnt/zhengcf3/ktransformers/kt-kernel
+from kt_kernel import kt_kernel_ext
+
+def detect_numa_nodes() -> list[int]:
+    node_root = Path("/sys/devices/system/node")
+    nodes: list[int] = []
+    if node_root.exists():
+        for child in node_root.iterdir():
+            name = child.name
+            if name.startswith("node") and name[4:].isdigit():
+                nodes.append(int(name[4:]))
+    return sorted(nodes) or [0]
+
+
+def default_thread_count(numa_nodes: list[int]) -> int:
+    cpu_root = Path("/sys/devices/system/cpu")
+    physical_cores: set[tuple[str, str]] = set()
+    if cpu_root.exists():
+        for cpu_dir in cpu_root.iterdir():
+            name = cpu_dir.name
+            if not name.startswith("cpu") or not name[3:].isdigit():
+                continue
+            package_file = cpu_dir / "topology" / "physical_package_id"
+            core_file = cpu_dir / "topology" / "core_id"
+            try:
+                physical_cores.add((package_file.read_text().strip(), core_file.read_text().strip()))
+            except OSError:
+                pass
+    if physical_cores:
+        return len(physical_cores)
+    return max(1, (os.cpu_count() or 1) // 2)
+
+
+def make_worker_config(ext, threads: int, numa_nodes: list[int]):
+    threadpool_count = max(1, min(len(numa_nodes), threads))
+    base = threads // threadpool_count
+    extra = threads % threadpool_count
+
+    worker_config = ext.WorkerPoolConfig()
+    worker_config.subpool_count = threadpool_count
+    worker_config.subpool_numa_map = numa_nodes[:threadpool_count]
+    worker_config.subpool_thread_count = [base + (1 if i < extra else 0) for i in range(threadpool_count)]
+    return worker_config
+    
+numa_nodes = detect_numa_nodes()
+threads =  default_thread_count(numa_nodes)
+worker_config = make_worker_config(kt_kernel_ext, threads, numa_nodes)
+
+# CPUInfer = kt_kernel_ext.CPUInfer(CPUINFER_PARAM)
+CPUInfer = kt_kernel_ext.CPUInfer(worker_config)
+
 class HostMemoryView:
     def __init__(
         self, 
@@ -1171,6 +1400,364 @@ class HostMemoryView:
 
         self.mlpm_hi = empty_model
         self.mlpm.restore_hm_state_dict2model(self.hm_state_dict, self.mlpm_hi)
+
+    def _test_kt_kernel_init(self, layer_idx: int, max_len: int = 1024):
+        """测试 kt-kernel MOE 初始化，仿照 bench_bf16_moe.py 的模式"""
+        import kt_kernel
+        import kt_kernel_ext
+
+        torch.set_num_threads(1)
+        torch.set_num_interop_threads(1)
+        
+        print(f"kt-kernel version      : {kt_kernel.__version__}")
+        print(f"kt-kernel CPU variant : {kt_kernel.__cpu_variant__}")
+        # 获取模型配置参数
+        # 修复: 使用 self.mlpm.get_ 相关方法获取参数
+        expert_num = self.mlpm.get_experts_num()
+        num_experts_per_tok = self.mlpm.get_experts_per_tok()
+        hidden_size = self.mlpm.config.hidden_size
+        moe_intermediate_size = self.mlpm.config.moe_intermediate_size
+ 
+        # 物理到逻辑专家映射
+        physical_to_logical_map = torch.tensor(range(expert_num), device="cpu", dtype=torch.int64).contiguous()
+        
+        # 为每个隐藏层创建 MOE 配置
+        moes = []
+        # layers_num = self.mlpm.config.num_hidden_layers
+        layers_num = layer_idx + 1
+        for i in range(layers_num):
+            config = kt_kernel_ext.moe.MOEConfig(expert_num, num_experts_per_tok, hidden_size, moe_intermediate_size, 0)
+            config.max_len = max_len
+            config.layer_idx = i
+            # 通过 mlpm 的通用方法获取 fused experts 线性层（兼容 language_model.layers 等路径）
+            gate_up_proj_mod, down_proj_mod, _ = self.mlpm.get_fused_experts_gate_up_down_act_fn(self.mlpm_hi, i)
+
+            # nn paramter
+            gate_up_proj = gate_up_proj_mod
+            down_proj = down_proj_mod
+            
+            # 确保张量在CPU上且连续
+            gate_up_proj_cpu = gate_up_proj.cpu().contiguous()
+            down_proj_cpu = down_proj.cpu().contiguous()
+            
+            # 通过切片直接获取指针（不拷贝数据）
+            # gate_up_proj形状: [num_experts, 2*intermediate_dim, hidden_dim]
+            # 通过视图获取gate和up部分的指针
+            gate_up_reshaped = gate_up_proj_cpu.view(expert_num, 2, moe_intermediate_size, hidden_size)
+            gate_view = gate_up_reshaped[:, 0, :, :]  # [num_experts, intermediate_size, hidden_dim]
+            up_view = gate_up_reshaped[:, 1, :, :]    # [num_experts, intermediate_size, hidden_dim]
+
+            gate_view = gate_view.cpu().contiguous()
+            up_view = up_view.cpu().contiguous()
+            
+            # 设置 BF16 权重指针（不需要 scales）
+            config.gate_proj = gate_view.data_ptr()
+            config.up_proj = up_view.data_ptr()
+            config.down_proj = down_proj_cpu.data_ptr()
+            
+            # BF16 不需要 scales
+            config.gate_scale = 0
+            config.up_scale = 0
+            config.down_scale = 0
+            config.pool = CPUInfer.backend_
+            
+            # 使用可用的 AVX2BF16_MOE 替代 AMXBF16_MOE
+            moe = kt_kernel_ext.moe.AVX512BF16_MOE(config)
+            # moe = kt_kernel_ext.moe.AMXBF16_MOE(config)  # 如果编译支持 AMX，可以启用
+            
+            # 提交权重加载任务
+            CPUInfer.submit(moe.load_weights_task(physical_to_logical_map.data_ptr()))
+            CPUInfer.sync()
+            moes.append(moe)
+            
+            logger.info(f"初始化第 {i} 层 MOE，专家数: {expert_num}, 隐藏层大小: {hidden_size}")
+        
+        self.moes = moes
+        return moes
+
+    def _make_inputs(self, tokens: int, hidden_size: int, num_experts: int, top_k: int, seed: int = 42, uniform: bool = False):
+        """
+        生成测试输入数据，确保数据格式正确
+        
+        Args:
+            tokens: 输入token数量
+            hidden_size: 隐藏层大小
+            num_experts: 专家数量
+            top_k: 每个token选择的前k个专家
+            seed: 随机种子
+            uniform: 是否使用均匀分配策略
+            
+        Returns:
+            hidden_states: 输入隐藏状态 [tokens, hidden_size]
+            topk_ids: 专家ID [tokens, top_k]
+            topk_weights: 专家权重 [tokens, top_k]
+            output: 输出缓冲区 [tokens, hidden_size]
+            batch_tensor: batch大小张量 [1]
+        """
+        generator = torch.Generator(device="cpu")
+        generator.manual_seed(seed)
+        
+        # 生成输入隐藏状态
+        hidden_states = torch.randn((tokens, hidden_size), generator=generator, dtype=torch.float32)
+        hidden_states = hidden_states.to(torch.bfloat16).contiguous()
+        
+        # 生成专家ID - 确保与 kt-kernel 接口兼容
+        if uniform:
+            # ===== 均匀分配策略：每个专家获得相同数量的token =====
+            tokens_per_expert = tokens * top_k // num_experts
+            remainder = tokens * top_k % num_experts
+            
+            expert_assignments = []
+            for expert_id in range(num_experts):
+                count = tokens_per_expert + (1 if expert_id < remainder else 0)
+                expert_assignments.extend([expert_id] * count)
+            
+            expert_assignments = torch.tensor(expert_assignments, dtype=torch.int64)
+            expert_assignments = expert_assignments[torch.randperm(len(expert_assignments), generator=generator)]
+            topk_ids = expert_assignments.view(tokens, top_k).contiguous()
+        else:
+            # ===== 随机分配策略：模拟真实MoE路由 =====
+            scores = torch.rand((tokens, num_experts), generator=generator, dtype=torch.float32)
+            _, topk_ids = torch.topk(scores, k=top_k, dim=-1, largest=True, sorted=False)
+            topk_ids = topk_ids.to(torch.int64).contiguous()
+        
+        # 生成专家权重（归一化）
+        topk_weights = torch.rand((tokens, top_k), generator=generator, dtype=torch.float32).contiguous()
+        topk_weights = (topk_weights / topk_weights.sum(dim=-1, keepdim=True)).contiguous()
+        
+        # 准备输出缓冲区
+        output = torch.empty((tokens, hidden_size), dtype=torch.bfloat16).contiguous()
+        batch_tensor = torch.tensor([tokens], dtype=torch.int32)
+        
+        return hidden_states, topk_ids, topk_weights, output, batch_tensor
+
+    def prefill_hidden_states_before_gate(
+        self,
+        cmv: "CudaMemoryView",
+        layer_idx: int,
+        bsz: int,
+        seq_len: int,
+    ) -> torch.Tensor:
+        """
+        在真实 MoE ``gate`` 之前跑完单层 prefill：tokenizer + embed -> iln -> self_attn -> paln -> residual，
+        与 ``MLPLLM.test_gate_experts`` 中调用 ``gate_func`` 之前的路径一致。
+
+        Returns:
+            ``[bsz, seq_len, hidden_size]``，与 ``cmv.mlpm_ci`` 同 device / dtype（config.torch_dtype）。
+        """
+        from transformers import AutoTokenizer
+        from transformers.cache_utils import DynamicCache
+        from transformers.modeling_attn_mask_utils import (
+            _prepare_4d_causal_attention_mask,
+            _prepare_4d_causal_attention_mask_for_sdpa,
+        )
+
+        from utils.helper import generate_input_ids
+
+        if cmv.mlpm_ci is None:
+            raise RuntimeError("cmv.mlpm_ci is None; cannot run prefill_hidden_states_before_gate")
+
+        _bsz = int(bsz)
+        _seq = int(seq_len)
+        if _bsz <= 0 or _seq <= 0:
+            raise ValueError(f"bsz and seq_len must be positive, got bsz={_bsz}, seq_len={_seq}")
+
+        device = f"cuda:{cmv.device1}"
+        dtype = getattr(self.mlpm.config, "torch_dtype", torch.bfloat16)
+        if dtype is None:
+            dtype = torch.bfloat16
+
+        tokenizer = AutoTokenizer.from_pretrained(self.mlpm.model_abs_path, trust_remote_code=True)
+        input_ids = generate_input_ids(tokenizer, _bsz, _seq, device)
+        embed_tokens = self.mlpm.get_embed_tokens(cmv.mlpm_ci)
+
+        with torch.inference_mode():
+            x = embed_tokens(input_ids).to(dtype=dtype)
+            past_key_value = DynamicCache(config=self.mlpm.config)
+            past_key_values_length = past_key_value.get_seq_length()
+            position_ids = torch.arange(
+                past_key_values_length,
+                _seq + past_key_values_length,
+                dtype=torch.long,
+                device=device,
+            ).unsqueeze(0)
+            attention_mask = _prepare_4d_causal_attention_mask_for_sdpa(
+                None,
+                (_bsz, _seq),
+                x,
+                past_key_values_length=past_key_values_length,
+            )
+            if getattr(self.mlpm.config, "_attn_implementation", None) == "eager":
+                attention_mask = _prepare_4d_causal_attention_mask(
+                    None,
+                    (_bsz, _seq),
+                    x,
+                    past_key_values_length,
+                )
+
+            residual = x
+            x = self.mlpm.iln_func(cmv.mlpm_ci, layer_idx=layer_idx, hidden_states=x)
+            x = self.mlpm.self_attn_func(
+                cmv.mlpm_ci,
+                layer_idx=layer_idx,
+                hidden_states=x,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                past_key_value=past_key_value,
+            )
+            x = self.mlpm.paln_func(cmv.mlpm_ci, layer_idx=layer_idx, hidden_states=x)
+            x = residual + x
+
+        return x
+
+    def _make_inputs_from_layer_prefill(
+        self,
+        cmv: "CudaMemoryView",
+        tokens_num: int,
+        layer_idx: int,
+        bsz: Optional[int],
+        seq_len: Optional[int],
+    ):
+        """
+        与 ``MLPLLM.test_gate_experts`` 一致：``prefill_hidden_states_before_gate`` 得到隐状态，
+        再用 ``gate_func(mlpm_hi)`` 得到 top-k；供 kt-kernel 使用 CPU 上的 bf16 隐藏态与路由张量。
+        """
+        _bsz = int(bsz) if bsz is not None else 1
+        _seq = int(seq_len) if seq_len is not None else int(tokens_num)
+        if _bsz * _seq != int(tokens_num):
+            raise ValueError(
+                f"bsz*seq_len must equal tokens_num for kt infer: bsz={_bsz}, seq_len={_seq}, tokens_num={tokens_num}"
+            )
+
+        hidden_size = int(self.mlpm.config.hidden_size)
+        x = self.prefill_hidden_states_before_gate(cmv, layer_idx, _bsz, _seq)
+
+        with torch.inference_mode():
+            topk_idx, topk_weight, _ = self.mlpm.gate_func(self.mlpm_hi, layer_idx, x.detach().to("cpu"))
+
+        hidden_states = (
+            x.reshape(-1, hidden_size).detach().cpu().to(torch.bfloat16).contiguous()
+        )
+        topk_ids = topk_idx.to(torch.int64).contiguous().cpu()
+        topk_weights = topk_weight.float().contiguous().cpu()
+        output = torch.empty((tokens_num, hidden_size), dtype=torch.bfloat16).contiguous()
+        batch_tensor = torch.tensor([tokens_num], dtype=torch.int32)
+        return hidden_states, topk_ids, topk_weights, output, batch_tensor
+
+    def _test_kt_kernel_infer(
+        self,
+        max_len: int = 1024,
+        cmv: Optional["CudaMemoryView"] = None,
+        layer_idx: int = 0,
+        bsz: Optional[int] = None,
+        seq_len: Optional[int] = None,
+    ):
+        """
+        测试 kt-kernel MoE 推理功能，确保数据格式与 bench_bf16_moe.py 对齐
+        
+        Args:
+            moes: MOE层实例列表
+            batch_tensor: batch大小张量 [1]，包含token数量（对应qlen_tensor）
+            topk_ids: 专家ID张量 [tokens, top_k]；半套外槽位会被置为 **-1**（kt_kernel 跳过，勿用 0）
+            topk_weights: 专家权重张量 [tokens, top_k]；半套外槽位置 0，**不做行归一化**
+            hidden_states: 输入隐藏状态 [tokens, hidden_size]，BF16格式
+            output: 输出缓冲区 [tokens, hidden_size]，BF16格式
+            top_k: 每个token选择的前k个专家（对应num_experts_per_tok）
+
+            cmv: 若传入 ``CudaMemoryView``，则隐藏态与路由来自真实 prefill（与 ``lmp.test_gate_experts`` 中
+                embed -> iln -> self_attn -> paln -> residual 及 ``gate_func(mlpm_hi)`` 一致），否则沿用随机 ``_make_inputs``。
+            layer_idx / bsz / seq_len: 仅当 ``cmv`` 非空时生效；默认 ``bsz=1``、``seq_len=max_len``，且须满足 ``bsz*seq_len==max_len``。
+        """
+        import kt_kernel_ext
+        
+        tokens_num = max_len
+        # if cmv is not None:
+        hidden_states, topk_ids, topk_weights, output, batch_tensor = self._make_inputs_from_layer_prefill(
+            cmv,
+            tokens_num=tokens_num,
+            layer_idx=layer_idx,
+            bsz=bsz,
+            seq_len=seq_len,
+        )
+        # else:
+        #     hidden_states, topk_ids, topk_weights, output, batch_tensor = self._make_inputs(
+        #         tokens=tokens_num,
+        #         hidden_size=self.mlpm.config.hidden_size,
+        #         num_experts=self.mlpm.get_experts_num(),
+        #         top_k=self.mlpm.get_experts_per_tok(),
+        #         seed=42,
+        #         uniform=False,
+        #     )
+        tok_k = self.mlpm.get_experts_per_tok()
+
+        # 选半套专家（与 _group_fused_select_half_experts 一致）；半套外槽位 topk_ids=-1、权重=0（kt_kernel 跳过 -1；
+        # 勿用 0 作占位），行不归一化。
+        num_experts_total = int(self.mlpm.get_experts_num())
+        ratio = 0.5
+        half_e = max(1, int(num_experts_total * ratio))
+        half_mode = "noncontiguous"
+        slot_expert_ids = topk_ids.reshape(-1).to(torch.int64)
+        _log_topk_activation_distribution(
+            topk_ids,
+            num_experts_total,
+            log_prefix="kt-kernel infer: native topk_ids",
+        )
+        expert_half_list, window_tokens, max_tokens = _group_fused_select_half_experts(
+            slot_expert_ids, num_experts_total, half_e, half_mode
+        )
+        
+        topk_ids, topk_weights = _mask_topk_weights_outside_expert_half(
+            topk_ids, topk_weights, expert_half_list
+        )
+        total_slots = int(slot_expert_ids.numel())
+        chosen_half_pct = (window_tokens / total_slots * 100.0) if total_slots > 0 else 0.0
+        logger.info(
+            "kt-kernel infer: half_expert subset (%s): E_half=%d experts=%s "
+            "slots_in_chosen_half=%d slots_in_chosen_half_pct=%.4f%% max_count_among_chosen=%d (total E=%d, T*K=%d; "
+            "outside half: topk_id=-1, weights=0, no row renorm)",
+            half_mode,
+            half_e,
+            expert_half_list,
+            window_tokens,
+            chosen_half_pct,
+            max_tokens,
+            num_experts_total,
+            total_slots,
+        )
+        _log_kt_kernel_topk_activation(
+            topk_ids,
+            num_experts_total,
+            expert_half_list,
+            tokens_num,
+            tok_k,
+        )
+
+        moes = self.moes
+        # 使用第一个MOE层进行测试
+        layer_idx = 0
+        
+        time0 = time.perf_counter()
+        # 提交前向推理任务 - 参数格式与 bench_bf16_moe.py 完全对齐
+        CPUInfer.submit(
+            moes[layer_idx].forward_task(
+                batch_tensor.data_ptr(),        # 参数1: batch大小指针，对应qlen_tensor.data_ptr()
+                tok_k,                          # 参数2: 每个token选择的专家数，对应num_experts_per_tok
+                topk_ids.data_ptr(),            # 参数3: 专家ID指针，内存布局为连续专家ID数组
+                topk_weights.data_ptr(),        # 参数4: 专家权重指针（可为部分和，行和未必为 1）
+                hidden_states.data_ptr(),       # 参数5: 输入隐藏状态指针，BF16格式
+                output.data_ptr(),              # 参数6: 输出缓冲区指针，BF16格式
+                False,                          # 参数7: 是否使用调试模式
+            )
+        )
+        
+        # 等待推理任务完成
+        CPUInfer.sync()
+        logger.info(f"kt-kernel MoE推理完成，时间: {time.perf_counter() - time0:.6f}秒")        
+        # 计算输出校验和，用于验证结果正确性
+        output_checksum = float(output.float().sum())
+        logger.info(f"kt-kernel MoE推理完成，输出checksum: {output_checksum:.6f}")
+        
+        return output_checksum
 
 
     def _test_group_bmm_fused_experts(self):
@@ -1264,23 +1851,6 @@ class HostMemoryView:
             f"(slots_in_half={int(slot_ids.numel())}, T={t_tokens}, K={k})"
         )
 
-        t0 = time.perf_counter()
-        tok_rows = slot_token_row.index_select(0, slot_ids)
-        x_half = flat.index_select(0, tok_rows)
-        expert_ids_half_global = slot_expert_ids.index_select(0, slot_ids)
-        expert_ids_half_local = global_to_local.index_select(0, expert_ids_half_global)
-        _print_group_bmm_self_test(
-            f"[test_group_bmm_fused_experts][half={half_mode}] gather_half_tokens: {(time.perf_counter() - t0) * 1e3:.3f} ms"
-        )
-
-        # Sort by local expert id
-        t0 = time.perf_counter()
-        expert_ids_sorted, perm = torch.sort(expert_ids_half_local)
-        x_sorted = x_half.index_select(0, perm)
-        _print_group_bmm_self_test(
-            f"[test_group_bmm_fused_experts][half={half_mode}] sort_by_expert: {(time.perf_counter() - t0) * 1e3:.3f} ms"
-        )
-
         # Restore fused weights for the selected half experts via group_fused_experts_tensor
         t0 = time.perf_counter()
         group = self.group_fused_experts_tensor(layer_idx, expert_half_list)
@@ -1296,10 +1866,6 @@ class HostMemoryView:
             )
 
         t0 = time.perf_counter()
-        # group_gate_up = group_gate_up.to(torch.bfloat16)  # [E, 2I, H]
-        # group_down = group_down.to(torch.bfloat16)        # [E, H, I]
-        # gu_eh2i = group_gate_up.transpose(1, 2).contiguous()  # [E, H, 2I]
-        # dn_eih = group_down.transpose(1, 2).contiguous()      # [E, I, H]
         group_gate_up = group_gate_up  # [E, 2I, H]
         group_down = group_down        # [E, H, I]
         gu_eh2i = group_gate_up.transpose(1, 2) # [E, H, 2I]
@@ -1308,10 +1874,18 @@ class HostMemoryView:
             f"[test_group_bmm_fused_experts][half={half_mode}] transpose_contig: {(time.perf_counter() - t0) * 1e3:.3f} ms"
         )
 
+
         t0 = time.perf_counter()
-        stacked, counts = self.mlpm._batched_pad_inputs_presorted(x_sorted, expert_ids_sorted, num_experts=half_e)
+        stacked, counts, perm = self.mlpm._gather_sort_and_pad_presorted(
+            flat_hidden_states=flat,
+            slot_token_row=slot_token_row,
+            slot_expert_ids=slot_expert_ids,
+            global_to_local=global_to_local,
+            slot_ids=slot_ids,
+            num_experts=half_e,
+        )
         _print_group_bmm_self_test(
-            f"[test_group_bmm_fused_experts][half={half_mode}] pad_pack: {(time.perf_counter() - t0) * 1e3:.3f} ms"
+            f"[test_group_bmm_fused_experts][half={half_mode}] gather_sort_pad: {(time.perf_counter() - t0) * 1e3:.3f} ms"
         )
 
         t0 = time.perf_counter()
@@ -1336,42 +1910,7 @@ class HostMemoryView:
             f"bmm2={(t_bmm2 - t_act) * 1e3:.3f} unpad={(t_unpad - t_bmm2) * 1e3:.3f})"
         )
 
-        # Reference: per-expert mm on the same expert-sorted layout
-        t0 = time.perf_counter()
-        y_sorted_ref = torch.empty_like(y_sorted_bmm)
-        cursor = 0
-        for i in range(half_e):
-            c = int(counts[i].item())
-            if c == 0:
-                continue
-            w_gu = group_gate_up[i]
-            w_dn = group_down[i]
-            xs = x_sorted[cursor : cursor + c]
-            gu_ref = xs @ w_gu.t()
-            g_ref, u_ref = gu_ref.split(half, dim=-1)
-            mid_ref = act_fn(g_ref) * u_ref
-            y_ref = mid_ref @ w_dn.t()
-            y_sorted_ref[cursor : cursor + c] = y_ref
-            cursor += c
-        torch.testing.assert_close(y_sorted_bmm, y_sorted_ref, rtol=2e-2, atol=2e-2)
-        _print_group_bmm_self_test(
-            f"[test_group_bmm_fused_experts][half={half_mode}] ref_mm_and_assert: {(time.perf_counter() - t0) * 1e3:.3f} ms"
-        )
-
-        # Scatter back to the selected token subset order and apply gate weights (sanity)
-        t0 = time.perf_counter()
-        y_half = torch.empty_like(x_half)
-        y_half.index_copy_(0, perm, y_sorted_bmm)
-        slot_w = slot_weights.index_select(0, slot_ids).unsqueeze(-1)
-        y_half = y_half * slot_w
-        _print_group_bmm_self_test(
-            f"[test_group_bmm_fused_experts][half={half_mode}] unsort_and_weight: {(time.perf_counter() - t0) * 1e3:.3f} ms"
-        )
-
-        _print_group_bmm_self_test(
-            f"[test_group_bmm_fused_experts][half={half_mode}] total: {(time.perf_counter() - t_all0) * 1e3:.3f} ms "
-            f"(T={t_tokens}, K={k}, slots_in_half={int(slot_ids.numel())}, E_half={half_e})"
-        )
+       
 
     def _test_group_gmm_fused_experts(self):
         """

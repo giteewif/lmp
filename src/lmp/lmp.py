@@ -72,42 +72,123 @@ class MLPLLM:
         mlpm = MLPModuleWrapper(model_name_type, model_path)
         self.mlpm  = mlpm
         
-        
-
-        cuda_hook_time("init_meta")
+        cuda_hook_time("init_cmv_hmv")
         self.cmv = CudaMemoryView(self.mlpm, device_list)
         self.cmv.start_init_meta_model()
 
         empty_model = copy.deepcopy(self.cmv.mlpm_ci)
         self.hmv = HostMemoryView(self.mlpm, empty_model=empty_model)
-        cuda_hook_time_end("init_meta")
-
-    
-        # cetm = CETM(self.mlpm, self.hmv, num_workers=1)  # 默认1个worker，可通过参数调整
-        # self.cetm = cetm
-        # self.cetm.start()  # 启动工作线程
+        cuda_hook_time_end("init_cmv_hmv")
 
         sllmtm = SLLMTM(num_workers=1)  # SLLM 线程管理器，用于异步加载
         self.sllmtm = sllmtm
         self.sllmtm.start()  # 启动工作线程
 
-        # imm = InitMetaManager()
-        # imm.start()
-        # self.imm = imm
-
         self.cmv.sllmtm = sllmtm     # 将sllmtm绑定到cmv中  
-        # self.cmv.imm = imm
+    
+
+    def _mp_next_cpu_request_id(self) -> int:
+        if not hasattr(self, "_cpu_mp_request_id"):
+            self._cpu_mp_request_id = 0
+        self._cpu_mp_request_id += 1
+        return int(self._cpu_mp_request_id)
+
+    @staticmethod
+    def _mp_partition_experts_across_cpu_workers(
+        cpu_expert_idx_list: list[int],
+        expert_indices_map: Dict[int, tuple[int, int]],
+        num_workers: int,
+    ) -> list[list[int]]:
+        """
+        Partition CPU experts across MP workers in ``O(E * N)`` (``E`` experts, ``N`` workers).
+
+        - **Equal counts:** each worker gets ``floor(E/N)`` or ``ceil(E/N)`` experts (at most one apart).
+        - **Max token:** process experts in descending routed slot count; assign each to a worker
+          that still has quota and minimizes ``max(bucket_max_tokens, this_expert_tokens)``, then
+          lower current bucket max, then fill order — aligns with fused BMM ``[E, max_tokens, H]``
+          padding without scanning all buckets' full max each step.
+        """
+        nw = max(1, int(num_workers))
+        buckets: list[list[int]] = [[] for _ in range(nw)]
+        eids = list(cpu_expert_idx_list)
+        if not eids:
+            return buckets
+
+        def _tok(eid: int) -> int:
+            s, e_idx = expert_indices_map[eid]
+            return int(e_idx - s)
+
+        e_total = len(eids)
+        base, rem = divmod(e_total, nw)
+        target_counts = [base + (1 if i < rem else 0) for i in range(nw)]
+        cur_max = [0 for _ in range(nw)]
+
+        for eid in sorted(eids, key=_tok, reverse=True):
+            cand = [i for i in range(nw) if len(buckets[i]) < target_counts[i]]
+            if not cand:
+                bi = min(range(nw), key=lambda j: (len(buckets[j]), j))
+                buckets[bi].append(eid)
+                cur_max[bi] = max(cur_max[bi], _tok(eid))
+                continue
+            t_e = _tok(eid)
+            best_i = min(
+                cand,
+                key=lambda i: (max(cur_max[i], t_e), cur_max[i], len(buckets[i]), i),
+            )
+            buckets[best_i].append(eid)
+            cur_max[best_i] = max(cur_max[best_i], t_e)
+        return buckets
         
-        # CPU专家数量：使用固定值 0.5 * total
-        # stream = torch.cuda.Stream(device=device1)
-        # with torch.cuda.stream(stream):
     def free_cmv(self):
-        # 释放gpu分配的资源
-        self.cmv.free_allocated()
-        if hasattr(self, "cpu_thread_manager_mp"): 
-            if self.cpu_thread_manager_mp is not None:
-                self.cpu_thread_manager_mp.submit(-1, [], [], [], [])
-                self.cpu_thread_manager_mp.wait()
+        """
+        Make the instance re-entrant for repeated `test_mp_generate_multi_device_layer()` runs.
+
+        We must:
+        - stop/drain async SLLM loader tasks (to avoid restoring into a soon-to-be-reset model)
+        - free allocated CUDA memory handles
+        - recreate the meta model so all parameters are back on `meta` (no dangling freed storages)
+        - clear per-run caches on `MLPLLM` and `CudaMemoryView`
+        """
+
+        # 1) Best-effort clear CPU MP workers' cached group lists/unmaps.
+        if hasattr(self, "cpu_thread_manager_mp") and self.cpu_thread_manager_mp is not None:
+            try:
+                dummy = torch.empty(0, device="cpu")
+                n_workers = int(getattr(self.cpu_thread_manager_mp, "num_workers", 1))
+                pending = set()
+                for wid in range(n_workers):
+                    rid = self._mp_next_cpu_request_id()
+                    pending.add(rid)
+                    self.cpu_thread_manager_mp.submit_worker(
+                        worker_idx=wid,
+                        layer_idx=-1,
+                        expert_idx_list=[],
+                        expert_indices_map={},
+                        flat_hidden_states=dummy,
+                        idxs=dummy.to(dtype=torch.int64, copy=False),
+                        request_id=rid,
+                    )
+                while pending:
+                    res = self.cpu_thread_manager_mp.wait()
+                    if getattr(res, "request_id", -1) in pending:
+                        pending.remove(res.request_id)
+            except Exception:
+                pass
+
+        # 2) Free previously allocated CUDA memory blocks + reset CMV internal maps.
+        if hasattr(self, "cmv") and self.cmv is not None:
+            self.cmv.free_allocated()
+
+            # 3) Recreate meta model for a clean restore target.
+            self.cmv.start_init_meta_model()
+
+            # Re-bind loader if present.
+            if hasattr(self, "sllmtm"):
+                self.cmv.sllmtm = self.sllmtm
+
+        # 4) Clear fused experts caches that live on MLPLLM.
+        if hasattr(self, "_fused_experts_state_dict_cache"):
+            self._fused_experts_state_dict_cache = {}
 
     def init_mp_process(self):
         from lmp.cpu_thread_manager_mp import CPUExpertsManagerMP
@@ -116,21 +197,247 @@ class MLPLLM:
         self.cpu_thread_manager_mp = CPUExpertsManagerMP(num_workers=1, model_path=self.mlpm.model_path, model_name_type=self.mlpm.model_name_type)
         self.cpu_thread_manager_mp.start()
         self.cpu_thread_manager_mp.wait_worker_bootstrap_ready()
-
-        # self.imm_mp = InitMetaManagerMPShared(num_processes=1)
-        # self.imm_mp.start()
         # self.dp = DeviceMP(num_processes=len(self.device_list))
         # self.dp.start()
         cuda_hook_time_end("init_mp_process")
+
+        # cuda_hook_time("warm_up_mp_process")
+        # self.test_mp_process()
+        # cuda_hook_time_end("warm_up_mp_process")
+
+
+
+    @torch.no_grad()
+    def _warm_up_prefill_compute_kernels(self, hidden_states: torch.Tensor, layer_idx: int = 0):
+        raw = os.environ.get("LMP_COMPUTE_WARMUP", "1").strip()
+        if raw in ("0", "false", "False", "no", "No", "off", "OFF"):
+            return
+        if not hidden_states.is_cuda:
+            return
+
+        device = hidden_states.device
+        cuda_hook_time("compute_kernel_warmup")
+        try:
+            flat = hidden_states.view(-1, hidden_states.size(-1))
+            t = int(flat.size(0))
+            h = int(flat.size(1))
+            k = int(self.mlpm.get_experts_per_tok())
+            if t <= 0 or h <= 0 or k <= 0:
+                cuda_hook_time_end("compute_kernel_warmup")
+                return
+
+            topk_idx, topk_weight, _ = self.mlpm.gate_func(
+                self.cmv.mlpm_ci, layer_idx, hidden_states
+            )
+            flat_expert_indices = topk_idx.reshape(-1).to(dtype=torch.int64)
+            idxs = flat_expert_indices.argsort()
+            token_idxs = idxs // k
+
+            if hasattr(self, "cpu_thread_manager_mp") and self.cpu_thread_manager_mp is not None:
+                dummy_flat = torch.empty((0, h), device="cpu", dtype=hidden_states.dtype)
+                dummy_idxs = torch.empty((0,), device="cpu", dtype=torch.int64)
+                n_workers = int(getattr(self.cpu_thread_manager_mp, "num_workers", 1))
+                pending = set()
+                for wid in range(n_workers):
+                    rid = self._mp_next_cpu_request_id()
+                    pending.add(rid)
+                    self.cpu_thread_manager_mp.submit_worker(
+                        worker_idx=wid,
+                        layer_idx=-1,
+                        expert_idx_list=[],
+                        expert_indices_map={},
+                        flat_hidden_states=dummy_flat,
+                        idxs=dummy_idxs,
+                        request_id=rid,
+                    )
+                while pending:
+                    res = self.cpu_thread_manager_mp.wait()
+                    if getattr(res, "request_id", -1) in pending:
+                        pending.remove(res.request_id)
+
+            x_slots = flat[token_idxs]
+            slot_w = topk_weight.reshape(-1, 1).to(device=device)
+            weighted = x_slots * slot_w[idxs].to(device=device)
+            dst = torch.zeros_like(flat)
+            dst.scatter_reduce_(
+                0,
+                token_idxs[:, None].expand(-1, h),
+                weighted,
+                reduce="sum",
+                include_self=False,
+            )
+
+            e = min(4, max(1, int(self.mlpm.get_experts_num())))
+            m = min(32, max(1, t))
+            n = min(256, max(1, h))
+            a = torch.empty((e, m, n), device=device, dtype=hidden_states.dtype)
+            b = torch.empty((e, n, n), device=device, dtype=hidden_states.dtype)
+            torch.bmm(a, b)
+
+            del topk_idx, topk_weight, flat_expert_indices, idxs, token_idxs
+            del x_slots, slot_w, weighted, dst, a, b
+            torch.cuda.synchronize(device)
+        except Exception as e:
+            logger.warning("compute kernel warmup skipped/failed: %s", e)
+        finally:
+            cuda_hook_time_end("compute_kernel_warmup")
+
     def mp_stop(self):
         self.cpu_thread_manager_mp.stop()
+
+
+    def test_mp_cpu_tensor(self):
+
+        cuda_hook_time("test_mp_cpu_tensor")
+        device = "cpu"
+        bsz, seq_len = 1, 128
+
+        # print_layer_parameters(self.hmv.mlpm_hi)
+
+        hidden_size = int(getattr(self.mlpm.config, "hidden_size"))
+        dtype = getattr(self.mlpm.config, "torch_dtype", torch.bfloat16)
+        if dtype is None:
+            dtype = torch.bfloat16
+
+        x = torch.randn((bsz, seq_len, hidden_size), device=device, dtype=dtype)
+        
+        layer_idx = 0
+
+        cuda_hook_time("cpu_gate")
+        topk_idx, topk_weight, _ = self.mlpm.gate_func(self.hmv.mlpm_hi, layer_idx, x)
+        cuda_hook_time_end("cpu_gate")
+
+        cuda_hook_time("before bmm_cpu_experts")
+        flat_expert_indices = topk_idx.reshape(-1).to(torch.int64)
+        idxs = flat_expert_indices.argsort().to(device)
+        tokens_per_expert = flat_expert_indices.bincount().cpu().numpy().cumsum(0)
+        flat_hidden_states = x.reshape(bsz * seq_len, hidden_size)
+
+        num_experts = int(self.mlpm.get_experts_num())
+        expert_indices_map: dict[int, tuple[int, int]] = {}
+        prev_end = 0
+        for expert_id in range(num_experts):
+            if expert_id >= len(tokens_per_expert):
+                break
+            end_idx = int(tokens_per_expert[expert_id])
+            if end_idx == prev_end:
+                continue
+            start_idx = prev_end
+            expert_indices_map[expert_id] = (start_idx, end_idx)
+            prev_end = end_idx
+
+        # -----------------------
+        # CPU Prefill: 使用 CPU 线程管理器进行专家计算
+        # -----------------------
+        if not getattr(self, "cpu_thread_manager_mp", None):
+            raise RuntimeError("cpu_thread_manager_mp is not initialized; call init_mp_process() first.")
+
+        layer_idx = 0
+        expert_idx_list = sorted(expert_indices_map.keys())
+        if not expert_idx_list:
+            logger.warning("[test_mp_cpu_tensor] no experts activated")
+            return
+        cuda_hook_time_end("before bmm_cpu_experts")
+
+        cuda_hook_time("bmm_cpu_experts")
+
+        # 准备数据（已经在 CPU 上）
+        flat_hidden_states_cpu = flat_hidden_states
+        idxs_cpu = idxs.to(torch.int64)
+
+        # 获取 worker 数量并将专家平均分配到各个 worker
+        n_workers = int(getattr(self.cpu_thread_manager_mp, "num_workers", 1))
+        buckets = self._mp_partition_experts_across_cpu_workers(
+            cpu_expert_idx_list=expert_idx_list,
+            expert_indices_map=expert_indices_map,
+            num_workers=n_workers,
+        )
+
+        # 提交任务到各个 worker（使用 BMM 模式）
+        cpu_submit_meta = []
+        for wid, eids_sub in enumerate(buckets):
+            if not eids_sub:
+                continue
+            rid = self._mp_next_cpu_request_id()
+            self.cpu_thread_manager_mp.submit_worker(
+                worker_idx=wid,
+                layer_idx=layer_idx,
+                expert_idx_list=sorted(eids_sub),
+                expert_indices_map={eid: expert_indices_map[eid] for eid in eids_sub},
+                flat_hidden_states=flat_hidden_states_cpu,
+                idxs=idxs_cpu,
+                use_bmm=True,
+                request_id=rid,
+                device=flat_hidden_states.device,
+            )
+            cpu_submit_meta.append((rid, sorted(eids_sub)))
+
+        # 等待所有 worker 完成并收集结果
+        pending = {rid for rid, _eids in cpu_submit_meta}
+        results: dict[int, torch.Tensor] = {}
+        while pending:
+            res = self.cpu_thread_manager_mp.wait()
+            if getattr(res, "request_id", -1) in pending:
+                pending.remove(res.request_id)
+                results[res.request_id] = res.final_hidden_states
+
+        cuda_hook_time_end("bmm_cpu_experts")
+
+        cuda_hook_time("scatter_reduce_")
+        # 初始化 expert_cache，用于聚合所有专家的输出
+        expert_cache = torch.zeros_like(flat_hidden_states_cpu)
+        token_idxs = idxs_cpu // int(self.mlpm.get_experts_per_tok())
+        
+        # 处理每个 worker 的结果，使用 scatter_reduce_ 进行加权聚合
+        for rid, eids_sub in cpu_submit_meta:
+            out_sub = results.get(rid)
+            if out_sub is None:
+                continue
+            
+            # 对当前 worker 处理的专家进行加权
+            w_parts = []
+            token_parts = []
+            for eid in eids_sub:
+                start_idx, end_idx = expert_indices_map[eid]
+                w_parts.append(topk_weight.reshape(-1, 1)[start_idx:end_idx])
+                token_parts.append(token_idxs[start_idx:end_idx])
+            
+            if w_parts:
+                w = torch.cat(w_parts, dim=0)
+                tok = torch.cat(token_parts, dim=0)
+                out_weighted = out_sub * w
+                
+                # 使用 scatter_reduce_ 将结果聚合到 expert_cache
+                expert_cache.scatter_reduce_(
+                    dim=0,
+                    index=tok.view(-1, 1).expand(-1, expert_cache.size(-1)),
+                    src=out_weighted,
+                    reduce="sum",
+                )
+
+        cuda_hook_time_end("scatter_reduce_")
+        
+        # 恢复原始形状
+        output = expert_cache.view(bsz, seq_len, hidden_size)
+        logger.info(f"[test_mp_cpu_tensor] CPU prefill completed, output shape: {output.shape}")
+        cuda_hook_time_end("test_mp_cpu_tensor")
+
+    @torch.no_grad()
+    def test_mp_basic_load(self):
+        
+        cuda_hook_time("load weights")
+        self.cmv.load_general_and_init()
+        self.cmv.load_qkvgon_weight_onetime()
+        cuda_hook_time_end("load weights")
+
 
     @torch.no_grad()
     def test_mp_generate_multi_device_layer(self):
         cuda_hook_time("generate_input_ids")
         # 32, 64, 128
-        batch_size = 128
-        seq_len = 64
+        # Keep this lightweight to avoid OOM on shared GPUs.
+        batch_size = 2
+        seq_len = 128
         dtype = self.mlpm.config.torch_dtype
         hidden_size = self.mlpm.config.hidden_size
         
@@ -153,10 +460,6 @@ class MLPLLM:
         # only support one first replace dense layer
         self.cmv.init_load_qkvogn_es_weight(layer_idx=0)
         cuda_hook_time_end("init_general_weights")
-
-        # cuda_hook_time("copy_emodel")
-        # model_cpy = copy.deepcopy(self.cmv.mlpm_ci)
-        # cuda_hook_time_end("copy_emodel")
 
         cuda_hook_time("init_inputs_tokens")
         embed_tokens = self.mlpm.get_embed_tokens(self.cmv.mlpm_ci)
@@ -182,27 +485,7 @@ class MLPLLM:
             )
         cuda_hook_time_end("init_inputs_tokens")
 
-        # for bmm test
-        # cuda_hook_time("load_all_qkvogn_s")
-        # for layer_idx in range(0, self.mlpm.config.num_hidden_layers):
-        #     if layer_idx < self.mlpm.config.num_hidden_layers-1:
-
-        #         cuda_hook_time(f"start_load_qkvogn_s_weight_l_{layer_idx+1}")
-        #         self.cmv.start_load_qkvogn_s_weight(layer_idx=layer_idx+1, device=self.device1)
-        #         cuda_hook_time_end(f"start_load_qkvogn_s_weight_l_{layer_idx+1}")
-
-        #         cuda_hook_time("wait_load_qkvogn_s_weight")
-        #         self.cmv.wait_load_qkvogn_s_weight(layer_idx=layer_idx+1)
-        #         cuda_hook_time_end("wait_load_qkvogn_s_weight")
-        # cuda_hook_time_end("load_all_qkvogn_s")
-
-
-        # self.cmv.async_load_experts_decode_cpu_weight_multi_device()
-        # self.cmv.async_wait_layer_loaded_to_gpu_multi_device()
-
-        # print_layer_parameters(self.cmv.mlpm_ci)
-        # time.sleep(10)
-        # raise ValueError("stop here")
+        self._warm_up_prefill_compute_kernels(inputs_tokens, layer_idx=0)
 
         cuda_hook_time("prefill")
         time_start_prefill = time.time()
@@ -210,11 +493,18 @@ class MLPLLM:
         if len(self.device_list) == 4:
             # self.num_experts_on_cpu_ratio = 0.2
             self.num_experts_on_cpu_ratio = 0.2
+            self.num_experts_on_cpu_ratio = 0.5
         elif len(self.device_list) == 3:
             self.num_experts_on_cpu_ratio = 0.25
+            self.num_experts_on_cpu_ratio = 0.5
         else:
             self.num_experts_on_cpu_ratio = 0.5
-        from models.mlpmodule import QWEN2_MODEL_NAME_TYPE, MIXTRAL_MODEL_NAME_TYPE, QWEN3_MODEL_NAME_TYPE
+        from models.mlpmodule import (
+            QWEN2_MODEL_NAME_TYPE,
+            MIXTRAL_MODEL_NAME_TYPE,
+            QWEN3_MODEL_NAME_TYPE,
+            GEMMA4_MODEL_NAME_TYPE,
+        )
         if self.mlpm.model_name_type == MIXTRAL_MODEL_NAME_TYPE:
             if len(self.device_list) == 4:
                 self.num_experts_on_cpu_ratio = 0.5
@@ -225,21 +515,21 @@ class MLPLLM:
         elif self.mlpm.model_name_type == QWEN3_MODEL_NAME_TYPE:
             if len(self.device_list) == 1:
                 self.num_experts_on_cpu_ratio = 0.7
+
+        self.num_experts_on_cpu_ratio = 1
         
         ghidden_states = inputs_tokens
         for layer_idx in range(self.mlpm.config.num_hidden_layers):
             cuda_hook_time("prefill_layer")
             logger.debug(f"-------------------------------- start prefill layer {layer_idx} --------------------------------")
             
+            cuda_hook_time("*iln_self_attn_paln")
             if layer_idx < self.mlpm.config.num_hidden_layers-1:
-                cuda_hook_time(f"start_load_qkvogn_s_weight_l_{layer_idx+1}")
                 self.cmv.start_load_qkvogn_s_weight(layer_idx=layer_idx+1, device=self.device1)
-                cuda_hook_time_end(f"start_load_qkvogn_s_weight_l_{layer_idx+1}")
 
-            cuda_hook_time("iln_self_attn_paln")
             residual = ghidden_states
             ghidden_states = self.mlpm.iln_func(self.cmv.mlpm_ci, layer_idx=layer_idx, hidden_states=ghidden_states)
-            cuda_hook_time("self_attn")
+            cuda_hook_time("**self_attn")
             ghidden_states = self.mlpm.self_attn_func(
                 self.cmv.mlpm_ci, layer_idx=layer_idx,
                 hidden_states=ghidden_states,
@@ -247,12 +537,14 @@ class MLPLLM:
                 position_ids=position_ids,
                 past_key_value=past_key_value,
             )
-            cuda_hook_time_end("self_attn")
+            cuda_hook_time_end("**self_attn")
 
             ghidden_states = residual + ghidden_states
             residual = ghidden_states
             ghidden_states = self.mlpm.paln_func(self.cmv.mlpm_ci, layer_idx=layer_idx, hidden_states=ghidden_states)
-            cuda_hook_time_end("iln_self_attn_paln")
+            cuda_hook_time_end("*iln_self_attn_paln")
+
+            cuda_hook_time("*mlp")
             if layer_idx < self.mlpm.get_first_k_dense_replace():
                 cuda_hook_time("dense_mlp")
                 # self.cmv.start_load_qkvogn_s_weight(layer_idx=layer_idx+1,  device=device1)
@@ -260,10 +552,18 @@ class MLPLLM:
                 self.cmv.wait_load_qkvogn_s_weight(layer_idx=layer_idx+1)
                 cuda_hook_time_end("dense_mlp")
             else:
-                ghidden_states = self.layer_moe_generate_mp_multi_device(layer_idx=layer_idx, hidden_states=ghidden_states)
+                # Gemma4 routed experts are fused (gate_up_proj + down_proj); use fused multi-device path.
+                if self.mlpm.model_name_type == GEMMA4_MODEL_NAME_TYPE:
+                    ghidden_states = self.layer_moe_generate_mp_multi_device_fused(
+                        layer_idx=layer_idx, hidden_states=ghidden_states
+                    )
+                else:
+                    ghidden_states = self.layer_moe_generate_mp_multi_device(
+                        layer_idx=layer_idx, hidden_states=ghidden_states
+                    )
                 # ghidden_states = self.layer_moe_dgenerate_mp_multi_device(layer_idx=layer_idx, hidden_states=ghidden_states)
             ghidden_states = ghidden_states + residual
-
+            cuda_hook_time_end("*mlp")
             # if check_nan_inf(ghidden_states):
             #     logger.warning(f"ghidden_states is nan or inf at layer {layer_idx}")
 
@@ -383,8 +683,25 @@ class MLPLLM:
             torch.cuda.synchronize()
 
             # 清空 group_list
-            self.cpu_thread_manager_mp.submit(-1, [], [], [], [])
-            self.cpu_thread_manager_mp.wait()
+            dummy = torch.empty(0, device="cpu")
+            n_workers = int(getattr(self.cpu_thread_manager_mp, "num_workers", 1))
+            pending = set()
+            for wid in range(n_workers):
+                rid = self._mp_next_cpu_request_id()
+                pending.add(rid)
+                self.cpu_thread_manager_mp.submit_worker(
+                    worker_idx=wid,
+                    layer_idx=-1,
+                    expert_idx_list=[],
+                    expert_indices_map={},
+                    flat_hidden_states=dummy,
+                    idxs=dummy.to(dtype=torch.int64, copy=False),
+                    request_id=rid,
+                )
+            while pending:
+                res = self.cpu_thread_manager_mp.wait()
+                if getattr(res, "request_id", -1) in pending:
+                    pending.remove(res.request_id)
 
         if len(time_decode_list) >= 5:
             time_decode_list = time_decode_list[5:]
@@ -395,432 +712,8 @@ class MLPLLM:
         else:
             self.cmv.async_wait_layer_loaded_to_gpu()
         cuda_hook_time_end("async_wait_layer_loaded_to_gpu")
-    @torch.no_grad()
-    def layer_moe_generate_mp_single_device(self, layer_idx: int, hidden_states: torch.Tensor):
-        cuda_hook_time(f"layer_moe_generate_mp_l_{layer_idx+1}")
-        batch_size, seq_len = hidden_states.shape[:2]
-        orig_shape = hidden_states.shape
-
-        cuda_hook_time("gate")
-        topk_idx, topk_weight, aux_loss = self.mlpm.gate_func(self.cmv.mlpm_ci, layer_idx, hidden_states)
-        flat_expert_indices = topk_idx.view(-1)      # [batch_size * seq_len * num_experts_per_tok]
-        flat_experts_weight = topk_weight.view(-1, 1)  # [batch_size * seq_len * num_experts_per_tok, 1]
-        idxs = flat_expert_indices.argsort()         # 排序后的索引
-        tokens_per_expert = flat_expert_indices.bincount().cpu().numpy().cumsum(0) # [num_experts]
-        token_idxs = idxs // self.mlpm.config.num_experts_per_tok  # 恢复到原始 token 索引
-        flat_hidden_states = hidden_states.view(batch_size * seq_len, -1)  # [batch_size * seq_len, hidden_dim]
-        cuda_hook_time_end("gate")
-
-        cuda_hook_time("experts_map_get")
-        # Step 7: 构建每个 expert 的索引信息（避免 tensor 计算和拷贝）
-        # tokens_per_expert 现在是累积和，可以直接用于计算 start_idx 和 end_idx
-        expert_indices_map = {}  # {expert_id: (start_idx, end_idx)} 保存索引范围
-        expert_token_indices_map = {}  # {expert_id: token_ids} 保存 token 索引
-        expert_token_counts_list = []  # 用于 CPU/GPU 分配：[(expert_id, token_count), ...]
-        
-        num_experts = self.mlpm.get_experts_num()
-        prev_end = 0  # 前一个 expert 的结束位置
-        
-        for expert_id in range(num_experts):
-            if expert_id >= len(tokens_per_expert):
-                break
-            
-            # tokens_per_expert[expert_id] 是累积和，表示到 expert_id 为止的总 token 数
-            end_idx = int(tokens_per_expert[expert_id])
-            
-            # 如果 end_idx 等于 prev_end，说明该 expert 没有 token
-            if end_idx == prev_end:
-                continue
-            
-            start_idx = prev_end
-            token_count = end_idx - start_idx  # 该 expert 的实际 token 数量
-            
-            expert_indices_map[expert_id] = (start_idx, end_idx)
-            expert_token_indices_map[expert_id] = token_idxs[start_idx:end_idx]
-            expert_token_counts_list.append((expert_id, token_count))
-            
-            prev_end = end_idx
-        
-        # Step 8: 根据token数量分配CPU/GPU experts
-        sorted_experts_by_load = sorted(expert_token_counts_list, key=lambda x: x[1])
-        num_experts_total = len(sorted_experts_by_load)
-        
-        # 使用固定值
-        num_experts_on_cpu = int(num_experts_total * self.num_experts_on_cpu_ratio)
-        
-        cpu_expert_ids = set(expert_id for expert_id, _ in sorted_experts_by_load[:num_experts_on_cpu])
-        gpu_expert_ids = set(expert_id for expert_id, _ in sorted_experts_by_load[num_experts_on_cpu:])
-        total_tokens_cpu = sum(count for _, count in sorted_experts_by_load[:num_experts_on_cpu])
-        total_tokens_gpu = sum(count for _, count in sorted_experts_by_load[num_experts_on_cpu:])
-
-        # 打印调试信息
-        cpu_ratio = num_experts_on_cpu / num_experts_total if num_experts_total > 0 else 0
-        logger.debug(f"\nExpert Token Distribution & Device Allocation:")
-        logger.debug(f"  Total experts: {num_experts_total}")
-        logger.debug(f"  CPU experts: {num_experts_on_cpu} ({cpu_ratio*100:.0f}%)")
-        logger.debug(f"  GPU experts: {num_experts_total - num_experts_on_cpu} ({(1-cpu_ratio)*100:.0f}%)")
-        logger.debug(f"\n  Expert ID | Tokens | Device")
-        logger.debug(f"  {'-'*35}")
-            
-        
-        for expert_id, token_count in sorted_experts_by_load:
-            device = "CPU" if expert_id in cpu_expert_ids else "GPU"
-            logger.debug(f"  Expert {expert_id:2d} | {token_count:6d} | {device}")
-        logger.debug(f"\n  CPU total tokens: {total_tokens_cpu} ({total_tokens_cpu/(total_tokens_cpu+total_tokens_gpu)*100:.1f}%)")
-        logger.debug(f"  GPU total tokens: {total_tokens_gpu} ({total_tokens_gpu/(total_tokens_cpu+total_tokens_gpu)*100:.1f}%)")
-        
-        cuda_hook_time_end("experts_map_get")
-
-        expert_cache = torch.zeros_like(flat_hidden_states)
-        cuda_hook_time("cpu_experts_submit")
-        # # CPU experts - 传递索引信息，延迟创建 tensor maps
-        if cpu_expert_ids:
-            logger.debug(f"\n  Computing {len(cpu_expert_ids)} experts on CPU MP...")
-            self.cpu_thread_manager_mp.submit_worker(
-                worker_idx=0,
-                layer_idx=layer_idx,
-                expert_idx_list=list(cpu_expert_ids),
-                expert_indices_map={eid: expert_indices_map[eid] for eid in cpu_expert_ids},
-                flat_hidden_states=flat_hidden_states,
-                idxs=idxs,
-            )
-        cuda_hook_time_end("cpu_experts_submit")
-
-        cuda_hook_time("allocate_experts_cuda_memory_and_restore_model")
-        # 在上层提前加载
-        # gpu_shared_expert_names = self.mlpm.get_shared_experts_names(layer_idx=layer_idx)
-        gpu_shared_expert_names = []
-        gpu_expert_names = self.mlpm.get_experts_names(layer_idx=layer_idx, expert_idx_list=list(gpu_expert_ids))
-        gpu_expert_names = gpu_expert_names + gpu_shared_expert_names
-        ret1, replica_uuid1, state_dict1 = \
-            self.cmv.allocate_cuda_memory_and_load_into_gpu(
-                gpu_expert_names, device_index_int=int(self.device1.split(":")[1]))
-        self.cmv.restore2model(state_dict1, self.cmv.mlpm_ci)
-        cuda_hook_time_end("allocate_experts_cuda_memory_and_restore_model")
-
-        cuda_hook_time("gpu_sexperts")
-        y = self.mlpm.shared_experts_func(
-            self.cmv.mlpm_ci, layer_idx=layer_idx,
-            hidden_states=hidden_states,
-        )
-        cuda_hook_time_end("gpu_sexperts")
-
-        # expert_cache = torch.zeros_like(flat_hidden_states)
-        # cuda_hook_time("cpu_experts_submit")
-        # # # CPU experts - 传递索引信息，延迟创建 tensor maps
-        # if cpu_expert_ids:
-        #     logger.debug(f"\n  Computing {len(cpu_expert_ids)} experts on CPU MP...")
-        #     self.cpu_thread_manager_mp.submit_worker(
-        #         worker_idx=0,
-        #         layer_idx=layer_idx,
-        #         expert_idx_list=list(cpu_expert_ids),
-        #         expert_indices_map={eid: expert_indices_map[eid] for eid in cpu_expert_ids},
-        #         flat_hidden_states=flat_hidden_states,
-        #         idxs=idxs,
-        #     )
-        # if cpu_expert_ids:
-        #     logger.debug(f"\n  Computing {len(cpu_expert_ids)} experts on CPU...")
-        #     # 使用 CETM 在后台线程执行
-        #     task = ExpertEinsumTask(
-        #         layer_idx=layer_idx,
-        #             expert_idx_list=list(cpu_expert_ids),
-        #             expert_indices_map={eid: expert_indices_map[eid] for eid in cpu_expert_ids},
-        #             expert_token_indices_map={eid: expert_token_indices_map[eid] for eid in cpu_expert_ids},
-        #             flat_hidden_states=flat_hidden_states,
-        #             flat_experts_weight=flat_experts_weight,
-        #             idxs=idxs,
-        #             final_hidden_states=expert_cache
-        #         )
-        #     self.cetm.submit(task)
-        # cuda_hook_time_end("cpu_experts_submit")
-        
-
-        device_expert_idx_list = list(gpu_expert_ids)
-        device_stacked_inputs = self.mlpm.experts_func_mgpu_group_pad(
-            expert_idx_list=device_expert_idx_list,
-            expert_indices_map=expert_indices_map,
-            device_flat_hidden_states=flat_hidden_states,
-            device_idxs=idxs,
-        )
-        device_expert_weights_list = []
-        device_token_ids_list = []
-        for i, expert_idx in enumerate(device_expert_idx_list):
-            start_idx, end_idx = expert_indices_map[expert_idx]
-            token_ids = expert_token_indices_map[expert_idx]
-            expert_weights = flat_experts_weight[idxs[start_idx:end_idx]]
-            device_expert_weights_list.append(expert_weights)
-            device_token_ids_list.append(token_ids)
-
-        group_w1_list, group_w2_list, group_w3_list = self.mlpm.experts_func_mgpu_group_list(
-            mi=self.cmv.mlpm_ci,
-            layer_idx=layer_idx,
-            expert_idx_list=list(gpu_expert_ids)
-        )
-
-        # 将列表 concat 为 tensor
-        device_expert_weights_concat = torch.cat(device_expert_weights_list, dim=0) if device_expert_weights_list else None
-        device_token_ids_concat = torch.cat(device_token_ids_list, dim=0) if device_token_ids_list else None
-        # if layer_idx < self.mlpm.config.num_hidden_layers-2:
-        #     cuda_hook_time("init_set_layer_func")
-        #     self.mlpm.init_set_layer_func(layer_idx=layer_idx+2, config=self.mlpm.config, model=self.cmv.mlpm_ci)
-        #     cuda_hook_time_end("init_set_layer_func")
-         
-        cuda_hook_time("acpu_expert_weight_slices")
-        acpu_expert_outs_slices = []
-        acpu_expert_weights = []
-        acpu_token_ids = []
-        for i, expert_idx in enumerate(list(cpu_expert_ids)):
-            token_ids = expert_token_indices_map[expert_idx]
-            num_tokens = token_ids.shape[0]
-
-            # 收集 outputs 切片（不应用 weights）
-            # expert_out_slice = outputs[i, :num_tokens]
-            # all_expert_outs_slices.append(expert_out_slice)
-
-            # 收集对应的 weights
-            start_idx, end_idx = expert_indices_map[expert_idx]
-            expert_weights = flat_experts_weight[idxs[start_idx:end_idx]]
-            acpu_expert_weights.append(expert_weights)
-            acpu_token_ids.append(token_ids)
-        
-        cuda_hook_time_end("acpu_expert_weight_slices")
-
-
-        if layer_idx < self.mlpm.config.num_hidden_layers-1:
-            cuda_hook_time("wait_load_qkvogn_s_weight")
-            self.cmv.wait_load_qkvogn_s_weight(layer_idx=layer_idx+1)
-            cuda_hook_time_end("wait_load_qkvogn_s_weight")
-
-        cuda_hook_time("cpu_thread_manager_mp_wait")
-        output_cpu2gpu = self.cpu_thread_manager_mp.wait()
-        cuda_hook_time_end("cpu_thread_manager_mp_wait")
-        cuda_hook_time("cpuoutputsdeal")
-        # for i, expert_idx in enumerate(list(cpu_expert_ids)):
-        #     token_ids = expert_token_indices_map[expert_idx]
-        #     num_tokens = token_ids.shape[0]
-        #     expert_out_slice = output_cpu2gpu[i, :num_tokens]
-        #     acpu_expert_outs_slices.append(expert_out_slice)
-        # concat_expert_out = torch.cat(acpu_expert_outs_slices, dim=0)  # [total_tokens, H]
-        concat_expert_out = output_cpu2gpu
-        concat_expert_weights = torch.cat(acpu_expert_weights, dim=0)  # [total_tokens, 1]
-        concat_token_ids = torch.cat(acpu_token_ids, dim=0)  # [total_tokens]
-        concat_expert_out = concat_expert_out.mul_(concat_expert_weights)
-        cuda_hook_time("index_scatter")
-        index = concat_token_ids.view(-1, 1).expand(-1, expert_cache.shape[-1])
-        expert_cache.scatter_reduce_(
-            dim=0,
-            index=index,
-            src=concat_expert_out,
-            reduce='sum',
-        )
-        cuda_hook_time_end("index_scatter")
-        del output_cpu2gpu, concat_expert_out
-        cuda_hook_time_end("cpuoutputsdeal")
-
-
-        cuda_hook_time("wait_experts")
-        self.cmv.wait_load_into_gpu(replica_uuid1)
-        cuda_hook_time_end("wait_experts")
-
-        
-
-        cuda_hook_time("gpu_experts")
-        # _ = self.mlpm.experts_func_gpu_einsum(
-        #     self.cmv.mlpm_ci, layer_idx=layer_idx,
-        #     expert_idx_list=list(gpu_expert_ids),
-        #     expert_indices_map={eid: expert_indices_map[eid] for eid in gpu_expert_ids},
-        #     expert_token_indices_map={eid: expert_token_indices_map[eid] for eid in gpu_expert_ids},
-        #     flat_hidden_states=flat_hidden_states,
-        #     flat_experts_weight=flat_experts_weight,
-        #     idxs=idxs,
-        #     final_hidden_states=expert_cache,
-        # )
-
-        device1_id = flat_hidden_states.device.index
-        
-
-        # cuda_hook_time("wait_cetm_experts")
-        # result = self.cetm.get_result()
-        # outputs_cpu = result.final_hidden_states
-        # output_cpu2gpu = outputs_cpu.to(device1_id, non_blocking=True)
-        # cuda_hook_time_end("wait_cetm_experts")
-        
-        _ = self.mlpm.experts_func_mgpu_einsum_mp_multi_list(
-            layer_idx=layer_idx,
-            group_w1_list_map={device1_id: group_w1_list},
-            group_w2_list_map={device1_id: group_w2_list},
-            group_w3_list_map={device1_id: group_w3_list},
-            stacked_inputs_map={device1_id: device_stacked_inputs},
-            expert_idx_list_map={device1_id: device_expert_idx_list},
-            expert_indices_map=expert_indices_map,
-            flat_hidden_states_map={device1_id: flat_hidden_states},
-            flat_experts_weight_map={device1_id: flat_experts_weight},
-            idxs_map={device1_id: idxs},
-            final_hidden_states=expert_cache,
-            all_expert_weights_map={device1_id: device_expert_weights_concat},
-            all_token_ids_map={device1_id: device_token_ids_concat},
-            expert_token_indices_map=expert_token_indices_map,
-        )
-        cuda_hook_time_end("gpu_experts")
-
-        layer_output = expert_cache.view(*orig_shape) + y
-
-        cuda_hook_time_end(f"layer_moe_generate_mp_l_{layer_idx+1}")
-        return layer_output
     
-    def layer_moe_generate_mp_single_device_fused(self, layer_idx: int, hidden_states: torch.Tensor):
-        """Gemma4-style fused experts: ``gate_up_proj`` + ``down_proj``. Matmul backend: ``bmm`` (pad) or ``gmm`` (``_grouped_mm``), see env ``LMP_FUSED_EXPERT_MM``."""
-        cuda_hook_time(f"layer_moe_generate_mp_fused_l_{layer_idx+1}")
-
-        batch_size, seq_len = hidden_states.shape[:2]
-        orig_shape = hidden_states.shape
-        k = int(self.mlpm.get_experts_per_tok())
-
-        # Step 1 — gate (+ layout). 将 (B,S,K) 视为线性槽位不额外拷贝：view 与 reshape 等价于扁平化索引，
-        # 便于一次 argsort、与 flat_hidden_states[B*S,H] 用 token_idx = slot//K 对齐；非必须，也可用二维索引实现同样语义。
-        cuda_hook_time("gate")
-        topk_idx, topk_weight, aux_loss = self.mlpm.gate_func(self.cmv.mlpm_ci, layer_idx, hidden_states)
-        flat_expert_indices = topk_idx.reshape(-1).to(dtype=torch.int64)
-        flat_experts_weight = topk_weight.reshape(-1, 1)
-        idxs = flat_expert_indices.argsort()
-        token_idxs = idxs // k
-        flat_hidden_states = hidden_states.reshape(batch_size * seq_len, -1)
-        cuda_hook_time_end("gate")
-
-        num_slots = int(idxs.numel())
-        expert_cache = torch.zeros_like(flat_hidden_states)
-
-        if num_slots == 0:
-            cuda_hook_time("gpu_sexperts")
-            y = self.mlpm.shared_experts_func(
-                self.cmv.mlpm_ci, layer_idx=layer_idx, hidden_states=hidden_states
-            )
-            cuda_hook_time_end("gpu_sexperts")
-            cuda_hook_time_end(f"layer_moe_generate_mp_fused_l_{layer_idx+1}")
-            return expert_cache.view(*orig_shape) + y
-
-        # Step 2 — build expert ranges + partition experts across CPU/GPU (same as non-fused single-device)
-        cuda_hook_time("experts_map_get")
-        tokens_per_expert = flat_expert_indices.bincount().cpu().numpy().cumsum(0)
-        expert_indices_map = {}
-        expert_token_indices_map = {}
-        expert_token_counts_list = []
-        num_experts = self.mlpm.get_experts_num()
-        prev_end = 0
-        for expert_id in range(num_experts):
-            if expert_id >= len(tokens_per_expert):
-                break
-            end_idx = int(tokens_per_expert[expert_id])
-            if end_idx == prev_end:
-                continue
-            start_idx = prev_end
-            expert_indices_map[expert_id] = (start_idx, end_idx)
-            expert_token_indices_map[expert_id] = token_idxs[start_idx:end_idx]
-            expert_token_counts_list.append((expert_id, end_idx - start_idx))
-            prev_end = end_idx
-
-        sorted_experts_by_load = sorted(expert_token_counts_list, key=lambda x: x[1])
-        num_experts_total = len(sorted_experts_by_load)
-        num_experts_on_cpu = int(num_experts_total * self.num_experts_on_cpu_ratio)
-        cpu_expert_ids = set(expert_id for expert_id, _ in sorted_experts_by_load[:num_experts_on_cpu])
-        gpu_expert_ids = set(expert_id for expert_id, _ in sorted_experts_by_load[num_experts_on_cpu:])
-        cuda_hook_time_end("experts_map_get")
-
-        # Step 3 — submit CPU fused bmm async (MP)
-        cuda_hook_time("cpu_experts_submit_fused")
-        if cpu_expert_ids:
-            self.cpu_thread_manager_mp.submit_worker(
-                worker_idx=0,
-                layer_idx=layer_idx,
-                expert_idx_list=list(cpu_expert_ids),
-                expert_indices_map={eid: expert_indices_map[eid] for eid in cpu_expert_ids},
-                flat_hidden_states=flat_hidden_states,
-                idxs=idxs,
-                use_bmm=True,
-            )
-        cuda_hook_time_end("cpu_experts_submit_fused")
-
-        # Step 4 — load GPU experts + shared branch
-        cuda_hook_time("allocate_experts_cuda_memory_and_restore_model_fused")
-        gpu_expert_names = self.mlpm.get_experts_names(layer_idx=layer_idx, expert_idx_list=list(gpu_expert_ids))
-        _ret, replica_uuid1, state_dict1 = self.cmv.allocate_cuda_memory_and_load_into_gpu(
-            gpu_expert_names, device_index_int=int(self.device1.split(":")[1])
-        )
-        self.cmv.restore2model(state_dict1, self.cmv.mlpm_ci)
-        cuda_hook_time_end("allocate_experts_cuda_memory_and_restore_model_fused")
-
-        cuda_hook_time("gpu_sexperts")
-        y = self.mlpm.shared_experts_func(self.cmv.mlpm_ci, layer_idx=layer_idx, hidden_states=hidden_states)
-        cuda_hook_time_end("gpu_sexperts")
-
-        # Step 5 — wait CPU and scatter CPU outputs (weighted)
-        cuda_hook_time("cpu_thread_manager_mp_wait_fused")
-        output_cpu2gpu = self.cpu_thread_manager_mp.wait() if cpu_expert_ids else None
-        cuda_hook_time_end("cpu_thread_manager_mp_wait_fused")
-
-        if cpu_expert_ids:
-            cuda_hook_time("cpuoutputsdeal_fused")
-            acpu_expert_weights = []
-            acpu_token_ids = []
-            for expert_idx in list(cpu_expert_ids):
-                start_idx, end_idx = expert_indices_map[expert_idx]
-                acpu_expert_weights.append(flat_experts_weight[idxs[start_idx:end_idx]])
-                acpu_token_ids.append(expert_token_indices_map[expert_idx])
-            concat_expert_out = output_cpu2gpu
-            concat_expert_weights = torch.cat(acpu_expert_weights, dim=0)
-            concat_token_ids = torch.cat(acpu_token_ids, dim=0)
-            concat_expert_out = concat_expert_out.mul_(concat_expert_weights)
-            expert_cache.scatter_reduce_(
-                dim=0,
-                index=concat_token_ids.view(-1, 1).expand(-1, expert_cache.shape[-1]),
-                src=concat_expert_out,
-                reduce="sum",
-            )
-            del output_cpu2gpu, concat_expert_out
-            cuda_hook_time_end("cpuoutputsdeal_fused")
-
-        # Step 6 — wait GPU expert weights ready then run fused compute for GPU experts only
-        cuda_hook_time("wait_experts_fused")
-        self.cmv.wait_load_into_gpu(replica_uuid1)
-        cuda_hook_time_end("wait_experts_fused")
-
-        cuda_hook_time("gpu_experts_fused")
-        if gpu_expert_ids:
-            # Build expert-sorted idx stream restricted to GPU experts to avoid touching missing CPU expert weights.
-            idxs_gpu_chunks = []
-            for eid in sorted(gpu_expert_ids):
-                s, e = expert_indices_map[eid]
-                idxs_gpu_chunks.append(idxs[s:e])
-            idxs_gpu = torch.cat(idxs_gpu_chunks, dim=0) if idxs_gpu_chunks else idxs[:0]
-
-            token_idxs_gpu = idxs_gpu // k
-            x_slots_gpu = flat_hidden_states[token_idxs_gpu]
-            expert_ids_gpu = flat_expert_indices[idxs_gpu].to(dtype=torch.int64, device=flat_hidden_states.device)
-            slot_w_gpu = flat_experts_weight[idxs_gpu]
-
-            gate_up, down, act_fn = self.mlpm.get_fused_experts_gate_up_down_act_fn(self.cmv.mlpm_ci, layer_idx)
-            mm_backend = os.environ.get("LMP_FUSED_EXPERT_MM", "bmm").strip().lower()
-            w_gu = gate_up.transpose(1, 2).contiguous()
-            w_down = down.transpose(1, 2).contiguous()
-            y_slots_gpu = self.mlpm.fused_experts_gate_up_down_mm_presorted(
-                x_slots_sorted=x_slots_gpu,
-                expert_ids_sorted=expert_ids_gpu,
-                gate_up_w_eh2i=w_gu,
-                down_w_eih=w_down,
-                act_fn=act_fn,
-                mm_backend=mm_backend,
-            )
-
-            expert_cache.scatter_reduce_(
-                dim=0,
-                index=token_idxs_gpu.view(-1, 1).expand(-1, expert_cache.size(-1)),
-                src=y_slots_gpu * slot_w_gpu,
-                reduce="sum",
-            )
-        cuda_hook_time_end("gpu_experts_fused")
-
-        cuda_hook_time_end(f"layer_moe_generate_mp_fused_l_{layer_idx+1}")
-        return expert_cache.view(*orig_shape) + y
+    
 
     def layer_moe_generate_mp_multi_device_fused(self, layer_idx: int, hidden_states: torch.Tensor):
         """
@@ -836,6 +729,8 @@ class MLPLLM:
         """
         cuda_hook_time(f"layer_moe_generate_mp_multi_device_fused_l_{layer_idx+1}")
 
+        cuda_hook_time(f"*before experts start*")
+
         batch_size, seq_len = hidden_states.shape[:2]
         orig_shape = hidden_states.shape
 
@@ -849,6 +744,13 @@ class MLPLLM:
         idxs = flat_expert_indices.argsort()
         token_idxs = idxs // self.mlpm.get_experts_per_tok()
         flat_hidden_states = hidden_states.view(batch_size * seq_len, -1)
+
+        flat_hidden_states_on_cpu_pin = gpinpool.alloc_same_pin_tensor(flat_hidden_states)
+        flat_hidden_states_on_cpu_pin.copy_(flat_hidden_states, non_blocking=True)
+        cuda_hook_time("idxs2cpu")
+        idxs_int64_on_cpu_pin = idxs.to(dtype=torch.int64, device="cpu", non_blocking=True)
+        cuda_hook_time_end("idxs2cpu")
+
         cuda_hook_time_end("gate")
 
         num_slots = int(idxs.numel())
@@ -882,43 +784,66 @@ class MLPLLM:
 
         num_device = len(self.device_list)
         device_ids = [int(device.split(":")[1]) for device in self.device_list]
+        # Partition hit experts: smallest load -> CPU, remaining -> GPUs (greedy balance by token count).
+        sorted_experts_by_load = sorted(expert_token_counts_list, key=lambda x: x[1])
+        num_experts_total = len(sorted_experts_by_load)
+        num_experts_on_cpu = int(num_experts_total * self.num_experts_on_cpu_ratio)
+        cpu_expert_ids = set(expert_id for expert_id, _ in sorted_experts_by_load[:num_experts_on_cpu])
+        gpu_experts_list = sorted_experts_by_load[num_experts_on_cpu:]
+
         device_expert_map = {device_id: [] for device_id in device_ids}
         device_token_counts = {device_id: 0 for device_id in device_ids}
-
-        gpu_experts_sorted = sorted(expert_token_counts_list, key=lambda x: x[1], reverse=True)
+        gpu_experts_sorted = sorted(gpu_experts_list, key=lambda x: x[1], reverse=True)
         for expert_id, token_count in gpu_experts_sorted:
             min_device_id = min(device_ids, key=lambda d: device_token_counts[d])
             device_expert_map[min_device_id].append(expert_id)
             device_token_counts[min_device_id] += token_count
 
-        gpu_expert_ids_by_device = {device_id: set(expert_ids) for device_id, expert_ids in device_expert_map.items()}
+        gpu_expert_ids_by_device = {
+            device_id: set(expert_ids) for device_id, expert_ids in device_expert_map.items()
+        }
         cuda_hook_time_end("experts_map_get")
 
+        cuda_hook_time_end(f"*before experts start*")
+
+        cuda_hook_time("*single cpu experts*")
         # -----------------------
         # Step 3: load experts multi-device + shared experts
         # -----------------------
-        cuda_hook_time("allocate_experts_cuda_memory_and_restore_model_multi_device_fused")
-        _ret, replica_uuid, state_dict = self.cmv.allocate_cuda_memory_fused_experts(
-            layer_idx=layer_idx,
-            gpu_expert_ids_by_device=gpu_expert_ids_by_device
-        )
-        # Keep a strong reference to the returned tensors, since they are views into
-        # allocated GPU memory and are required for subsequent fused expert compute.
-        if not hasattr(self, "_fused_experts_state_dict_cache"):
-            self._fused_experts_state_dict_cache = {}
-        self._fused_experts_state_dict_cache[layer_idx] = state_dict
-        # self.cmv.restore2model(state_dict, self.cmv.mlpm_ci)
-        cuda_hook_time_end("allocate_experts_cuda_memory_and_restore_model_multi_device_fused")
+        # -----------------------
+        # Step 3: submit CPU experts (MP) + load fused experts multi-device + shared experts
+        # -----------------------
+        cpu_submit_meta: list[tuple[int, list[int]]] = []
+        cuda_hook_time("cpu_experts_submit_fused_mp")
+        if cpu_expert_ids:
+            cpu_expert_idx_list = sorted(cpu_expert_ids)
 
-        cuda_hook_time("gpu_sexperts")
-        y = self.mlpm.shared_experts_func(self.cmv.mlpm_ci, layer_idx=layer_idx, hidden_states=hidden_states)
-        cuda_hook_time_end("gpu_sexperts")
+            n_workers = int(getattr(self.cpu_thread_manager_mp, "num_workers", 1))
+            buckets = self._mp_partition_experts_across_cpu_workers(
+                cpu_expert_idx_list=cpu_expert_idx_list,
+                expert_indices_map=expert_indices_map,
+                num_workers=n_workers,
+            )
+            for wid, eids_sub in enumerate(buckets):
+                if not eids_sub:
+                    continue
+                rid = self._mp_next_cpu_request_id()
+                self.cpu_thread_manager_mp.submit_worker(
+                    worker_idx=wid,
+                    layer_idx=layer_idx,
+                    expert_idx_list=sorted(eids_sub),
+                    expert_indices_map={eid: expert_indices_map[eid] for eid in eids_sub},
+                    flat_hidden_states=flat_hidden_states_on_cpu_pin,
+                    idxs=idxs_int64_on_cpu_pin,
+                    use_bmm=True,
+                    request_id=rid,
+                    device=flat_hidden_states.device,
+                )
+                cpu_submit_meta.append((rid, sorted(eids_sub)))
+        cuda_hook_time_end("cpu_experts_submit_fused_mp")
 
-        cuda_hook_time("wait_experts_multi_device")
-        self.cmv.wait_load_into_gpu(replica_uuid)
-        cuda_hook_time_end("wait_experts_multi_device")
 
-        # Activation for fused gate half (weights are taken from `state_dict` per-device).
+        # Activation for fused gate half.
         _, _, act_fn = self.mlpm.get_fused_experts_gate_up_down_act_fn(self.cmv.mlpm_ci, layer_idx)
         mm_backend = os.environ.get("LMP_FUSED_EXPERT_MM", "bmm").strip().lower()
 
@@ -928,31 +853,52 @@ class MLPLLM:
         expert_ids_all = flat_expert_indices[idxs].to(device=main_device, dtype=torch.int64)  # [slots]
         slot_w_all = flat_experts_weight[idxs].to(device=main_device)  # [slots,1]
 
-        # -----------------------
-        # Step 4: per-device fused compute + aggregate to main expert_cache
-        # -----------------------
-        cuda_hook_time("gpu_experts_multi_device_fused")
-        import re
+        
 
-        # Build global-id -> tensor maps from the loaded `state_dict`.
-        # Expect keys to encode expert id, e.g. "...experts.<id>....gate_up_proj..." / "...down_proj...".
-        def _parse_expert_id(param_name: str) -> int | None:
-            m = re.search(r"(?:\\.experts\\.experts\\.|\\.experts\\.)(\\d+)(?:\\.|$)", param_name)
-            if m:
-                return int(m.group(1))
-            return None
+        cuda_hook_time_end("*single cpu experts*")
 
-        gate_up_map: dict[int, torch.Tensor] = {}
-        down_map: dict[int, torch.Tensor] = {}
-        for name, t in state_dict.items():
-            eid = _parse_expert_id(name)
-            if eid is None:
-                continue
-            if "gate_up_proj" in name:
-                gate_up_map[eid] = t
-            elif "down_proj" in name:
-                down_map[eid] = t
+        cuda_hook_time("*gpu experts*")
 
+        cuda_hook_time("*before fused experts*")
+        any_gpu_experts = any(bool(gpu_expert_ids_by_device.get(d)) for d in device_ids)
+        state_dict_packed = {}
+        replica_uuid = None
+        if any_gpu_experts:
+            cuda_hook_time("allocate_experts_cuda_memory_and_restore_model_multi_device_fused")
+            _ret, replica_uuid, state_dict_packed, _state_dict_slices = self.cmv.allocate_cuda_memory_fused_experts_dual_restore(
+                layer_idx=layer_idx,
+                gpu_expert_ids_by_device=gpu_expert_ids_by_device,
+            )
+            # Keep a strong reference to the returned tensors, since they are views into
+            # allocated GPU memory and are required for subsequent fused expert compute.
+            if not hasattr(self, "_fused_experts_state_dict_cache"):
+                self._fused_experts_state_dict_cache = {}
+            # Prefer packed banks for compute (2 tensors per device).
+            self._fused_experts_state_dict_cache[layer_idx] = state_dict_packed
+            # self.cmv.restore2model(state_dict, self.cmv.mlpm_ci)
+            cuda_hook_time_end("allocate_experts_cuda_memory_and_restore_model_multi_device_fused")
+
+        cuda_hook_time("gpu_sexperts")
+        y = self.mlpm.shared_experts_func(self.cmv.mlpm_ci, layer_idx=layer_idx, hidden_states=hidden_states)
+        cuda_hook_time_end("gpu_sexperts")
+
+        # 等待 qkvogn_s_weight 加载完成
+        if layer_idx < self.mlpm.config.num_hidden_layers-1:
+            cuda_hook_time("wait_load_qkvogn_s_weight")
+            self.cmv.wait_load_qkvogn_s_weight(layer_idx=layer_idx+1)
+            cuda_hook_time_end("wait_load_qkvogn_s_weight")
+
+    
+
+        cuda_hook_time("prepare_per_device_parameters")
+        # Packed banks per device are named like:
+        #   "<...gate_up_proj>.packed.dev_<device_id>" -> [E_dev, 2I, H]
+        #   "<...down_proj>.packed.dev_<device_id>"    -> [E_dev, H, I]
+        # and the corresponding expert id order is recorded in `cmv._layer_experts_map_by_device[layer_idx]`.
+        layer_map = self.cmv._layer_experts_map_by_device.get(layer_idx) or {}
+
+        # Step 5.1: prepare per-device parameters
+        work_items = []
         for device_id in device_ids:
             device_expert_ids = sorted(gpu_expert_ids_by_device[device_id])
             if not device_expert_ids:
@@ -962,62 +908,112 @@ class MLPLLM:
             x_parts = []
             eid_parts = []
             w_parts = []
+            tok_parts = []
             for eid in device_expert_ids:
                 start_idx, end_idx = expert_indices_map[eid]
                 x_parts.append(x_slots_all[start_idx:end_idx])
                 eid_parts.append(expert_ids_all[start_idx:end_idx])
                 w_parts.append(slot_w_all[start_idx:end_idx])
+                tok_parts.append(token_idxs[start_idx:end_idx])
 
             x_dev_sorted = torch.cat(x_parts, dim=0)
             eid_dev_sorted = torch.cat(eid_parts, dim=0)
             w_dev_sorted = torch.cat(w_parts, dim=0)
+            token_ids_for_slots = torch.cat(tok_parts, dim=0).to(main_device)
             if x_dev_sorted.numel() == 0:
                 continue
 
             device = torch.device(f"cuda:{device_id}")
-            # Move inputs to device for compute.
             x_dev_sorted = x_dev_sorted.to(device, non_blocking=True)
             eid_dev_sorted = eid_dev_sorted.to(device, non_blocking=True)
 
-            # Build per-device weight bank [E_dev, ...] from `state_dict` and remap ids to [0..E_dev-1].
-            ids_tensor = torch.tensor(device_expert_ids, device=device, dtype=torch.int64)
+            # Remap global expert ids -> local [0..E_dev-1] consistent with packed bank order.
+            dev_info = layer_map.get(device_id) or {}
+            packed_experts = dev_info.get("experts") or []
+            packed_experts_int = [int(e) for e in packed_experts]
+            if packed_experts_int != device_expert_ids:
+                raise RuntimeError(
+                    f"Packed expert order mismatch for cuda:{device_id}: "
+                    f"packed={packed_experts_int[:16]}... vs expected={device_expert_ids[:16]}..."
+                )
+            ids_tensor = torch.tensor(packed_experts_int, device=device, dtype=torch.int64)
             remap = torch.full((num_experts,), -1, dtype=torch.int64, device=device)
             remap[ids_tensor] = torch.arange(ids_tensor.numel(), device=device, dtype=torch.int64)
             eid_dev_sub = remap[eid_dev_sorted]
 
-            # Stack local expert weights in the same order as `device_expert_ids`.
-            try:
-                gate_up_sub = torch.stack([gate_up_map[eid].to(device) for eid in device_expert_ids], dim=0)
-                down_sub = torch.stack([down_map[eid].to(device) for eid in device_expert_ids], dim=0)
-            except KeyError as exc:
-                raise RuntimeError(
-                    f"Missing fused expert weight in state_dict for expert id {exc}. "
-                    f"Parsed gate_up={len(gate_up_map)} down={len(down_map)}"
-                ) from exc
-
+            # Use packed weight banks directly (no per-expert stacking).
+            gate_up_packed_name = (dev_info.get("gate_up_packed") or [None])[0]
+            down_packed_name = (dev_info.get("down_packed") or [None])[0]
+            if not gate_up_packed_name or not down_packed_name:
+                raise RuntimeError(f"Missing packed names for device {device_id}: keys={list(dev_info.keys())}")
+            gate_up_sub = state_dict_packed[gate_up_packed_name]
+            down_sub = state_dict_packed[down_packed_name]
             w_gu = gate_up_sub.transpose(1, 2).contiguous()  # [E_dev, H, 2I]
             w_down = down_sub.transpose(1, 2).contiguous()  # [E_dev, I, H]
 
-            y_dev_sorted = self.mlpm.fused_experts_gate_up_down_mm_presorted(
-                x_slots_sorted=x_dev_sorted,
-                expert_ids_sorted=eid_dev_sub,
-                gate_up_w_eh2i=w_gu,
-                down_w_eih=w_down,
-                act_fn=act_fn,
-                mm_backend=mm_backend,
+            work_items.append(
+                (
+                    device_id,
+                    x_dev_sorted,
+                    eid_dev_sub,
+                    w_gu,
+                    w_down,
+                    w_dev_sorted,
+                    token_ids_for_slots,
+                )
             )
+        cuda_hook_time_end("prepare_per_device_parameters")
 
-            # Bring back to main device and scatter-reduce into expert_cache.
+
+
+        if replica_uuid is not None:
+            cuda_hook_time("wait_experts_multi_device")
+            self.cmv.wait_load_into_gpu(replica_uuid)
+            cuda_hook_time_end("wait_experts_multi_device")
+
+        cuda_hook_time_end("*before fused experts*")
+
+         # -----------------------
+        # Step 5: per-device fused compute + aggregate to main expert_cache
+        # -----------------------
+        cuda_hook_time("gpu_experts_multi_device_fused")
+
+        # Step 5.2: compute and aggregate
+        for (
+            device_id,
+            x_dev_sorted,
+            eid_dev_sub,
+            w_gu,
+            w_down,
+            w_dev_sorted,
+            token_ids_for_slots,
+        ) in work_items:
+            if mm_backend == "bmm":
+                # Pre-pad once outside of `fused_experts_gate_up_down_mm_presorted` to avoid redundant pad work.
+                e_dev = int(w_gu.size(0))
+                stacked_inputs, counts = self.mlpm._batched_pad_inputs_presorted(
+                    x_dev_sorted, eid_dev_sub, e_dev
+                )
+                counts_cpu = counts.to(device="cpu", non_blocking=False)
+                y_dev_sorted = self.mlpm.fused_experts_gate_up_down_bmm_from_padded(
+                    stacked_inputs=stacked_inputs,
+                    counts=counts_cpu,
+                    gate_up_w_eh2i=w_gu,
+                    down_w_eih=w_down,
+                    act_fn=act_fn,
+                )
+            else:
+                y_dev_sorted = self.mlpm.fused_experts_gate_up_down_mm_presorted(
+                    x_slots_sorted=x_dev_sorted,
+                    expert_ids_sorted=eid_dev_sub,
+                    gate_up_w_eh2i=w_gu,
+                    down_w_eih=w_down,
+                    act_fn=act_fn,
+                    mm_backend="gmm",
+                )
+
             y_main = y_dev_sorted.to(main_device, non_blocking=True)
-            out_weighted = y_main * w_dev_sorted  # weights already on main
-
-            # token indices for these slots: since we concatenated per-expert contiguous ranges, token_idxs slice accordingly.
-            token_parts = []
-            for eid in device_expert_ids:
-                start_idx, end_idx = expert_indices_map[eid]
-                token_parts.append(token_idxs[start_idx:end_idx])
-            token_ids_for_slots = torch.cat(token_parts, dim=0).to(main_device)
-
+            out_weighted = y_main * w_dev_sorted
             expert_cache.scatter_reduce_(
                 dim=0,
                 index=token_ids_for_slots.view(-1, 1).expand(-1, expert_cache.size(-1)),
@@ -1027,9 +1023,353 @@ class MLPLLM:
 
         cuda_hook_time_end("gpu_experts_multi_device_fused")
 
+        cuda_hook_time_end("*gpu experts*")
+
+        # -----------------------
+        # Step 4: wait CPU + scatter CPU outputs (weighted)
+        # -----------------------
+        cuda_hook_time("cpu_thread_manager_mp_wait_fused")
+        if cpu_expert_ids:
+            # Collect results from whichever worker finishes first, keyed by request_id.
+            pending = {rid for rid, _eids in cpu_submit_meta}
+            results: dict[int, torch.Tensor] = {}
+            while pending:
+                res = self.cpu_thread_manager_mp.wait()
+                if getattr(res, "request_id", -1) in pending:
+                    pending.remove(res.request_id)
+                    results[res.request_id] = res.final_hidden_states
+            cuda_hook_time("cpu_experts_scatter_reduce")
+            for rid, eids_sub in cpu_submit_meta:
+                out_sub = results.get(rid)
+                if out_sub is None:
+                    continue
+                w_parts_cpu = []
+                token_parts_cpu = []
+                for eid in eids_sub:
+                    start_idx, end_idx = expert_indices_map[eid]
+                    w_parts_cpu.append(slot_w_all[start_idx:end_idx])
+                    token_parts_cpu.append(token_idxs[start_idx:end_idx])
+                w_cpu = torch.cat(w_parts_cpu, dim=0) if w_parts_cpu else None
+                tok_cpu = torch.cat(token_parts_cpu, dim=0) if token_parts_cpu else None
+                if w_cpu is not None and tok_cpu is not None and int(tok_cpu.numel()) > 0:
+                    out_weighted_cpu = out_sub * w_cpu
+                    expert_cache.scatter_reduce_(
+                        dim=0,
+                        index=tok_cpu.view(-1, 1).expand(-1, expert_cache.size(-1)),
+                        src=out_weighted_cpu,
+                        reduce="sum",
+                    )
+            cuda_hook_time_end("cpu_experts_scatter_reduce")
+        cuda_hook_time_end("cpu_thread_manager_mp_wait_fused")
+
         layer_output = expert_cache.view(*orig_shape) + y
+
+        gpinpool.free(flat_hidden_states_on_cpu_pin)
         cuda_hook_time_end(f"layer_moe_generate_mp_multi_device_fused_l_{layer_idx+1}")
         return layer_output
+
+    def layer_moe_dgenerate_mp_multi_device_fused(self, layer_idx: int, hidden_states: torch.Tensor):
+        """
+        Decode 阶段（通常 seq_len=1）的 fused 多卡 MoE。
+
+        与 prefill/generate 的差异：decode 侧 **按专家当前所在 device**（CPU / 各 GPU）决定执行位置，
+        避免沿用 generate 的“按 ratio 划分 + 重新分配”策略导致的频繁迁移/不一致。
+
+        - 先 gate 一次拿到 presorted slot stream（``idxs`` / ``token_idxs``）。
+        - 构建命中 experts 的 ``expert_indices_map``。
+        - decode 侧 fused experts 的 device 分布从 ``CudaMemoryView`` 的 decode 预加载/映射信息获取，
+          不依赖模型层内部 module 的 ``get_expert_device_distribution``（Gemma4 fused bank 结构可能不适用）。
+        - 聚合：按 slot weight * 输出，再在主 device 上 ``scatter_reduce_`` 回 token 空间。
+        """
+        cuda_hook_time(f"layer_moe_dgenerate_mp_multi_device_fused_l_{layer_idx+1}")
+        batch_size, seq_len = hidden_states.shape[:2]
+        orig_shape = hidden_states.shape
+
+        # -----------------------
+        # Step 1: gate + presort slots by expert
+        # -----------------------
+        cuda_hook_time("gate")
+        topk_idx, topk_weight, _aux_loss = self.mlpm.gate_func(
+            self.cmv.mlpm_ci, layer_idx, hidden_states
+        )
+        flat_expert_indices = topk_idx.view(-1).to(dtype=torch.int64)  # [S]
+        flat_experts_weight = topk_weight.view(-1, 1)  # [S,1]
+        idxs = flat_expert_indices.argsort()
+        token_idxs = idxs // self.mlpm.get_experts_per_tok()
+        flat_hidden_states = hidden_states.view(batch_size * seq_len, -1)
+        cuda_hook_time_end("gate")
+
+        num_slots = int(idxs.numel())
+        expert_cache = torch.zeros_like(flat_hidden_states)
+        if num_slots == 0:
+            cuda_hook_time("gpu_sexperts")
+            y = self.mlpm.shared_experts_func(
+                self.cmv.mlpm_ci, layer_idx=layer_idx, hidden_states=hidden_states
+            )
+            cuda_hook_time_end("gpu_sexperts")
+            out = expert_cache.view(*orig_shape) + y
+            cuda_hook_time_end(f"layer_moe_dgenerate_mp_multi_device_fused_l_{layer_idx+1}")
+            return out
+
+        # -----------------------
+        # Step 2: build expert ranges for presorted slots
+        # -----------------------
+        cuda_hook_time("experts_map_get")
+        tokens_per_expert = flat_expert_indices.bincount().cpu().numpy().cumsum(0)
+        expert_indices_map: Dict[int, tuple[int, int]] = {}
+        expert_token_counts_list = []
+        num_experts = int(self.mlpm.get_experts_num())
+        prev_end = 0
+        for expert_id in range(num_experts):
+            if expert_id >= len(tokens_per_expert):
+                break
+            end_idx = int(tokens_per_expert[expert_id])
+            if end_idx == prev_end:
+                continue
+            start_idx = prev_end
+            expert_indices_map[expert_id] = (start_idx, end_idx)
+            expert_token_counts_list.append((expert_id, end_idx - start_idx))
+            prev_end = end_idx
+
+        # -----------------------
+        # Step 3: decode 分配：按 expert 实际 device（来自 cmv 的映射信息）
+        # -----------------------
+        device_ids = [int(device.split(":")[1]) for device in self.device_list]
+        experts_cpu_list: list[int] = []
+        gpu_expert_ids_by_device: dict[int, set[int]] = {d: set() for d in device_ids}
+
+        # Prefer cmv-provided map: {device_id(int): {"experts": ["0","1",...] , ...}}
+        layer_map = getattr(self.cmv, "_layer_experts_map_by_device", {}).get(layer_idx) or {}
+        if layer_map:
+            for d in device_ids:
+                dev_info = layer_map.get(d) or {}
+                exp = dev_info.get("experts") or []
+                for eid in exp:
+                    try:
+                        gpu_expert_ids_by_device[d].add(int(eid))
+                    except (TypeError, ValueError):
+                        continue
+
+        active_eids = [eid for eid, _tc in expert_token_counts_list]
+        active_set = set(active_eids)
+        if any(gpu_expert_ids_by_device[d] for d in device_ids):
+            # Use cmv mapping (intersect with active experts)
+            for d in device_ids:
+                gpu_expert_ids_by_device[d].intersection_update(active_set)
+            gpu_union = set().union(*(gpu_expert_ids_by_device[d] for d in device_ids))
+            experts_cpu_list = sorted(active_set - gpu_union)
+        else:
+            # Fallback: all active experts on CPU
+            experts_cpu_list = sorted(active_eids)
+
+        cuda_hook_time_end("experts_map_get")
+
+        # -----------------------
+        # Step 4: submit CPU experts (MP BMM)
+        # -----------------------
+        cpu_submit_meta: list[tuple[int, list[int]]] = []
+        cuda_hook_time("cpu_experts_submit_fused_mp")
+        if experts_cpu_list:
+            experts_cpu_list = sorted(experts_cpu_list)
+            n_workers = int(getattr(self.cpu_thread_manager_mp, "num_workers", 1))
+            buckets = self._mp_partition_experts_across_cpu_workers(
+                cpu_expert_idx_list=experts_cpu_list,
+                expert_indices_map=expert_indices_map,
+                num_workers=n_workers,
+            )
+            for wid, eids_sub in enumerate(buckets):
+                if not eids_sub:
+                    continue
+                rid = self._mp_next_cpu_request_id()
+                self.cpu_thread_manager_mp.submit_worker(
+                    worker_idx=wid,
+                    layer_idx=layer_idx,
+                    expert_idx_list=sorted(eids_sub),
+                    expert_indices_map={eid: expert_indices_map[eid] for eid in eids_sub},
+                    flat_hidden_states=flat_hidden_states,
+                    idxs=idxs,
+                    use_bmm=True,
+                    request_id=rid,
+                )
+                cpu_submit_meta.append((rid, sorted(eids_sub)))
+        cuda_hook_time_end("cpu_experts_submit_fused_mp")
+
+        # -----------------------
+        # Step 5: load GPU fused experts via dual-restore packed banks (per-device big tensors)
+        # -----------------------
+        cuda_hook_time("allocate_experts_cuda_memory_and_restore_model_multi_device_fused")
+        _ret, replica_uuid, state_dict_packed, state_dict_slices = (
+            self.cmv.allocate_cuda_memory_fused_experts_dual_restore(
+                layer_idx=layer_idx,
+                gpu_expert_ids_by_device=gpu_expert_ids_by_device,
+            )
+        )
+        if not hasattr(self, "_fused_experts_state_dict_cache"):
+            self._fused_experts_state_dict_cache = {}
+        # generate/dgenerate 可能逐步为同一层加载部分 experts；这里把 packed+slices 都 cache，
+        # 且用“只补缺不覆盖”的 merge，避免覆盖已存在条目。
+        prev = self._fused_experts_state_dict_cache.get(layer_idx)
+        if not isinstance(prev, dict):
+            prev = {}
+            self._fused_experts_state_dict_cache[layer_idx] = prev
+        for _sd in (state_dict_packed, state_dict_slices):
+            for _k, _v in _sd.items():
+                if _k not in prev:
+                    prev[_k] = _v
+        cuda_hook_time_end("allocate_experts_cuda_memory_and_restore_model_multi_device_fused")
+
+        # shared experts
+        cuda_hook_time("gpu_sexperts")
+        y = self.mlpm.shared_experts_func(
+            self.cmv.mlpm_ci, layer_idx=layer_idx, hidden_states=hidden_states
+        )
+        cuda_hook_time_end("gpu_sexperts")
+
+        cuda_hook_time("wait_experts_multi_device")
+        self.cmv.wait_load_into_gpu(replica_uuid)
+        cuda_hook_time_end("wait_experts_multi_device")
+
+        # Activation + backend
+        _, _, act_fn = self.mlpm.get_fused_experts_gate_up_down_act_fn(self.cmv.mlpm_ci, layer_idx)
+        mm_backend = os.environ.get("LMP_FUSED_EXPERT_MM", "bmm").strip().lower()
+
+        # Presorted slot tensors on main device
+        main_device = flat_hidden_states.device
+        x_slots_all = flat_hidden_states[token_idxs]  # [S,H] presorted
+        expert_ids_all = flat_expert_indices[idxs].to(device=main_device, dtype=torch.int64)  # [S]
+        slot_w_all = flat_experts_weight[idxs].to(device=main_device)  # [S,1]
+
+        # -----------------------
+        # Step 6: per-device fused compute (packed banks) + scatter_reduce back to main
+        # -----------------------
+        cuda_hook_time("gpu_experts_multi_device_fused")
+        layer_map = self.cmv._layer_experts_map_by_device.get(layer_idx) or {}
+
+        # Step 6.1: prepare per-device parameters (including stacking non-contiguous experts into contiguous banks)
+        work_items = []
+        for device_id in device_ids:
+            device_expert_ids = sorted(gpu_expert_ids_by_device.get(device_id) or [])
+            if not device_expert_ids:
+                continue
+
+            x_parts = []
+            eid_parts = []
+            w_parts = []
+            token_parts = []
+            for eid in device_expert_ids:
+                start_idx, end_idx = expert_indices_map[eid]
+                x_parts.append(x_slots_all[start_idx:end_idx])
+                eid_parts.append(expert_ids_all[start_idx:end_idx])
+                w_parts.append(slot_w_all[start_idx:end_idx])
+                token_parts.append(token_idxs[start_idx:end_idx])
+
+            x_dev_sorted = torch.cat(x_parts, dim=0)
+            eid_dev_sorted = torch.cat(eid_parts, dim=0)
+            w_dev_sorted = torch.cat(w_parts, dim=0)
+            tok_dev_sorted = torch.cat(token_parts, dim=0).to(main_device)
+            if x_dev_sorted.numel() == 0:
+                continue
+
+            device = torch.device(f"cuda:{device_id}")
+            x_dev_sorted = x_dev_sorted.to(device, non_blocking=True)
+            eid_dev_sorted = eid_dev_sorted.to(device, non_blocking=True)
+
+            # Build contiguous local-id mapping for non-contiguous global expert ids
+            ids_tensor = torch.tensor(device_expert_ids, device=device, dtype=torch.int64)
+            remap = torch.full((num_experts,), -1, dtype=torch.int64, device=device)
+            remap[ids_tensor] = torch.arange(ids_tensor.numel(), device=device, dtype=torch.int64)
+            eid_dev_sub = remap[eid_dev_sorted]
+
+            # Stack slice tensors into contiguous banks on this device (order == device_expert_ids)
+            dev_info = layer_map.get(device_id) or {}
+            gate_slice_names = dev_info.get("gate_up") or []
+            down_slice_names = dev_info.get("down") or []
+            if len(gate_slice_names) != len(device_expert_ids) or len(down_slice_names) != len(device_expert_ids):
+                raise RuntimeError(
+                    f"[dgenerate_fused] slice names mismatch for cuda:{device_id}: "
+                    f"gate={len(gate_slice_names)} down={len(down_slice_names)} expected={len(device_expert_ids)}"
+                )
+            gate_up_sub = torch.stack([state_dict_slices[n] for n in gate_slice_names], dim=0)  # [E_dev,2I,H]
+            down_sub = torch.stack([state_dict_slices[n] for n in down_slice_names], dim=0)     # [E_dev,H,I]
+            w_gu = gate_up_sub.transpose(1, 2).contiguous()  # [E_dev,H,2I]
+            w_down = down_sub.transpose(1, 2).contiguous()   # [E_dev,I,H]
+
+            work_items.append((x_dev_sorted, eid_dev_sub, w_gu, w_down, w_dev_sorted, tok_dev_sorted))
+
+        # Step 6.2: compute + scatter
+        for x_dev_sorted, eid_dev_sub, w_gu, w_down, w_dev_sorted, tok_dev_sorted in work_items:
+            if mm_backend == "bmm":
+                e_dev = int(w_gu.size(0))
+                stacked_inputs, counts = self.mlpm._batched_pad_inputs_presorted(
+                    x_dev_sorted, eid_dev_sub, e_dev
+                )
+                counts_cpu = counts.to(device="cpu", non_blocking=False)
+                y_dev_sorted = self.mlpm.fused_experts_gate_up_down_bmm_from_padded(
+                    stacked_inputs=stacked_inputs,
+                    counts=counts_cpu,
+                    gate_up_w_eh2i=w_gu,
+                    down_w_eih=w_down,
+                    act_fn=act_fn,
+                )
+            else:
+                y_dev_sorted = self.mlpm.fused_experts_gate_up_down_mm_presorted(
+                    x_slots_sorted=x_dev_sorted,
+                    expert_ids_sorted=eid_dev_sub,
+                    gate_up_w_eh2i=w_gu,
+                    down_w_eih=w_down,
+                    act_fn=act_fn,
+                    mm_backend="gmm",
+                )
+
+            y_main = y_dev_sorted.to(main_device, non_blocking=True)
+            out_weighted = y_main * w_dev_sorted
+            expert_cache.scatter_reduce_(
+                dim=0,
+                index=tok_dev_sorted.view(-1, 1).expand(-1, expert_cache.size(-1)),
+                src=out_weighted,
+                reduce="sum",
+            )
+
+        cuda_hook_time_end("gpu_experts_multi_device_fused")
+
+        # -----------------------
+        # Step 7: wait CPU + scatter CPU outputs (weighted)
+        # -----------------------
+        cuda_hook_time("cpu_thread_manager_mp_wait_fused")
+        if experts_cpu_list:
+            pending = {rid for rid, _eids in cpu_submit_meta}
+            results: dict[int, torch.Tensor] = {}
+            while pending:
+                res = self.cpu_thread_manager_mp.wait()
+                if getattr(res, "request_id", -1) in pending:
+                    pending.remove(res.request_id)
+                    results[res.request_id] = res.final_hidden_states
+
+            for rid, eids_sub in cpu_submit_meta:
+                out_sub = results.get(rid)
+                if out_sub is None:
+                    continue
+                w_parts_cpu = []
+                token_parts_cpu = []
+                for eid in eids_sub:
+                    start_idx, end_idx = expert_indices_map[eid]
+                    w_parts_cpu.append(slot_w_all[start_idx:end_idx])
+                    token_parts_cpu.append(token_idxs[start_idx:end_idx])
+                w_cpu = torch.cat(w_parts_cpu, dim=0) if w_parts_cpu else None
+                tok_cpu = torch.cat(token_parts_cpu, dim=0) if token_parts_cpu else None
+                if w_cpu is not None and tok_cpu is not None and int(tok_cpu.numel()) > 0:
+                    out_weighted_cpu = out_sub * w_cpu
+                    expert_cache.scatter_reduce_(
+                        dim=0,
+                        index=tok_cpu.view(-1, 1).expand(-1, expert_cache.size(-1)),
+                        src=out_weighted_cpu,
+                        reduce="sum",
+                    )
+        cuda_hook_time_end("cpu_thread_manager_mp_wait_fused")
+
+        out = expert_cache.view(*orig_shape) + y
+        cuda_hook_time_end(f"layer_moe_dgenerate_mp_multi_device_fused_l_{layer_idx+1}")
+        return out
 
 
     def layer_moe_generate_mp_multi_device(self, layer_idx: int, hidden_states: torch.Tensor):
@@ -1043,7 +1383,7 @@ class MLPLLM:
         flat_experts_weight = topk_weight.view(-1, 1)  # [batch_size * seq_len * num_experts_per_tok, 1]
         idxs = flat_expert_indices.argsort()         # 排序后的索引
         tokens_per_expert = flat_expert_indices.bincount().cpu().numpy().cumsum(0) # [num_experts]
-        token_idxs = idxs // self.mlpm.config.num_experts_per_tok  # 恢复到原始 token 索引
+        token_idxs = idxs // self.mlpm.get_experts_per_tok()  # 恢复到原始 token 索引
         flat_hidden_states = hidden_states.view(batch_size * seq_len, -1)  # [batch_size * seq_len, hidden_dim]
         cuda_hook_time_end("gate")
 
@@ -1259,12 +1599,13 @@ class MLPLLM:
         # Step 9: 提交CPU专家执行
         cuda_hook_time("cpu_experts_submit")
         if cpu_expert_ids:
+            cpu_expert_idx_list = sorted(cpu_expert_ids)
             logger.debug(f"\n  Computing {len(cpu_expert_ids)} experts on CPU MP...")
             self.cpu_thread_manager_mp.submit_worker(
                 worker_idx=0,
                 layer_idx=layer_idx,
-                expert_idx_list=list(cpu_expert_ids),
-                expert_indices_map={eid: expert_indices_map[eid] for eid in cpu_expert_ids},
+                expert_idx_list=cpu_expert_idx_list,
+                expert_indices_map={eid: expert_indices_map[eid] for eid in cpu_expert_idx_list},
                 flat_hidden_states=flat_hidden_states,
                 idxs=idxs,
             )
@@ -1356,7 +1697,7 @@ class MLPLLM:
                 )
                 
                 # 提前收集 weights 和 token_ids
-                device_token_idxs = device_idxs // self.mlpm.config.num_experts_per_tok
+                device_token_idxs = device_idxs // self.mlpm.get_experts_per_tok()
                 device_all_expert_weights_list = []
                 device_all_token_ids_list = []
                 for i, expert_idx in enumerate(device_expert_idx_list):
@@ -1389,7 +1730,10 @@ class MLPLLM:
 
         # Step 13: 等待CPU experts完成
         cuda_hook_time("cpu_thread_manager_mp_wait")
-        output_cpu2gpu = self.cpu_thread_manager_mp.wait() if cpu_expert_ids else None
+        output_cpu2gpu = None
+        if cpu_expert_ids:
+            _res = self.cpu_thread_manager_mp.wait()
+            output_cpu2gpu = _res.final_hidden_states
         cuda_hook_time_end("cpu_thread_manager_mp_wait")
         
         # Step 14: 处理CPU experts的输出
@@ -1398,7 +1742,8 @@ class MLPLLM:
             acpu_expert_outs_slices = []
             acpu_expert_weights = []
             acpu_token_ids = []
-            for i, expert_idx in enumerate(list(cpu_expert_ids)):
+            cpu_expert_idx_list = sorted(cpu_expert_ids)
+            for i, expert_idx in enumerate(cpu_expert_idx_list):
                 token_ids = expert_token_indices_map[expert_idx]
                 num_tokens = token_ids.shape[0]
                 
@@ -1470,7 +1815,7 @@ class MLPLLM:
         flat_experts_weight = topk_weight.view(-1, 1)  # [batch_size * seq_len * num_experts_per_tok, 1]
         idxs = flat_expert_indices.argsort()         # 排序后的索引
         tokens_per_expert = flat_expert_indices.bincount().cpu().numpy().cumsum(0) # [num_experts]
-        token_idxs = idxs // self.mlpm.config.num_experts_per_tok  # 恢复到原始 token 索引
+        token_idxs = idxs // self.mlpm.get_experts_per_tok()  # 恢复到原始 token 索引
         flat_hidden_states = hidden_states.view(batch_size * seq_len, -1)  # [batch_size * seq_len, hidden_dim]
         cuda_hook_time_end("gate")
 
@@ -1624,7 +1969,7 @@ class MLPLLM:
                 )
                 
                 # 提前收集 weights 和 token_ids（使用设备上的数据）
-                device_token_idxs = device_idxs // self.mlpm.config.num_experts_per_tok
+                device_token_idxs = device_idxs // self.mlpm.get_experts_per_tok()
                 device_expert_weights_list = []
                 device_token_ids_list = []
                 for i, expert_idx in enumerate(device_expert_idx_list):
@@ -1655,7 +2000,10 @@ class MLPLLM:
 
         # Step 14: 等待CPU experts完成
         cuda_hook_time("cpu_thread_manager_mp_wait")
-        output_cpu2gpu = self.cpu_thread_manager_mp.wait() if experts_cpu_list else None
+        output_cpu2gpu = None
+        if experts_cpu_list:
+            _res = self.cpu_thread_manager_mp.wait()
+            output_cpu2gpu = _res.final_hidden_states
         cuda_hook_time_end("cpu_thread_manager_mp_wait")
         
         # Step 16: 处理CPU experts的输出
@@ -1713,6 +2061,291 @@ class MLPLLM:
 
         cuda_hook_time_end(f"layer_moe_dgenerate_mp_multi_device_l_{layer_idx+1}")
         return layer_output
+    
+
+    def read_tensor_index_json(self, model_path: str):
+        tensor_index_json_path = os.path.join(model_path, "tensor_index.json")
+        with open(tensor_index_json_path, "r") as f:
+            tensor_index_json = json.load(f)
+        return tensor_index_json
+
+    def test_tensor_index_locate(self, tensor_index_json: dict):
+        """
+        根据当前 GPU 数量与可用显存，为 tensor_index 中的权重分配设备。
+
+        约束：
+        1) 同一 (layer, expert) 下的所有参数必须放在同一个设备。
+        2) 同一 layer 的 experts 在设备间尽量均匀（按 expert 组数量）。
+        3) 分配时尽量不超过设备可用显存；若都放不下则退化为剩余显存最多设备。
+
+        Returns:
+            dict[str, str]: tensor_name -> "cuda:<id>"
+        """
+        if not isinstance(tensor_index_json, dict) or not tensor_index_json:
+            return {}
+
+        from collections import defaultdict
+
+        if not torch.cuda.is_available():
+            raise RuntimeError("CUDA is not available, cannot locate tensor_index on GPUs")
+
+        # 优先使用实例中的设备列表，避免越界到未启用设备。
+        device_names = list(getattr(self, "device_list", []))
+        if not device_names:
+            device_names = [f"cuda:{i}" for i in range(torch.cuda.device_count())]
+        if not device_names:
+            raise RuntimeError("No CUDA devices found")
+
+        # 使用 pynvml 读取设备剩余显存（bytes）。
+        # 按需求：若无法读取或显存不足，直接报错，不做静默降级。
+        device_remaining: dict[str, int] = {}
+        try:
+            import pynvml
+        except ImportError as e:
+            raise RuntimeError(
+                "pynvml is required for test_tensor_index_locate but is not installed"
+            ) from e
+
+        try:
+            pynvml.nvmlInit()
+            for dev in device_names:
+                device_idx = int(str(dev).split(":")[-1])
+                handle = pynvml.nvmlDeviceGetHandleByIndex(device_idx)
+                memory_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+                device_remaining[dev] = int(memory_info.free)
+        except Exception as e:
+            raise RuntimeError(f"failed to read gpu memory via pynvml: {e}") from e
+        finally:
+            try:
+                pynvml.nvmlShutdown()
+            except Exception:
+                pass
+        # 记录初始可用显存，用于后续“显存使用均衡”目标。
+        device_initial_free = dict(device_remaining)
+
+        # tensor_name -> (offset, size, shape, stride, dtype)
+        # 这里我们只依赖 size（bytes）做分配。
+        def _tensor_size_bytes(meta) -> int:
+            if not isinstance(meta, (list, tuple)) or len(meta) < 2:
+                return 0
+            try:
+                return int(meta[1])
+            except Exception:
+                return 0
+
+        # 分组策略：
+        # 1) 专家参数：同 layer 同 expert 的所有参数归为一组，跨设备均衡分配；
+        # 2) 非专家参数（包括 self_attn 等）：全部固定放在第一个设备。
+        expert_group_tensors: dict[tuple[int, int], list[str]] = defaultdict(list)
+        expert_group_sizes: dict[tuple[int, int], int] = defaultdict(int)
+        non_expert_tensors: list[tuple[str, int]] = []
+
+        for tname, tmeta in tensor_index_json.items():
+            tsize = _tensor_size_bytes(tmeta)
+            key = self.mlpm.get_tensor_expert_group_key(tname)
+            if key is not None:
+                expert_group_tensors[key].append(tname)
+                expert_group_sizes[key] += tsize
+            else:
+                non_expert_tensors.append((tname, tsize))
+
+        tensor_to_device: dict[str, str] = {}
+        first_device = device_names[0]
+
+        # 先预留：非专家参数全部放在第一个设备（含 self_attn / embed / norm 等）。
+        non_expert_total_size = sum(tsize for _, tsize in non_expert_tensors)
+        if device_remaining[first_device] < non_expert_total_size:
+            raise RuntimeError(
+                f"[test_tensor_index_locate] insufficient GPU memory on first device "
+                f"{first_device} for non-expert tensors total={non_expert_total_size} bytes, "
+                f"remaining={device_remaining[first_device]} bytes"
+            )
+        for tname, tsize in non_expert_tensors:
+            tensor_to_device[tname] = first_device
+            device_remaining[first_device] -= tsize
+
+        # 再按 layer 分配专家组：
+        # 在满足可容纳前提下，优先最小化各卡“已用显存占初始可用显存”的离散度，
+        # 使整体 GPU 显存使用尽可能均匀。
+        layer_to_groups: dict[int, list[tuple[int, int]]] = defaultdict(list)
+        for key in expert_group_tensors:
+            layer_to_groups[key[0]].append(key)
+
+        for layer_id, groups in sorted(layer_to_groups.items(), key=lambda x: x[0]):
+            # 保留同层专家计数作为次级 tie-break（主目标是显存均衡）。
+            per_layer_device_counts = {d: 0 for d in device_names}
+            # 大组先放，降低后续碎片
+            groups_sorted = sorted(groups, key=lambda g: expert_group_sizes[g], reverse=True)
+
+            for g in groups_sorted:
+                gsize = expert_group_sizes[g]
+
+                def _cand_key(dev_name: str):
+                    rem = device_remaining[dev_name]
+                    fits = 0 if rem >= gsize else 1  # 必须可放下
+                    initial = max(1, device_initial_free[dev_name])
+                    # 放置前后该卡使用率
+                    before_used_ratio = (initial - rem) / initial
+                    after_used_ratio = (initial - (rem - gsize)) / initial if rem >= gsize else float("inf")
+                    # 主目标：让“放置后”的使用率尽量低，从而拉齐各卡水位。
+                    return (
+                        fits,
+                        after_used_ratio,
+                        before_used_ratio,
+                        per_layer_device_counts[dev_name],  # 次级：同层专家数尽量均衡
+                        -rem,
+                        dev_name,
+                    )
+
+                chosen = min(device_names, key=_cand_key)
+                if device_remaining[chosen] < gsize:
+                    raise RuntimeError(
+                        f"[test_tensor_index_locate] insufficient GPU memory for "
+                        f"layer={layer_id} expert={g[1]} size={gsize} bytes, "
+                        f"remaining={device_remaining}"
+                    )
+                per_layer_device_counts[chosen] += 1
+                device_remaining[chosen] -= gsize
+                for tname in expert_group_tensors[g]:
+                    tensor_to_device[tname] = chosen
+
+        device_usage_ratio = {}
+        for d in device_names:
+            initial = max(1, device_initial_free[d])
+            device_usage_ratio[d] = (initial - device_remaining[d]) / initial
+        logger.info(
+            "[test_tensor_index_locate] tensors=%d expert_groups=%d first_device=%s "
+            "remaining=%s usage_ratio=%s",
+            len(tensor_to_device),
+            len(expert_group_tensors),
+            first_device,
+            {d: device_remaining[d] for d in device_names},
+            device_usage_ratio,
+        )
+        return tensor_to_device
+
+    def test_gate_experts(self):
+        device = self.device1
+        bsz, seq_len = 32, 256
+        layer_idx = 0
+        hidden_size = int(getattr(self.mlpm.config, "hidden_size"))
+        dtype = getattr(self.mlpm.config, "torch_dtype", torch.bfloat16)
+        if dtype is None:
+            dtype = torch.bfloat16
+
+        # Ensure embedding/gate related weights are ready before probing activation.
+        self.cmv.load_general_and_init()
+        self.cmv.init_load_qkvogn_es_weight(layer_idx=layer_idx)
+
+        tokenizer = AutoTokenizer.from_pretrained(self.mlpm.model_abs_path, trust_remote_code=True)
+        input_ids = generate_input_ids(tokenizer, bsz, seq_len, device)
+        embed_tokens = self.mlpm.get_embed_tokens(self.cmv.mlpm_ci)
+
+        print_layer_parameters(self.cmv.mlpm_ci.model.language_model.layers[layer_idx])
+        x = embed_tokens(input_ids).to(dtype=dtype)
+
+        # Use the same path as real prefill before MoE routing:
+        # iln -> self_attn -> residual add -> paln, then feed gate.
+        past_key_value = DynamicCache(config=self.mlpm.config)
+        past_key_values_length = past_key_value.get_seq_length()
+        position_ids = torch.arange(
+            past_key_values_length, seq_len + past_key_values_length, dtype=torch.long, device=device
+        ).unsqueeze(0)
+        attention_mask = _prepare_4d_causal_attention_mask_for_sdpa(
+            None,
+            (bsz, seq_len),
+            x,
+            past_key_values_length=past_key_values_length,
+        )
+        if self.mlpm.config._attn_implementation == "eager":
+            attention_mask = _prepare_4d_causal_attention_mask(
+                None,
+                (bsz, seq_len),
+                x,
+                past_key_values_length,
+            )
+
+        residual = x
+        x = self.mlpm.iln_func(self.cmv.mlpm_ci, layer_idx=layer_idx, hidden_states=x)
+        x = self.mlpm.self_attn_func(
+            self.cmv.mlpm_ci,
+            layer_idx=layer_idx,
+            hidden_states=x,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            past_key_value=past_key_value,
+        )
+        
+        x = self.mlpm.paln_func(self.cmv.mlpm_ci, layer_idx=layer_idx, hidden_states=x)
+        x = residual + x
+
+
+        
+        # topk_idx, topk_weight, _ = self.mlpm.gate_func(self.cmv.mlpm_ci, layer_idx, x)
+        topk_idx, topk_weight, _ = self.mlpm.gate_func(self.hmv.mlpm_hi, layer_idx, x.to("cpu"))
+        _ = topk_weight
+
+        # 同时打印两套对象同名参数，确认是否真不一致
+        r_c = self.cmv.mlpm_ci.model.language_model.layers[layer_idx].router
+        r_h = self.hmv.mlpm_hi.model.language_model.layers[layer_idx].router
+        print("cmv per_expert_scale", r_c.per_expert_scale.device, r_c.per_expert_scale.dtype)
+        print("hmv per_expert_scale", r_h.per_expert_scale.device, r_h.per_expert_scale.dtype)
+        print("max diff per_expert_scale:",
+            (r_c.per_expert_scale.detach().float().cpu() - r_h.per_expert_scale.detach().float().cpu()).abs().max())
+        print("max diff proj.weight:",
+            (r_c.proj.weight.detach().float().cpu()))
+
+        num_experts = int(self.mlpm.get_experts_num())
+        top_k = int(topk_idx.shape[-1])
+
+        # 按 top-k 槽位统计每个专家被路由到的总激活次数（同一 token 不同槽位会重复计数）
+        flat_expert_indices = topk_idx.reshape(-1).to(torch.int64).cpu()
+        counts = torch.bincount(flat_expert_indices, minlength=num_experts)
+        total_activations = int(counts.sum().item())
+        active_experts = int((counts > 0).sum().item())
+
+        stats: list[tuple[int, int, float]] = []
+        for expert_id in range(num_experts):
+            cnt = int(counts[expert_id].item())
+            pct = (cnt / total_activations * 100.0) if total_activations > 0 else 0.0
+            stats.append((expert_id, cnt, pct))
+        stats.sort(key=lambda item: (item[1], item[0]))
+
+        logger.info(
+            "[test_gate_experts] bsz=%d seq_len=%d top_k=%d experts=%d active_experts=%d total_activations=%d",
+            bsz,
+            seq_len,
+            top_k,
+            num_experts,
+            active_experts,
+            total_activations,
+        )
+        logger.info("[test_gate_experts] expert activation distribution (sorted by token count asc):")
+        for expert_id, cnt, pct in stats:
+            logger.info(
+                "[test_gate_experts] expert=%d tokens=%d pct=%.4f%%",
+                expert_id,
+                cnt,
+                pct,
+            )
+        # 从低激活专家开始做累计，观察“覆盖前 k 个专家”时累计 token 占比。
+        cumulative_tokens = 0
+        logger.info(
+            "[test_gate_experts] cumulative token ratio by ascending experts "
+            "(k/%d experts -> cumulative_tokens/total_activations)",
+            num_experts,
+        )
+        for k, (_expert_id, cnt, _pct) in enumerate(stats, start=1):
+            cumulative_tokens += cnt
+            cumulative_pct = (cumulative_tokens / total_activations * 100.0) if total_activations > 0 else 0.0
+            expert_pct = k / num_experts * 100.0
+            logger.info(
+                "[test_gate_experts] k=%d expert_pct=%.4f%% cumulative_tokens=%d cumulative_pct=%.4f%%",
+                k,
+                expert_pct,
+                cumulative_tokens,
+                cumulative_pct,
+            )
 
     @torch.no_grad()
     def test_mp_process(self, num_iters: int = 3, warmup: int = 1):
@@ -1729,7 +2362,7 @@ class MLPLLM:
             raise RuntimeError("cpu_thread_manager_mp is not initialized; call init_mp_process() first.")
 
         device = self.device1
-        bsz, seq_len = 4, 64
+        bsz, seq_len = 1, 128
         layer_idx = int(self.mlpm.get_first_k_dense_replace())
         hidden_size = int(getattr(self.mlpm.config, "hidden_size"))
         dtype = getattr(self.mlpm.config, "torch_dtype", torch.bfloat16)
@@ -1793,39 +2426,49 @@ class MLPLLM:
                 continue
             e_map = {eid: expert_indices_map[eid] for eid in expert_idx_list}
 
-            for _ in range(max(0, warmup)):
-                self.cpu_thread_manager_mp.submit_worker(
-                    worker_idx=0,
-                    layer_idx=layer_idx,
-                    expert_idx_list=expert_idx_list,
-                    expert_indices_map=e_map,
-                    flat_hidden_states=flat_hidden_states,
-                    idxs=idxs,
-                    use_bmm=True,
-                )
-                out = self.cpu_thread_manager_mp.wait()
-                if out is not None:
-                    del out
-                torch.cuda.synchronize(device)
+            flat_hidden_states_cpu_pin = gpinpool.alloc_same_pin_tensor(flat_hidden_states)
+            flat_hidden_states_cpu_pin.copy_(flat_hidden_states, non_blocking=False)
+            idxs_cpu = idxs.to(dtype=torch.int64, device="cpu", non_blocking=False)
 
             times_ms: list[float] = []
+            n_workers = int(getattr(self.cpu_thread_manager_mp, "num_workers", 1))
+            buckets = self._mp_partition_experts_across_cpu_workers(
+                cpu_expert_idx_list=expert_idx_list,
+                expert_indices_map=e_map,
+                num_workers=n_workers,
+            )
             for _ in range(num_iters):
                 torch.cuda.synchronize(device)
                 t0 = time_mod.perf_counter()
-                self.cpu_thread_manager_mp.submit_worker(
-                    worker_idx=0,
-                    layer_idx=layer_idx,
-                    expert_idx_list=expert_idx_list,
-                    expert_indices_map=e_map,
-                    flat_hidden_states=flat_hidden_states,
-                    idxs=idxs,
-                    use_bmm=True,
-                )
-                out = self.cpu_thread_manager_mp.wait()
+                pending = set()
+                outs = []
+                for wid, eids_sub in enumerate(buckets):
+                    if not eids_sub:
+                        continue
+                    rid = self._mp_next_cpu_request_id()
+                    pending.add(rid)
+                    self.cpu_thread_manager_mp.submit_worker(
+                        worker_idx=wid,
+                        layer_idx=layer_idx,
+                        expert_idx_list=sorted(eids_sub),
+                        expert_indices_map={eid: e_map[eid] for eid in eids_sub},
+                        flat_hidden_states=flat_hidden_states_cpu_pin,
+                        idxs=idxs_cpu,
+                        use_bmm=True,
+                        request_id=rid,
+                        device="cpu",
+                    )
+                while pending:
+                    res = self.cpu_thread_manager_mp.wait()
+                    rid = getattr(res, "request_id", -1)
+                    if rid in pending:
+                        pending.remove(rid)
+                        if res.final_hidden_states is not None:
+                            outs.append(res.final_hidden_states)
                 torch.cuda.synchronize(device)
                 t1 = time_mod.perf_counter()
                 times_ms.append((t1 - t0) * 1e3)
-                if out is not None:
+                for out in outs:
                     del out
 
             mean_ms = sum(times_ms) / max(len(times_ms), 1)

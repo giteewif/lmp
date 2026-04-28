@@ -1,0 +1,71 @@
+here pin
+INFO 04-26 08:34:15.869117.869117 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+INFO 04-26 08:34:16.429192.429192 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+INFO 04-26 08:34:16.878813.878813 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 04-26 08:34:16.878325.878325 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 1.010s
+Warming up 4 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU 3 warmed up
+GPU warmup completed
+Warming up 4 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU 3 warmed up
+GPU warmup completed
+Warming up 4 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU 3 warmed up
+GPU warmup completed
+DEBUG 04-26 08:34:23.806472.806472 cuda_memory_view.py:1197] 
+DEBUG 04-26 08:34:23.806472.806472 cuda_memory_view.py:1197] restore_tensors_from_shared_memory_names time: 0.0026068687438964844
+DEBUG 04-26 08:34:23.824188.824188 mlpmodule.py:932] restore_hm_state_dict2model loaded 627 language_model tensors for Gemma4 model
+DEBUG 04-26 08:34:23.824137.824137 cuda_h.py:27] end init_cmv_hmv cost 635.066 ms
+here pin
+INFO 04-26 08:34:25.399317.399317 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+INFO 04-26 08:34:25.950731.950731 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+INFO 04-26 08:34:26.418633.418633 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 04-26 08:34:26.418327.418327 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 1.020s
+DEBUG 04-26 08:34:31.474587.474587 cpu_thread_manager_mp.py:412] 初始化
+[cpu_experts_worker pid=3440149] imports done
+[cpu_experts_worker pid=3440149] MLPModuleWrapper(...) ...
+[cpu_experts_worker pid=3440149] init_chmv_meta_model(...) ...
+[cpu_experts_worker pid=3440149] HostMemoryView(...) ...
+DEBUG 04-26 08:34:32.078514.078514 cuda_memory_view.py:1197] 
+DEBUG 04-26 08:34:32.078514.078514 cuda_memory_view.py:1197] restore_tensors_from_shared_memory_names time: 0.0028121471405029297
+DEBUG 04-26 08:34:32.099923.099923 mlpmodule.py:932] restore_hm_state_dict2model loaded 627 language_model tensors for Gemma4 model
+[cpu_experts_worker pid=3440149] HostMemoryView ready
+[cpu_experts_worker pid=3440149] skip _test_group_bmm_fused_experts() (set LMP_MP_WORKER_SELFTEST=1 to enable)
+DEBUG 04-26 08:34:32.100792.100792 cuda_h.py:27] end init_mp_process cost 8195.412 ms
+DEBUG 04-26 08:34:32.124378.124378 cuda_h.py:27] end cpu_gate cost 5.331 ms
+DEBUG 04-26 08:34:32.125638.125638 cuda_h.py:27] end before bmm_cpu_experts cost 0.513 ms
+DEBUG 04-26 08:34:32.166395.166395 cuda_h.py:27] end _batched_pad_inputs cost 19.561 ms
+DEBUG 04-26 08:34:32.166843.166843 cuda_h.py:27] end get_fused_experts_names_w cost 0.019 ms
+DEBUG 04-26 08:34:32.167756.167756 cuda_h.py:27] end restore_fused_tensors cost 0.129 ms
+DEBUG 04-26 08:34:32.167732.167732 cuda_h.py:27] end group_fused_experts cost 0.468 ms
+DEBUG 04-26 08:34:32.194108.194108 mlpmodule.py:3528] [fused_group_bmm_cpu][steps] bmm1=17.070 ms split=0.252 ms act_mul=0.955 ms bmm2=9.128 ms
+DEBUG 04-26 08:34:32.198016.198016 cuda_h.py:27] end gather_outputs_group_fused_mp cost 3.168 ms
+DEBUG 04-26 08:34:32.198477.198477 cuda_h.py:27] end bmm_with_group_tensors_mp_cpu_para cost 51.281 ms
+DEBUG 04-26 08:34:32.201982.201982 cuda_h.py:27] end cpu_experts_worker_bmm_or_einsum_0 cost 54.515 ms
+DEBUG 04-26 08:34:32.220658.220658 cuda_h.py:27] end bmm_cpu_experts cost 95.244 ms
+DEBUG 04-26 08:34:32.238111.238111 cuda_h.py:27] end scatter_reduce_ cost 17.155 ms
+INFO 04-26 08:34:32.238837.238837 lmp.py:421] [test_mp_cpu_tensor] CPU prefill completed, output shape: torch.Size([1, 128, 2816])
+DEBUG 04-26 08:34:32.238259.238259 cuda_h.py:27] end test_mp_cpu_tensor cost 137.963 ms
+DEBUG 04-26 08:34:32.249245.249245 cuda_h.py:27] end cpu_gate cost 1.502 ms
+DEBUG 04-26 08:34:32.249977.249977 cuda_h.py:27] end before bmm_cpu_experts cost 0.242 ms
+DEBUG 04-26 08:34:32.282784.282784 cuda_h.py:27] end _batched_pad_inputs cost 17.530 ms
+DEBUG 04-26 08:34:32.282562.282562 cuda_h.py:27] end get_fused_experts_names_w cost 0.018 ms
+DEBUG 04-26 08:34:32.282517.282517 cuda_h.py:27] end restore_fused_tensors cost 0.083 ms
+DEBUG 04-26 08:34:32.282559.282559 cuda_h.py:27] end group_fused_experts cost 0.512 ms
+DEBUG 04-26 08:34:32.307694.307694 mlpmodule.py:3528] [fused_group_bmm_cpu][steps] bmm1=14.929 ms split=0.110 ms act_mul=0.977 ms bmm2=8.391 ms
+DEBUG 04-26 08:34:32.310043.310043 cuda_h.py:27] end gather_outputs_group_fused_mp cost 2.851 ms
+DEBUG 04-26 08:34:32.310503.310503 cuda_h.py:27] end bmm_with_group_tensors_mp_cpu_para cost 45.953 ms
+DEBUG 04-26 08:34:32.311721.311721 cuda_h.py:27] end cpu_experts_worker_bmm_or_einsum_0 cost 47.051 ms
+DEBUG 04-26 08:34:32.325865.325865 cuda_h.py:27] end bmm_cpu_experts cost 76.057 ms
+DEBUG 04-26 08:34:32.356895.356895 cuda_h.py:27] end scatter_reduce_ cost 30.230 ms
+INFO 04-26 08:34:32.356653.356653 lmp.py:421] [test_mp_cpu_tensor] CPU prefill completed, output shape: torch.Size([1, 128, 2816])
+DEBUG 04-26 08:34:32.356458.356458 cuda_h.py:27] end test_mp_cpu_tensor cost 117.401 ms

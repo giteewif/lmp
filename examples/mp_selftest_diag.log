@@ -1,24 +1,200 @@
-[cpu_experts_worker pid=74280] entered (model_path='gemma4-26B-A4B' type='Gemma4')
-[cpu_experts_worker pid=74280] torch.set_num_threads(32) done
-[cpu_experts_worker pid=74280] importing MLPModuleWrapper / HostMemoryView ...
-[cpu_experts_worker pid=74280] imports done
-[cpu_experts_worker pid=74280] MLPModuleWrapper(...) ...
-[cpu_experts_worker pid=74280] init_chmv_meta_model(...) ...
-[cpu_experts_worker pid=74280] HostMemoryView(...) ...
-[cpu_experts_worker pid=74280] HostMemoryView ready
-[cpu_experts_worker pid=74280] begin _test_group_bmm_fused_experts()
+[cpu_experts_worker pid=180274] entered (model_path='gemma4-26B-A4B' type='Gemma4')
+[cpu_experts_worker pid=180274] torch.set_num_threads(32) done
+[cpu_experts_worker pid=180274] importing MLPModuleWrapper / HostMemoryView ...
+[cpu_experts_worker pid=180274] imports done
+[cpu_experts_worker pid=180274] MLPModuleWrapper(...) ...
+[cpu_experts_worker pid=180274] init_chmv_meta_model(...) ...
+[cpu_experts_worker pid=180274] HostMemoryView(...) ...
+[cpu_experts_worker pid=180274] HostMemoryView ready
+[cpu_experts_worker pid=180274] begin _test_group_bmm_fused_experts()
 [test_group_bmm_fused_experts] start (print+flush; bypasses logging).
-[test_group_bmm_fused_experts][half=noncontiguous] input_gen: 539.371 ms
-[test_group_bmm_fused_experts][half=noncontiguous] gate_func: 46.323 ms
-[test_group_bmm_fused_experts][half=noncontiguous] choose_half_experts: 1.012 ms (E_total=128, E_half=64, experts=[54, 22, 87, 123, 1, 77, 23, 92, 15, 73, 79, 44, 45, 39, 47, 102, 51, 58, 126, 55, 81, 108, 28, 68, 83, 103, 3, 13, 19, 91, 111, 114, 120, 34, 29, 110, 18, 20, 24, 63, 67, 90, 46, 122, 14, 64, 5, 99, 117, 8, 17, 33, 16, 50, 52, 53, 84, 89, 109, 125, 60, 118, 72, 94], total_tokens=3289, max_tokens=63)
-[test_group_bmm_fused_experts][half=noncontiguous] filter_tokens_in_half: 0.817 ms (tokens_in_half=3289)
-[test_group_bmm_fused_experts][half=noncontiguous] gather_half_tokens: 0.922 ms
-[test_group_bmm_fused_experts][half=noncontiguous] sort_by_expert: 1.023 ms
-[test_group_bmm_fused_experts][half=noncontiguous] restore_group_fused_weights: 1.748 ms
-[test_group_bmm_fused_experts][half=noncontiguous] transpose_contig: 0.030 ms
-[test_group_bmm_fused_experts][half=noncontiguous] pad_pack: 3.121 ms
-[test_group_bmm_fused_experts][half=noncontiguous] fused_group_bmm: 25.505 ms
-[test_group_bmm_fused_experts][half=noncontiguous] ref_mm_and_assert: 129.287 ms
-[test_group_bmm_fused_experts][half=noncontiguous] unsort_and_weight: 1.986 ms
-[test_group_bmm_fused_experts][half=noncontiguous] total: 755.982 ms (T=8192, tokens_in_half=3289, E_half=64)
-[cpu_experts_worker pid=74280] end _test_group_bmm_fused_experts()
+[test_group_bmm_fused_experts][half=noncontiguous] input_gen: 34.762 ms
+[test_group_bmm_fused_experts][half=noncontiguous] gate_func: 7.195 ms
+[test_group_bmm_fused_experts][half=noncontiguous] activated_experts_unique=128, routed_slots=4096 total experts = 128 (T=512, K=8)
+[test_group_bmm_fused_experts][half=noncontiguous] choose_half_experts: 1.334 ms (E_total=128, E_half=64, experts=[18, 58, 1, 15, 44, 79, 83, 99, 123, 47, 53, 3, 19, 28, 48, 64, 77, 125, 22, 23, 70, 92, 114, 5, 46, 72, 90, 103, 106, 33, 68, 75, 86, 89, 102, 127, 6, 13, 27, 38, 43, 45, 50, 51, 108, 122, 29, 31, 67, 81, 120, 121, 8, 25, 35, 54, 66, 104, 115, 7, 10, 55, 63, 73], total_tokens=1684, max_tokens=32)
+[test_group_bmm_fused_experts][half=noncontiguous] filter_slots_in_half: 0.526 ms (slots_in_half=1684, T=512, K=8)
+[test_group_bmm_fused_experts][half=noncontiguous] gather_half_tokens: 0.810 ms
+[test_group_bmm_fused_experts][half=noncontiguous] sort_by_expert: 1.096 ms
+[test_group_bmm_fused_experts][half=noncontiguous] restore_group_fused_weights: 2.797 ms
+[test_group_bmm_fused_experts][half=noncontiguous] transpose_contig: 0.046 ms
+[test_group_bmm_fused_experts][half=noncontiguous] pad_pack: 2.849 ms
+[test_group_bmm_fused_experts][half=noncontiguous] fused_group_bmm: 20.942 ms (bmm1=10.379 act+split=0.832 bmm2=5.937 unpad=3.794)
+[test_group_bmm_fused_experts][half=noncontiguous] ref_mm_and_assert: 79.084 ms
+[test_group_bmm_fused_experts][half=noncontiguous] unsort_and_weight: 0.527 ms
+[test_group_bmm_fused_experts][half=noncontiguous] total: 158.209 ms (T=512, K=8, slots_in_half=1684, E_half=64)
+[cpu_experts_worker pid=180274] end _test_group_bmm_fused_experts()
+[cpu_experts_worker pid=181555] entered (model_path='gemma4-26B-A4B' type='Gemma4')
+[cpu_experts_worker pid=181555] torch.set_num_threads(32) done
+[cpu_experts_worker pid=181555] importing MLPModuleWrapper / HostMemoryView ...
+[cpu_experts_worker pid=181555] imports done
+[cpu_experts_worker pid=181555] MLPModuleWrapper(...) ...
+[cpu_experts_worker pid=181555] init_chmv_meta_model(...) ...
+[cpu_experts_worker pid=181555] HostMemoryView(...) ...
+[cpu_experts_worker pid=181555] HostMemoryView ready
+[cpu_experts_worker pid=181555] begin _test_group_bmm_fused_experts()
+[test_group_bmm_fused_experts] start (print+flush; bypasses logging).
+[test_group_bmm_fused_experts][half=noncontiguous] input_gen: 35.000 ms
+[test_group_bmm_fused_experts][half=noncontiguous] gate_func: 7.260 ms
+[test_group_bmm_fused_experts][half=noncontiguous] activated_experts_unique=128, routed_slots=4096 total experts = 128 (T=512, K=8)
+[test_group_bmm_fused_experts][half=noncontiguous] choose_half_experts: 1.299 ms (E_total=128, E_half=64, experts=[108, 69, 28, 106, 121, 124, 47, 54, 83, 84, 9, 14, 35, 79, 58, 22, 23, 46, 63, 65, 7, 8, 27, 41, 67, 89, 99, 100, 102, 116, 24, 38, 40, 43, 45, 48, 50, 51, 78, 113, 118, 126, 13, 30, 36, 55, 91, 111, 120, 1, 6, 11, 20, 37, 61, 71, 125, 4, 17, 18, 44, 53, 56, 98], total_tokens=1719, max_tokens=31)
+[test_group_bmm_fused_experts][half=noncontiguous] filter_slots_in_half: 0.509 ms (slots_in_half=1719, T=512, K=8)
+[test_group_bmm_fused_experts][half=noncontiguous] gather_half_tokens: 0.564 ms
+[test_group_bmm_fused_experts][half=noncontiguous] sort_by_expert: 0.607 ms
+[test_group_bmm_fused_experts][half=noncontiguous] restore_group_fused_weights: 1.560 ms
+[test_group_bmm_fused_experts][half=noncontiguous] transpose_contig: 0.025 ms
+[test_group_bmm_fused_experts][half=noncontiguous] pad_pack: 2.388 ms
+[test_group_bmm_fused_experts][half=noncontiguous] fused_group_bmm: 20.322 ms (bmm1=10.289 act+split=0.679 bmm2=6.023 unpad=3.330)
+[test_group_bmm_fused_experts][half=noncontiguous] ref_mm_and_assert: 81.732 ms
+[test_group_bmm_fused_experts][half=noncontiguous] unsort_and_weight: 0.565 ms
+[test_group_bmm_fused_experts][half=noncontiguous] total: 157.407 ms (T=512, K=8, slots_in_half=1719, E_half=64)
+[cpu_experts_worker pid=181555] end _test_group_bmm_fused_experts()
+[cpu_experts_worker pid=182564] entered (model_path='gemma4-26B-A4B' type='Gemma4')
+[cpu_experts_worker pid=182564] torch.set_num_threads(32) done
+[cpu_experts_worker pid=182564] importing MLPModuleWrapper / HostMemoryView ...
+[cpu_experts_worker pid=182564] imports done
+[cpu_experts_worker pid=182564] MLPModuleWrapper(...) ...
+[cpu_experts_worker pid=182564] init_chmv_meta_model(...) ...
+[cpu_experts_worker pid=182564] HostMemoryView(...) ...
+[cpu_experts_worker pid=182564] HostMemoryView ready
+[cpu_experts_worker pid=182564] begin _test_group_bmm_fused_experts()
+[test_group_bmm_fused_experts] start (print+flush; bypasses logging).
+[test_group_bmm_fused_experts][half=noncontiguous] input_gen: 34.910 ms
+[test_group_bmm_fused_experts][half=noncontiguous] gate_func: 6.797 ms
+[test_group_bmm_fused_experts][half=noncontiguous] activated_experts_unique=128, routed_slots=4096 total experts = 128 (T=512, K=8)
+[test_group_bmm_fused_experts][half=noncontiguous] choose_half_experts: 1.435 ms (E_total=128, E_half=64, experts=[103, 22, 79, 90, 19, 44, 46, 52, 55, 74, 84, 92, 0, 13, 28, 30, 58, 76, 88, 108, 17, 23, 33, 106, 114, 1, 12, 51, 53, 87, 16, 18, 38, 39, 47, 49, 50, 60, 63, 68, 94, 21, 32, 45, 72, 75, 77, 93, 116, 120, 3, 5, 24, 29, 31, 89, 26, 43, 54, 110, 111, 127, 67, 83], total_tokens=1719, max_tokens=32)
+[test_group_bmm_fused_experts][half=noncontiguous] filter_slots_in_half: 0.537 ms (slots_in_half=1719, T=512, K=8)
+[test_group_bmm_fused_experts][half=noncontiguous] gather_half_tokens: 0.530 ms
+[test_group_bmm_fused_experts][half=noncontiguous] sort_by_expert: 0.867 ms
+[test_group_bmm_fused_experts][half=noncontiguous] restore_group_fused_weights: 1.871 ms
+[test_group_bmm_fused_experts][half=noncontiguous] transpose_contig: 0.031 ms
+[test_group_bmm_fused_experts][half=noncontiguous] pad_pack: 3.179 ms
+[test_group_bmm_fused_experts][half=noncontiguous] fused_group_bmm: 21.026 ms (bmm1=11.011 act+split=0.798 bmm2=5.890 unpad=3.327)
+[test_group_bmm_fused_experts][half=noncontiguous] ref_mm_and_assert: 74.516 ms
+[test_group_bmm_fused_experts][half=noncontiguous] unsort_and_weight: 0.574 ms
+[test_group_bmm_fused_experts][half=noncontiguous] total: 152.562 ms (T=512, K=8, slots_in_half=1719, E_half=64)
+[cpu_experts_worker pid=182564] end _test_group_bmm_fused_experts()
+[cpu_experts_worker pid=183351] entered (model_path='gemma4-26B-A4B' type='Gemma4')
+[cpu_experts_worker pid=183351] torch.set_num_threads(32) done
+[cpu_experts_worker pid=183351] importing MLPModuleWrapper / HostMemoryView ...
+[cpu_experts_worker pid=183351] imports done
+[cpu_experts_worker pid=183351] MLPModuleWrapper(...) ...
+[cpu_experts_worker pid=183351] init_chmv_meta_model(...) ...
+[cpu_experts_worker pid=183351] HostMemoryView(...) ...
+[cpu_experts_worker pid=183351] HostMemoryView ready
+[cpu_experts_worker pid=183351] begin _test_group_bmm_fused_experts()
+[test_group_bmm_fused_experts] start (print+flush; bypasses logging).
+[test_group_bmm_fused_experts][half=noncontiguous] input_gen: 34.330 ms
+[test_group_bmm_fused_experts][half=noncontiguous] gate_func: 7.161 ms
+[test_group_bmm_fused_experts][half=noncontiguous] activated_experts_unique=128, routed_slots=4096 total experts = 128 (T=512, K=8)
+[test_group_bmm_fused_experts][half=noncontiguous] choose_half_experts: 1.372 ms (E_total=128, E_half=64, experts=[75, 1, 20, 102, 17, 120, 23, 54, 77, 29, 44, 48, 89, 15, 18, 116, 122, 6, 14, 26, 69, 90, 91, 100, 19, 95, 97, 108, 109, 123, 0, 37, 38, 43, 45, 58, 126, 50, 60, 74, 92, 125, 5, 16, 22, 28, 47, 63, 64, 73, 83, 111, 112, 113, 121, 3, 21, 27, 33, 51, 55, 66, 67, 79], total_tokens=1742, max_tokens=31)
+[test_group_bmm_fused_experts][half=noncontiguous] filter_slots_in_half: 0.493 ms (slots_in_half=1742, T=512, K=8)
+[test_group_bmm_fused_experts][half=noncontiguous] gather_half_tokens: 1.132 ms
+[test_group_bmm_fused_experts][half=noncontiguous] sort_by_expert: 1.206 ms
+[test_group_bmm_fused_experts][half=noncontiguous] restore_group_fused_weights: 1.671 ms
+[test_group_bmm_fused_experts][half=noncontiguous] transpose_contig: 0.025 ms
+[test_group_bmm_fused_experts][half=noncontiguous] pad_pack: 2.414 ms
+[test_group_bmm_fused_experts][half=noncontiguous] fused_group_bmm: 20.408 ms (bmm1=10.476 act+split=0.687 bmm2=5.936 unpad=3.309)
+[test_group_bmm_fused_experts][half=noncontiguous] ref_mm_and_assert: 80.213 ms
+[test_group_bmm_fused_experts][half=noncontiguous] unsort_and_weight: 0.477 ms
+[test_group_bmm_fused_experts][half=noncontiguous] total: 156.695 ms (T=512, K=8, slots_in_half=1742, E_half=64)
+[cpu_experts_worker pid=183351] end _test_group_bmm_fused_experts()
+[cpu_experts_worker pid=184262] entered (model_path='gemma4-26B-A4B' type='Gemma4')
+[cpu_experts_worker pid=184262] torch.set_num_threads(32) done
+[cpu_experts_worker pid=184262] importing MLPModuleWrapper / HostMemoryView ...
+[cpu_experts_worker pid=184262] imports done
+[cpu_experts_worker pid=184262] MLPModuleWrapper(...) ...
+[cpu_experts_worker pid=184262] init_chmv_meta_model(...) ...
+[cpu_experts_worker pid=184262] HostMemoryView(...) ...
+[cpu_experts_worker pid=184262] HostMemoryView ready
+[cpu_experts_worker pid=184262] begin _test_group_bmm_fused_experts()
+[test_group_bmm_fused_experts] start (print+flush; bypasses logging).
+[test_group_bmm_fused_experts][half=noncontiguous] input_gen: 33.591 ms
+[test_group_bmm_fused_experts][half=noncontiguous] gate_func: 7.625 ms
+[test_group_bmm_fused_experts][half=noncontiguous] activated_experts_unique=128, routed_slots=4096 total experts = 128 (T=512, K=8)
+[test_group_bmm_fused_experts][half=noncontiguous] choose_half_experts: 1.754 ms (E_total=128, E_half=64, experts=[1, 33, 18, 91, 115, 7, 15, 89, 24, 45, 106, 67, 27, 28, 31, 50, 83, 84, 113, 37, 101, 103, 114, 123, 17, 46, 62, 90, 126, 3, 14, 22, 29, 41, 43, 81, 120, 125, 10, 16, 20, 34, 54, 60, 65, 79, 94, 105, 5, 6, 47, 59, 108, 116, 36, 44, 51, 53, 64, 68, 69, 71, 100, 122], total_tokens=1730, max_tokens=31)
+[test_group_bmm_fused_experts][half=noncontiguous] filter_slots_in_half: 0.623 ms (slots_in_half=1730, T=512, K=8)
+[test_group_bmm_fused_experts][half=noncontiguous] gather_half_tokens: 0.914 ms
+[test_group_bmm_fused_experts][half=noncontiguous] sort_by_expert: 0.640 ms
+[test_group_bmm_fused_experts][half=noncontiguous] restore_group_fused_weights: 1.798 ms
+[test_group_bmm_fused_experts][half=noncontiguous] transpose_contig: 0.031 ms
+[test_group_bmm_fused_experts][half=noncontiguous] pad_pack: 3.064 ms
+[test_group_bmm_fused_experts][half=noncontiguous] fused_group_bmm: 31.610 ms (bmm1=17.995 act+split=0.751 bmm2=9.136 unpad=3.728)
+[test_group_bmm_fused_experts][half=noncontiguous] ref_mm_and_assert: 95.280 ms
+[test_group_bmm_fused_experts][half=noncontiguous] unsort_and_weight: 0.677 ms
+[test_group_bmm_fused_experts][half=noncontiguous] total: 183.400 ms (T=512, K=8, slots_in_half=1730, E_half=64)
+[cpu_experts_worker pid=184262] end _test_group_bmm_fused_experts()
+[cpu_experts_worker pid=185034] entered (model_path='gemma4-26B-A4B' type='Gemma4')
+[cpu_experts_worker pid=185034] torch.set_num_threads(32) done
+[cpu_experts_worker pid=185034] importing MLPModuleWrapper / HostMemoryView ...
+[cpu_experts_worker pid=185034] imports done
+[cpu_experts_worker pid=185034] MLPModuleWrapper(...) ...
+[cpu_experts_worker pid=185034] init_chmv_meta_model(...) ...
+[cpu_experts_worker pid=185034] HostMemoryView(...) ...
+[cpu_experts_worker pid=185034] HostMemoryView ready
+[cpu_experts_worker pid=185034] begin _test_group_bmm_fused_experts()
+[test_group_bmm_fused_experts] start (print+flush; bypasses logging).
+[test_group_bmm_fused_experts][half=noncontiguous] input_gen: 33.397 ms
+[test_group_bmm_fused_experts][half=noncontiguous] gate_func: 7.734 ms
+[test_group_bmm_fused_experts][half=noncontiguous] activated_experts_unique=128, routed_slots=4096 total experts = 128 (T=512, K=8)
+[test_group_bmm_fused_experts][half=noncontiguous] choose_half_experts: 1.815 ms (E_total=128, E_half=64, experts=[79, 15, 38, 48, 67, 81, 41, 92, 105, 127, 5, 13, 23, 106, 95, 108, 1, 28, 68, 91, 114, 22, 24, 34, 111, 17, 61, 70, 76, 89, 97, 0, 14, 21, 30, 45, 77, 83, 84, 94, 117, 6, 7, 18, 33, 35, 54, 78, 110, 3, 64, 73, 74, 102, 103, 112, 123, 125, 4, 29, 50, 55, 109, 122], total_tokens=1705, max_tokens=31)
+[test_group_bmm_fused_experts][half=noncontiguous] filter_slots_in_half: 0.603 ms (slots_in_half=1705, T=512, K=8)
+[test_group_bmm_fused_experts][half=noncontiguous] gather_half_tokens: 1.215 ms
+[test_group_bmm_fused_experts][half=noncontiguous] sort_by_expert: 0.722 ms
+[test_group_bmm_fused_experts][half=noncontiguous] restore_group_fused_weights: 1.763 ms
+[test_group_bmm_fused_experts][half=noncontiguous] transpose_contig: 0.033 ms
+[test_group_bmm_fused_experts][half=noncontiguous] pad_pack: 2.989 ms
+[test_group_bmm_fused_experts][half=noncontiguous] fused_group_bmm: 31.299 ms (bmm1=17.598 act+split=0.695 bmm2=9.243 unpad=3.764)
+[test_group_bmm_fused_experts][half=noncontiguous] ref_mm_and_assert: 92.581 ms
+[test_group_bmm_fused_experts][half=noncontiguous] unsort_and_weight: 0.645 ms
+[test_group_bmm_fused_experts][half=noncontiguous] total: 181.894 ms (T=512, K=8, slots_in_half=1705, E_half=64)
+[cpu_experts_worker pid=185034] end _test_group_bmm_fused_experts()
+[cpu_experts_worker pid=185980] entered (model_path='gemma4-26B-A4B' type='Gemma4')
+[cpu_experts_worker pid=185980] torch.set_num_threads(32) done
+[cpu_experts_worker pid=185980] importing MLPModuleWrapper / HostMemoryView ...
+[cpu_experts_worker pid=185980] imports done
+[cpu_experts_worker pid=185980] MLPModuleWrapper(...) ...
+[cpu_experts_worker pid=185980] init_chmv_meta_model(...) ...
+[cpu_experts_worker pid=185980] HostMemoryView(...) ...
+[cpu_experts_worker pid=185980] HostMemoryView ready
+[cpu_experts_worker pid=185980] begin _test_group_bmm_fused_experts()
+[test_group_bmm_fused_experts] start (print+flush; bypasses logging).
+[test_group_bmm_fused_experts][half=noncontiguous] input_gen: 37.157 ms
+[test_group_bmm_fused_experts][half=noncontiguous] gate_func: 8.094 ms
+[test_group_bmm_fused_experts][half=noncontiguous] activated_experts_unique=128, routed_slots=4096 total experts = 128 (T=512, K=8)
+[test_group_bmm_fused_experts][half=noncontiguous] choose_half_experts: 1.715 ms (E_total=128, E_half=64, experts=[24, 73, 79, 117, 16, 28, 50, 94, 45, 63, 91, 99, 116, 19, 60, 102, 23, 69, 84, 108, 4, 15, 26, 77, 123, 9, 48, 55, 58, 83, 87, 95, 103, 120, 1, 8, 22, 64, 97, 111, 127, 29, 124, 27, 66, 67, 78, 89, 113, 125, 10, 14, 21, 39, 46, 51, 81, 85, 106, 121, 17, 20, 33, 38], total_tokens=1712, max_tokens=32)
+[test_group_bmm_fused_experts][half=noncontiguous] filter_slots_in_half: 0.555 ms (slots_in_half=1712, T=512, K=8)
+[test_group_bmm_fused_experts][half=noncontiguous] gather_half_tokens: 1.150 ms
+[test_group_bmm_fused_experts][half=noncontiguous] sort_by_expert: 0.632 ms
+[test_group_bmm_fused_experts][half=noncontiguous] restore_group_fused_weights: 1.712 ms
+[test_group_bmm_fused_experts][half=noncontiguous] transpose_contig: 0.033 ms
+[test_group_bmm_fused_experts][half=noncontiguous] pad_pack: 3.052 ms
+[test_group_bmm_fused_experts][half=noncontiguous] fused_group_bmm: 31.037 ms (bmm1=17.269 act+split=0.837 bmm2=9.095 unpad=3.835)
+[test_group_bmm_fused_experts][half=noncontiguous] ref_mm_and_assert: 92.967 ms
+[test_group_bmm_fused_experts][half=noncontiguous] unsort_and_weight: 0.655 ms
+[test_group_bmm_fused_experts][half=noncontiguous] total: 185.365 ms (T=512, K=8, slots_in_half=1712, E_half=64)
+[cpu_experts_worker pid=185980] end _test_group_bmm_fused_experts()
+[cpu_experts_worker pid=186770] entered (model_path='gemma4-26B-A4B' type='Gemma4')
+[cpu_experts_worker pid=186770] torch.set_num_threads(32) done
+[cpu_experts_worker pid=186770] importing MLPModuleWrapper / HostMemoryView ...
+[cpu_experts_worker pid=186770] imports done
+[cpu_experts_worker pid=186770] MLPModuleWrapper(...) ...
+[cpu_experts_worker pid=186770] init_chmv_meta_model(...) ...
+[cpu_experts_worker pid=186770] HostMemoryView(...) ...
+[cpu_experts_worker pid=186770] HostMemoryView ready
+[cpu_experts_worker pid=186770] begin _test_group_bmm_fused_experts()
+[test_group_bmm_fused_experts] start (print+flush; bypasses logging).
+[test_group_bmm_fused_experts][half=noncontiguous] input_gen: 35.011 ms
+[test_group_bmm_fused_experts][half=noncontiguous] gate_func: 7.291 ms
+[test_group_bmm_fused_experts][half=noncontiguous] activated_experts_unique=128, routed_slots=4096 total experts = 128 (T=512, K=8)
+[test_group_bmm_fused_experts][half=noncontiguous] choose_half_experts: 1.835 ms (E_total=128, E_half=64, experts=[39, 68, 84, 22, 1, 116, 60, 89, 6, 33, 50, 106, 43, 123, 8, 48, 83, 87, 108, 120, 121, 19, 28, 30, 65, 79, 94, 122, 17, 18, 44, 52, 53, 54, 63, 67, 31, 36, 38, 61, 69, 13, 15, 20, 49, 100, 2, 3, 51, 77, 90, 117, 45, 55, 71, 78, 81, 118, 127, 5, 12, 24, 34, 37], total_tokens=1718, max_tokens=32)
+[test_group_bmm_fused_experts][half=noncontiguous] filter_slots_in_half: 0.623 ms (slots_in_half=1718, T=512, K=8)
+[test_group_bmm_fused_experts][half=noncontiguous] gather_half_tokens: 0.492 ms
+[test_group_bmm_fused_experts][half=noncontiguous] sort_by_expert: 0.735 ms
+[test_group_bmm_fused_experts][half=noncontiguous] restore_group_fused_weights: 1.693 ms
+[test_group_bmm_fused_experts][half=noncontiguous] transpose_contig: 0.035 ms
+[test_group_bmm_fused_experts][half=noncontiguous] pad_pack: 3.151 ms
+[test_group_bmm_fused_experts][half=noncontiguous] fused_group_bmm: 31.377 ms (bmm1=17.286 act+split=0.921 bmm2=9.153 unpad=4.017)
+[test_group_bmm_fused_experts][half=noncontiguous] ref_mm_and_assert: 91.731 ms
+[test_group_bmm_fused_experts][half=noncontiguous] unsort_and_weight: 0.560 ms
+[test_group_bmm_fused_experts][half=noncontiguous] total: 181.094 ms (T=512, K=8, slots_in_half=1718, E_half=64)
+[cpu_experts_worker pid=186770] end _test_group_bmm_fused_experts()

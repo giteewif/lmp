@@ -62,6 +62,21 @@ def test():
     # only for mp process, mp process for cpu experts thread
 
 
+    tensor_index_json = mlpllm.read_tensor_index_json(model_path=model_path)
+    tensor_to_device = mlpllm.test_tensor_index_locate(tensor_index_json=tensor_index_json)
+    print(tensor_to_device)
+
+    # layer_idx=0
+    # mlpllm.cmv.load_general_and_init()
+    # mlpllm.cmv.init_load_qkvogn_es_weight(layer_idx=layer_idx)
+
+    # max_len = 4*256
+    # mlpllm.hmv._test_kt_kernel_init(layer_idx=layer_idx, max_len=max_len)
+
+    # # mlpllm.test_gate_experts()
+    # for i in range(3):
+    #     mlpllm.hmv._test_kt_kernel_infer(max_len=max_len, cmv=mlpllm.cmv, layer_idx=layer_idx)
+
     # mlpllm.init_mp_process()
     # mlpllm.test_mp_process()
 

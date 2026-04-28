@@ -1,0 +1,74 @@
+/mnt/zhengcf3/lmp_env/fslmp/lib/python3.10/site-packages/torch/cuda/__init__.py:65: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+  import pynvml  # type: ignore[import]
+here pin
+INFO 04-23 21:04:28.964840.964840 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+INFO 04-23 21:04:29.537169.537169 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+INFO 04-23 21:04:30.002924.002924 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 04-23 21:04:30.002892.002892 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 1.038s
+`torch_dtype` is deprecated! Use `dtype` instead!
+Warming up 4 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU 3 warmed up
+GPU warmup completed
+Warming up 4 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU 3 warmed up
+GPU warmup completed
+Warming up 4 GPU(s)...
+GPU 0 warmed up
+GPU 1 warmed up
+GPU 2 warmed up
+GPU 3 warmed up
+GPU warmup completed
+DEBUG 04-23 21:04:36.363587.363587 cuda_memory_view.py:1180] 
+DEBUG 04-23 21:04:36.363587.363587 cuda_memory_view.py:1180] restore_tensors_from_shared_memory_names time: 0.002633810043334961
+DEBUG 04-23 21:04:36.368348.368348 mlpmodule.py:927] restore_hm_state_dict2model loaded 150 expert tensors for Gemma4 model
+DEBUG 04-23 21:04:36.368581.368581 cuda_h.py:27] end init_cmv_hmv cost 645.283 ms
+/mnt/zhengcf3/lmp_env/fslmp/lib/python3.10/site-packages/torch/cuda/__init__.py:65: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+  import pynvml  # type: ignore[import]
+here pin
+INFO 04-23 21:04:37.800874.800874 pinpool.py:28] Initializing PinnedMemoryPool with 2GB total, allocating in 1024MB chunks...
+INFO 04-23 21:04:38.352169.352169 pinpool.py:40] Allocated chunk 1: 536870912 elements (1024.0 MB)
+INFO 04-23 21:04:38.864778.864778 pinpool.py:40] Allocated chunk 2: 536870912 elements (1024.0 MB)
+INFO 04-23 21:04:38.864951.864951 pinpool.py:52] Successfully allocated 2 chunks, total 1073741824 elements (2048.0 MB) in 1.064s
+[cpu_experts_worker pid=69480] entered (model_path='gemma4-26B-A4B' type='Gemma4')
+DEBUG 04-23 21:04:43.414299.414299 cpu_thread_manager_mp.py:137] 初始化
+DEBUG 04-23 21:04:43.448851.448851 cpu_thread_manager_mp.py:143] CPU experts MP worker: torch.set_num_threads(32) (LMP_MP_CPU_INTRAOP_THREADS / OMP_NUM_THREADS / default cap 32)
+[cpu_experts_worker pid=69480] torch.set_num_threads(32) done
+[cpu_experts_worker pid=69480] importing MLPModuleWrapper / HostMemoryView ...
+[cpu_experts_worker pid=69480] imports done
+[cpu_experts_worker pid=69480] MLPModuleWrapper(...) ...
+[cpu_experts_worker pid=69480] init_chmv_meta_model(...) ...
+`torch_dtype` is deprecated! Use `dtype` instead!
+[cpu_experts_worker pid=69480] HostMemoryView(...) ...
+DEBUG 04-23 21:04:43.966021.966021 cuda_memory_view.py:1180] 
+DEBUG 04-23 21:04:43.966021.966021 cuda_memory_view.py:1180] restore_tensors_from_shared_memory_names time: 0.002597808837890625
+DEBUG 04-23 21:04:43.971455.971455 mlpmodule.py:927] restore_hm_state_dict2model loaded 150 expert tensors for Gemma4 model
+[cpu_experts_worker pid=69480] HostMemoryView ready
+[cpu_experts_worker pid=69480] begin _test_group_bmm_fused_experts()
+[test_group_bmm_fused_experts] start (print+flush; bypasses logging).
+[test_group_bmm_fused_experts][half=noncontiguous] input_gen: 33.900 ms
+[test_group_bmm_fused_experts][half=noncontiguous] gate_func: 7.337 ms
+[test_group_bmm_fused_experts][half=noncontiguous] activated_experts_unique=128, routed_slots=4096 total experts = 128 (T=512, K=8)
+[test_group_bmm_fused_experts][half=noncontiguous] choose_half_experts: 0.848 ms (E_total=128, E_half=64, experts=[15, 43, 23, 41, 86, 81, 22, 29, 33, 44, 110, 113, 127, 17, 63, 103, 123, 1, 49, 52, 54, 69, 87, 120, 20, 39, 46, 64, 67, 72, 88, 106, 2, 3, 79, 89, 90, 108, 5, 8, 50, 53, 102, 107, 114, 118, 31, 38, 55, 65, 68, 7, 62, 71, 83, 109, 111, 115, 116, 10, 13, 16, 35, 45], total_tokens=1755, max_tokens=32)
+[test_group_bmm_fused_experts][half=noncontiguous] filter_slots_in_half: 0.505 ms (slots_in_half=1755, T=512, K=8)
+[test_group_bmm_fused_experts][half=noncontiguous] gather_half_tokens: 0.147 ms
+[test_group_bmm_fused_experts][half=noncontiguous] sort_by_expert: 1.270 ms
+DEBUG 04-23 21:04:44.016316.016316 cuda_h.py:27] end get_fused_experts_names_w cost 0.027 ms
+DEBUG 04-23 21:04:44.018794.018794 cuda_h.py:27] end restore_fused_tensors cost 1.341 ms
+[test_group_bmm_fused_experts][half=noncontiguous] restore_group_fused_weights: 1.751 ms
+[test_group_bmm_fused_experts][half=noncontiguous] transpose_contig: 0.025 ms
+[test_group_bmm_fused_experts][half=noncontiguous] pad_pack: 3.047 ms
+[test_group_bmm_fused_experts][half=noncontiguous] fused_group_bmm: 21.298 ms (bmm1=10.745 act+split=0.884 bmm2=5.820 unpad=3.849)
+[test_group_bmm_fused_experts][half=noncontiguous] ref_mm_and_assert: 71.277 ms
+[test_group_bmm_fused_experts][half=noncontiguous] unsort_and_weight: 0.492 ms
+[test_group_bmm_fused_experts][half=noncontiguous] total: 142.982 ms (T=512, K=8, slots_in_half=1755, E_half=64)
+[cpu_experts_worker pid=69480] end _test_group_bmm_fused_experts()
+INFO 04-23 21:04:44.114368.114368 cpu_thread_manager_mp.py:181] CPU experts worker: _test_group_bmm_fused_experts() finished.
+DEBUG 04-23 21:04:44.115194.115194 cuda_h.py:27] end init_mp_process cost 7744.230 ms
+/root/miniconda3/envs/lpllm/lib/python3.10/multiprocessing/resource_tracker.py:224: UserWarning: resource_tracker: There appear to be 14 leaked semaphore objects to clean up at shutdown
+  warnings.warn('resource_tracker: There appear to be %d '

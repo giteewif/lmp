@@ -32,7 +32,7 @@ sllm-store start --storage-path /mnt/zhengcf3/models/sllm_models --num-thread 8 
 numactl --cpunodebind=0 --membind=0 sllm-store start --storage-path /mnt/zhengcf3/models/sllm_models --num-thread 8 --mem-pool-size 64GB --use-shared-memory True --chunk-size 1GB
 
 Gemma4 vllm
-sllm-store start --storage-path /mnt/zhengcf3/models/vllm_sllm_models --num-thread 8 --mem-pool-size 60GB --use-shared-memory True --chunk-size 1452MB --port 8074
+sllm-store start --storage-path /mnt/zhengcf3/models/vllm_sllm_models --num-thread 8 --mem-pool-size 60GB --use-shared-memory True --chunk-size 1GB --port 8074
 
 
 QWEN-1.5
@@ -114,19 +114,27 @@ version 0.19.1 patch for serverlessllm 0.8.0
 
 ### Serverlessllm usage with vllm 
 
+
+source /mnt/zhengcf3/lmp_env/fslmp/bin/activate
+
 source /mnt/zhengcf3/lmp_env/lmp/bin/activate
 
 website `https://serverlessllm.github.io/docs/store/quickstart`
 
 save load
 `
-python3 /mnt/zhengcf3/ServerlessLLM/sllm_store/examples/save_vllm_model.py --model-name gemma4-26B-A4B --local-model-path /mnt/zhengcf3/models/gemma4-26B-A4B --storage-path /mnt/zhengcf3/models/vllm_sllm_models --tensor-parallel-size 4
+python3 /mnt/zhengcf3/ServerlessLLM/sllm_store/examples/save_vllm_model.py --model-name gemma4-26B-A4B --storage-path /mnt/zhengcf3/models/vllm_sllm_models --tensor-parallel-size 4
 `
 
 本机为 3×GPU 时：`tensor_parallel_size=4` 不可用；`tensor_parallel_size=3` 与 ERNIE / Qwen 的 head 数不整除。已用 `TP=2`、`--dtype bfloat16`、`--gpu-memory-utilization 0.95`，并在运行前 `export VLLM_USE_FLASHINFER_MOE_FP16=1 VLLM_FLASHINFER_MOE_BACKEND=latency` 跑通下列四个权重（`save_vllm_model.py` 内已设 `disable_custom_all_reduce=True`）。一键顺序导出：`bash /mnt/zhengcf3/lmp/scripts/run_save_vllm_models_four.sh`（日志在 `lmp/logs/save_vllm_models/`）。
 
+
+python3 /mnt/zhengcf3/ServerlessLLM/sllm_store/examples/load_vllm_model.py --model-name gemma4-26B-A4B --storage-path /mnt/zhengcf3/models/vllm_sllm_models --tensor-parallel-size 4
+
 `
 python3 /mnt/zhengcf3/ServerlessLLM/sllm_store/examples/save_vllm_model.py --model-name Qwen3.5-35B --local-model-path /mnt/zhengcf3/models/Qwen3.5-35B --storage-path /mnt/zhengcf3/models/vllm_sllm_models --tensor-parallel-size 4
+
+python3 /mnt/zhengcf3/ServerlessLLM/sllm_store/examples/save_vllm_model.py --model-name gemma4-26B-A4B --local-model-path /mnt/zhengcf3/models/gemma4-26B-A4B --storage-path /mnt/zhengcf3/models/vllm_sllm_models --tensor-parallel-size 4
 
 python3 /mnt/zhengcf3/ServerlessLLM/sllm_store/examples/save_vllm_model.py --model-name Qwen3-30B-A3B --local-model-path /mnt/zhengcf3/models/Qwen3-30B-A3B --storage-path /mnt/zhengcf3/models/vllm_sllm_models --tensor-parallel-size 4
 
@@ -144,3 +152,8 @@ python3 /mnt/zhengcf3/ServerlessLLM/sllm_store/examples/save_vllm_model.py --mod
 
 python3 /mnt/zhengcf3/ServerlessLLM/sllm_store/examples/save_vllm_model.py --model-name DeepSeek-V2-Lite --local-model-path /mnt/zhengcf3/models/DeepSeek-V2-Lite --storage-path /mnt/zhengcf3/models/vllm_sllm_models --tensor-parallel-size 4
 `
+
+
+## 处理数据
+
+python3 /mnt/zhengcf3/lmp/scripts/analyze_prefill_log.py /mnt/zhengcf3/lmp/examples/generate_cpu_sanityspread0.6_12.log

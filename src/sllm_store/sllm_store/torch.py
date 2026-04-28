@@ -20,11 +20,8 @@ import os
 import time
 import uuid
 from typing import Dict, Optional, Union
-from tqdm import tqdm
 
 import torch
-
-
 
 # from accelerate.hooks import add_hook_to_module
 from sllm_store._C import (
@@ -48,37 +45,6 @@ logger = init_logger(__name__)
 def _get_uuid():
     return str(uuid.uuid4())
 
-class TensorWriter:
-    def __init__(self, filename):
-        self.filename = filename
-    def writeRecord(base, size):
-        pass
-def save_tensors_python(tensor_names, tensor_data_index, model_path: str):
-    tensor_filename = model_path + "/" + "tensor.data"
-    tensor_offsets = {}
-    data_record = {}
-
-    writer: TensorWriter = TensorWriter(tensor_filename)
-
-    total = len(tensor_names)
-    count = 0
-
-    for name in tensor_names:
-        base, size = tensor_data_index[name]
-        if base in data_record:
-            tensor_offsets[name] = tensor_offsets[data_record[base]]
-            continue
-        data_record[base] = name
-
-        # write base start, and size
-        offset = {}
-        tensor_offsets[name] = offset
-
-        count += 1
-
-        tqdm(count/total)
-
-    return tensor_offsets
 
 def save_dict(
     state_dict: Dict[str, torch.Tensor], model_path: Union[str, os.PathLike]
@@ -118,13 +84,12 @@ def load_dict(
     model_path: Union[str, os.PathLike],
     device_map: Dict[str, int],
     storage_path: Optional[str] = None,
-    store_server_address: Optional[str] = "127.0.0.1:8073",
 ):
     replica_uuid, state_dict = load_dict_non_blocking(
-        model_path, device_map, storage_path, store_server_address
+        model_path, device_map, storage_path
     )
 
-    client = SllmStoreClient(store_server_address)
+    client = SllmStoreClient("127.0.0.1:8073")
     client.confirm_model_loaded(model_path, replica_uuid)
 
     return state_dict
@@ -134,15 +99,14 @@ def load_dict_non_blocking(
     model_path: Optional[Union[str, os.PathLike]],
     device_map: Dict[str, int],
     storage_path: Optional[str] = None,
-    store_server_address: Optional[str] = "127.0.0.1:8073",
 ):
-    client = SllmStoreClient(store_server_address)
+    client = SllmStoreClient("127.0.0.1:8073")
     ret = client.load_into_cpu(model_path)
     if not ret:
         raise ValueError(f"Failed to load model {model_path} into CPU")
 
     if not storage_path:
-        storage_path = os.getenv("STORAGE_PATH", "./models")
+        storage_path = os.getenv("STORAGE_PATH", os.path.expanduser("~/models"))
     with open(
         os.path.join(storage_path, model_path, "tensor_index.json"), "r"
     ) as f:
@@ -161,7 +125,6 @@ def load_dict_non_blocking(
     device_memory = calculate_device_memory(
         expanded_device_map, tensor_data_index
     )
-    print("device_memory", device_memory)
     # logger.debug(f"calculate_device_memory {device_memory}")
     cuda_memory_ptrs = allocate_cuda_memory(device_memory)
     # cuda_memory_ptrs = { k: [v] for k,v in cuda_memory_ptrs.items()}
@@ -171,7 +134,6 @@ def load_dict_non_blocking(
     tensor_device_offsets, tensor_copy_chunks = calculate_tensor_device_offsets(
         expanded_device_map, tensor_data_index
     )
-    # print("tensor_copy_chunks", tensor_copy_chunks)
     logger.debug(f"allocate_cuda_memory takes {time.time() - start} seconds")
 
     replica_uuid = _get_uuid()
@@ -189,11 +151,6 @@ def load_dict_non_blocking(
     )
     if not ret:
         raise ValueError(f"Failed to load model {model_path} into GPU")
-
-    # Surface memcpy / IPC issues at load time instead of the first forward op.
-    if os.environ.get("SLLM_DEBUG_CUDA", "") == "1" and torch.cuda.is_available():
-        for d in range(torch.cuda.device_count()):
-            torch.cuda.synchronize(d)
 
     # load model state_dict
     start = time.time()

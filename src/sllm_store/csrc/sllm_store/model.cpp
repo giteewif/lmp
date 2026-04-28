@@ -23,24 +23,66 @@
 #include <unistd.h>
 
 #include <algorithm>
-#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <filesystem>
 #include <future>
-#include <iomanip>
 #include <mutex>
 #include <set>
 #include <string>
-#include <thread>
+#include <unordered_map>
 #include <vector>
 
 // Third-party library headers
 #include <cuda_runtime.h>
-// Note: glog is already included above (before model.h)
-// model.h handles torch header conflicts and restores glog's LOG macro
+#include <glog/logging.h>
 
 #include "error_handling.h"
+
+void GpuReplica::PriorityGpuQueue::Push(uint64_t task_id, CopyPriority priority) {
+  std::lock_guard<std::mutex> lock(mu_);
+  if (closed_) {
+    return;
+  }
+  if (priority == CopyPriority::HIGH) {
+    high_queue_.push(task_id);
+  } else {
+    low_queue_.push(task_id);
+  }
+  cv_.notify_one();
+}
+
+bool GpuReplica::PriorityGpuQueue::Pop(uint64_t* task_id) {
+  std::unique_lock<std::mutex> lock(mu_);
+  cv_.wait(lock, [this] { return closed_ || !high_queue_.empty() || !low_queue_.empty(); });
+  if (!high_queue_.empty()) {
+    *task_id = high_queue_.front();
+    high_queue_.pop();
+    return true;
+  }
+  if (!low_queue_.empty()) {
+    *task_id = low_queue_.front();
+    low_queue_.pop();
+    return true;
+  }
+  return false;
+}
+
+void GpuReplica::PriorityGpuQueue::Close() {
+  std::lock_guard<std::mutex> lock(mu_);
+  closed_ = true;
+  cv_.notify_all();
+}
+
+size_t GpuReplica::PriorityGpuQueue::HighSize() {
+  std::lock_guard<std::mutex> lock(mu_);
+  return high_queue_.size();
+}
+
+size_t GpuReplica::PriorityGpuQueue::LowSize() {
+  std::lock_guard<std::mutex> lock(mu_);
+  return low_queue_.size();
+}
 
 int Model::Initialize(const std::filesystem::path storage_path) {
   std::lock_guard<std::mutex> lock(mutex_);
@@ -80,8 +122,6 @@ int Model::ToHost(int num_threads) {
   std::unique_lock<std::mutex> lock(mutex_);
   if (state_ != MemoryState::ALLOCATED) {
     if (state_ == MemoryState::LOADING || state_ == MemoryState::LOADED) {
-      LOG(INFO) << "Model " << model_path_ << " is already at state " << state_
-                << ", skipping ToHost";
       return 0;
     } else {
       LOG(ERROR) << "Model " << model_path_ << " is at state " << state_;
@@ -89,8 +129,6 @@ int Model::ToHost(int num_threads) {
     }
   }
 
-  LOG(INFO) << "ToHost: Starting to load model " << model_path_
-            << " size " << model_size_ << " with " << num_threads << " threads";
   std::vector<int> file_descriptors;
   // Attempt to read from 0 until the file is not found
   for (int partition_id = 0; partition_id < partition_sizes_.size();
@@ -104,10 +142,23 @@ int Model::ToHost(int num_threads) {
     // Open file
     int fd = open(tensor_path.c_str(), O_DIRECT | O_RDONLY);
     if (fd < 0) {
-      std::string err = "open() failed for file: " + tensor_path.string() +
-                        ", error: " + strerror(errno);
-      LOG(ERROR) << err;
-      return -1;
+      bool retried_without_odirect = false;
+      if (errno == EINVAL) {
+        LOG(ERROR) << "O_DIRECT not supported on " << tensor_path
+                   << ", falling back to compatible mode (may severely impact "
+                      "the performance!)";
+        fd = open(tensor_path.c_str(), O_RDONLY);
+        retried_without_odirect = true;
+      }
+      if (fd < 0) {
+        std::string err_msg_prefix =
+            retried_without_odirect ? "open() failed for file (no O_DIRECT): "
+                                    : "open() failed for file: ";
+        std::string err = err_msg_prefix + tensor_path.string() +
+                          ", error: " + strerror(errno);
+        LOG(ERROR) << err;
+        return -1;
+      }
     }
 
     file_descriptors.push_back(fd);
@@ -132,40 +183,6 @@ int Model::ToHost(int num_threads) {
             << chunk_size << " chunk size, " << chunk_per_thread
             << " chunks per thread";
 
-  // Progress tracking
-  std::atomic<size_t> completed_chunks{0};
-  std::atomic<bool> progress_thread_running{true};
-  
-  // Start progress display thread
-  std::thread progress_thread([&]() {
-    while (progress_thread_running.load()) {
-      size_t completed = completed_chunks.load();
-      double progress = (double)completed / num_chunks * 100.0;
-      size_t bytes_processed = completed * chunk_size;
-      size_t total_bytes = num_chunks * chunk_size;
-      
-      // Create progress bar
-      int bar_width = 50;
-      int pos = (int)(progress / 100.0 * bar_width);
-      std::string progress_bar = "[";
-      for (int i = 0; i < bar_width; ++i) {
-        if (i < pos) progress_bar += "=";
-        else if (i == pos) progress_bar += ">";
-        else progress_bar += " ";
-      }
-      progress_bar += "]";
-      
-      LOG(INFO) << "Loading progress: " << progress_bar 
-                << " " << std::fixed << std::setprecision(1) << progress << "%"
-                << " (" << completed << "/" << num_chunks << " chunks)"
-                << " " << (bytes_processed / 1024 / 1024) << "MB/" 
-                << (total_bytes / 1024 / 1024) << "MB";
-      
-      if (completed >= num_chunks) break;
-      std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-    }
-  });
-
   state_ = MemoryState::LOADING;
   lock.unlock();
 
@@ -188,11 +205,8 @@ int Model::ToHost(int num_threads) {
            chunk_idx < (thread_idx + 1) * chunk_per_thread &&
            chunk_idx < num_chunks;
            ++chunk_idx) {
-
-
         size_t size =
-          std::min(chunk_size, model_size_ - chunk_idx * chunk_size);
-        
+            std::min(chunk_size, model_size_ - chunk_idx * chunk_size);
         if (host_buffers[chunk_idx] == nullptr) {
           LOG(ERROR) << "Host buffer not allocated";
           return -1;
@@ -236,9 +250,6 @@ int Model::ToHost(int num_threads) {
         file_offset += ret;
 
         host_ptr_vector_->enqueue(chunk_idx, Batch{chunk_idx, size});
-        
-        // Update progress
-        completed_chunks.fetch_add(1);
       }
 
       return 0;
@@ -252,12 +263,6 @@ int Model::ToHost(int num_threads) {
       LOG(ERROR) << "Error reading from disk, ret " << ret;
       error = true;
     }
-  }
-  
-  // Stop progress thread
-  progress_thread_running.store(false);
-  if (progress_thread.joinable()) {
-    progress_thread.join();
   }
 
   // close file
@@ -579,8 +584,7 @@ int Model::ToHostResize(int num_threads) {
 int Model::ToGpu(
     const std::string& replica_uuid, const MemPtrListMap& device_ptrs,
     const std::unordered_map<int, MemCopyChunkList>& mem_copy_chunks,
-    const std::unordered_map<int, MemCopyHandleList>& mem_copy_handles,
-    const bool& use_fixed_gpu_ptrs) {
+    const std::unordered_map<int, MemCopyHandleList>& mem_copy_handles) {
   std::unique_lock<std::mutex> lock(mutex_);
   if (state_ == MemoryState::UNINITIALIZED) {
     LOG(ERROR) << "Model " << model_path_ << " is not initialized";
@@ -597,7 +601,7 @@ int Model::ToGpu(
   for (const auto& [device_id, _] : device_ptrs) {
     LOG(INFO) << "Creating queue for device " << device_id;
     gpu_replica->gpu_loading_queue_.emplace(device_id,
-                                            std::make_shared<BatchQueue>());
+                                            std::make_shared<GpuReplica::PriorityGpuQueue>());
   }
   gpu_replica->device_ptrs_ = device_ptrs;
   gpu_replica->state_ = MemoryState::LOADING;
@@ -633,29 +637,65 @@ int Model::ToGpu(
           }
 
           auto& host_buffers = pinned_mem_->get();
-
-          size_t loaded_size = 0;
+          std::vector<char*> host_char_buffers(host_buffers.begin(),
+                                               host_buffers.end());
           while (true) {
-            auto [chunk_id, chunk_offset, size, gpu_offset, handle_idx] =
-                gpu_loading_queue->dequeue();
-            if (size == 0) {
+            uint64_t task_id = 0;
+            if (!gpu_loading_queue->Pop(&task_id)) {
               break;
             }
             if (gpu_replica->state_ == MemoryState::CANCELLED) {
               LOG(INFO) << "Loading from mem for model " << model_path_
-                        << " is cancelled,"
-                        << " chunk " << chunk_id << " offset "
-                        << " size " << size;
+                        << " is cancelled";
               return 0;
             }
+            std::shared_ptr<GpuReplica::CopyTask> task;
+            {
+              std::lock_guard<std::mutex> task_lock(gpu_replica->task_mu_);
+              auto it = gpu_replica->task_map_.find(task_id);
+              if (it == gpu_replica->task_map_.end()) {
+                continue;
+              }
+              task = it->second;
+            }
 
-            CUDA_CHECK(
-                cudaMemcpy(
-                    (void*)((char*)device_ptr_list[handle_idx] + gpu_offset),
-                    (void*)(host_buffers[chunk_id] + chunk_offset), size,
-                    cudaMemcpyHostToDevice),
-                "cudaMemcpy Error");
-            loaded_size += size;
+            if (!task) {
+              continue;
+            }
+            int expected = 0;
+            if (!task->exec_state_.compare_exchange_strong(expected, 1)) {
+              continue;
+            }
+            const size_t task_bit = gpu_replica->TaskBit(task_id);
+
+            if (task->priority_ == CopyPriority::LOW) {
+              bool should_reorder = false;
+              {
+                std::lock_guard<std::mutex> task_lock(gpu_replica->task_mu_);
+                const size_t reorder_bit = gpu_replica->TaskBit(task_id);
+                if (gpu_replica->reorder_bitmap_.test(reorder_bit)) {
+                  should_reorder = true;
+                  gpu_replica->reorder_bitmap_.clear(reorder_bit);
+                }
+              }
+              if (should_reorder) {
+                task->exec_state_.store(0);
+                gpu_loading_queue->Push(task_id, CopyPriority::LOW);
+                continue;
+              }
+            }
+
+            int ret = CopyTaskToGpu(gpu_replica, task, device_ptr_list,
+                                    host_char_buffers);
+            if (ret != 0) {
+              return ret;
+            }
+
+            gpu_replica->completed_bitmap_.test_and_set(task_bit);
+            gpu_replica->enqueued_bitmap_.clear(task_bit);
+            gpu_replica->enqueued_high_bitmap_.clear(task_bit);
+            task->exec_state_.store(2);
+            gpu_replica->task_cv_.notify_all();
           }
 
           LOG(INFO) << "Finished loading tensor from memory to device "
@@ -667,8 +707,14 @@ int Model::ToGpu(
 
   LOG(INFO) << "Waiting for model " << model_path_ << " num tasks "
             << futures.size() << " state " << gpu_replica->state_;
-  dispatch_future.wait();
-  bool error = false;
+  int dispatch_ret = dispatch_future.get();
+  for (auto& [device_id, gpu_loading_queue] : gpu_replica->gpu_loading_queue_) {
+    gpu_loading_queue->Close();
+  }
+  bool error = dispatch_ret != 0;
+  if (dispatch_ret != 0) {
+    LOG(ERROR) << "DispatchToGpu failed for model " << model_path_;
+  }
   for (auto& [device_id, future] : futures) {
     int ret = future.get();
     if (ret != 0) {
@@ -688,17 +734,14 @@ int Model::ToGpu(
   }
   gpu_replica->cv_.notify_all();
 
-  // release memory handles, if use_fixed_gpu_ptrs is false, we need to release the memory handles, else we not need
-  if (!use_fixed_gpu_ptrs){
-    // TODO: move to background thread
-    for (auto& [device_id, device_ptr_list] : gpu_replica->device_ptrs_) {
-      cudaSetDevice(device_id);
-      for (auto device_ptr : device_ptr_list) {
-        cudaError_t err = cudaIpcCloseMemHandle(device_ptr);
-        if (err != cudaSuccess) {
-          LOG(ERROR) << "Failed to close memory handle for device " << device_id
-                    << " error: " << cudaGetErrorString(err);
-        }
+  // TODO: move to background thread
+  for (auto& [device_id, device_ptr_list] : gpu_replica->device_ptrs_) {
+    cudaSetDevice(device_id);
+    for (auto device_ptr : device_ptr_list) {
+      cudaError_t err = cudaIpcCloseMemHandle(device_ptr);
+      if (err != cudaSuccess) {
+        LOG(ERROR) << "Failed to close memory handle for device " << device_id
+                   << " error: " << cudaGetErrorString(err);
       }
     }
   }
@@ -754,6 +797,195 @@ int Model::WaitInGpu(const std::string& replica_uuid) {
   return 0;
 }
 
+std::vector<std::string> Model::GetSharedMemoryNames() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!pinned_mem_) {
+    return {};
+  }
+  return pinned_mem_->get_shm_names();
+}
+
+void Model::SetTensorInfo(const TensorIndexMap& tensor_index,
+  const TensorIndexResizeMap& tensor_index_resize) {
+  std::lock_guard<std::mutex> lock(mutex_);
+
+  // 深拷贝 tensor_index
+  tensor_index_.clear();
+  for (const auto& [name, info] : tensor_index) {
+  auto [offset, size, shape, strides, dtype] = info;
+  tensor_index_[name] = std::make_tuple(
+  offset,
+  size,
+  std::vector<size_t>(shape),  // 深拷贝 shape vector
+  std::vector<size_t>(strides),  // 深拷贝 strides vector
+  std::string(dtype)  // 深拷贝 dtype string
+  );
+  }
+
+  // 深拷贝 tensor_index_resize 并计算 model_size_resize_
+  tensor_index_resize_.clear();
+  uint64_t max_offset_plus_size = 0;
+  for (const auto& [name, info] : tensor_index_resize) {
+  auto [offset, size, shape, strides, dtype] = info;
+  tensor_index_resize_[name] = std::make_tuple(
+  offset,
+  size,
+  std::vector<size_t>(shape),  // 深拷贝 shape vector
+  std::vector<size_t>(strides),  // 深拷贝 strides vector
+  std::string(dtype)  // 深拷贝 dtype string
+  );
+
+  // 计算最终大小：找到最大的 offset + size
+  uint64_t end_offset = offset + size;
+  if (end_offset > max_offset_plus_size) {
+  max_offset_plus_size = end_offset;
+  }
+  }
+  model_size_resize_ = max_offset_plus_size;
+
+  LOG(INFO) << "SetTensorInfo: model_size_resize_ = " << model_size_resize_
+  << " bytes (" << model_size_resize_ / MB << " MB)";
+}
+
+int Model::SubmitHighPriorityTasks(const std::string& replica_uuid,
+                                   const std::vector<uint64_t>& task_ids,
+                                   std::vector<uint64_t>* pending_task_ids) {
+  std::unique_lock<std::mutex> lock(mutex_);
+  auto replica_it = gpu_replicas_.find(replica_uuid);
+  if (replica_it == gpu_replicas_.end()) {
+    LOG(ERROR) << "Replica " << replica_uuid << " not found";
+    return -1;
+  }
+  auto gpu_replica = replica_it->second;
+  lock.unlock();
+
+  std::unordered_set<uint64_t> dedup(task_ids.begin(), task_ids.end());
+  for (uint64_t task_id : dedup) {
+    auto bit = gpu_replica->TaskBit(task_id);
+    if (gpu_replica->completed_bitmap_.test(bit)) {
+      continue;
+    }
+
+    std::shared_ptr<GpuReplica::CopyTask> task;
+    {
+      std::lock_guard<std::mutex> task_lock(gpu_replica->task_mu_);
+      auto task_it = gpu_replica->task_map_.find(task_id);
+      if (task_it == gpu_replica->task_map_.end()) {
+        if (pending_task_ids != nullptr) {
+          pending_task_ids->push_back(task_id);
+        }
+        continue;
+      }
+      task = task_it->second;
+      task->priority_ = CopyPriority::HIGH;
+    }
+
+    if (task && task->ready_.load(std::memory_order_acquire) &&
+        !gpu_replica->enqueued_high_bitmap_.test_and_set(bit)) {
+      auto queue_it = gpu_replica->gpu_loading_queue_.find(task->device_id_);
+      if (queue_it != gpu_replica->gpu_loading_queue_.end()) {
+        queue_it->second->Push(task_id, CopyPriority::HIGH);
+      }
+    }
+  }
+  return 0;
+}
+
+int Model::SetReorderBitmap(const std::string& replica_uuid,
+                            const std::vector<uint64_t>& task_ids) {
+  std::unique_lock<std::mutex> lock(mutex_);
+  auto replica_it = gpu_replicas_.find(replica_uuid);
+  if (replica_it == gpu_replicas_.end()) {
+    LOG(ERROR) << "Replica " << replica_uuid << " not found";
+    return -1;
+  }
+  auto gpu_replica = replica_it->second;
+  lock.unlock();
+
+  std::lock_guard<std::mutex> task_lock(gpu_replica->task_mu_);
+  gpu_replica->reorder_bitmap_.reset();
+  for (uint64_t task_id : task_ids) {
+    auto bit = gpu_replica->TaskBit(task_id);
+    if (gpu_replica->completed_bitmap_.test(bit)) {
+      continue;
+    }
+    gpu_replica->reorder_bitmap_.test_and_set(bit);
+  }
+  return 0;
+}
+
+int Model::WaitCopyTasks(const std::string& replica_uuid,
+                         const std::vector<uint64_t>& task_ids,
+                         uint64_t timeout_ms,
+                         std::vector<uint64_t>* pending_task_ids) {
+  std::unique_lock<std::mutex> lock(mutex_);
+  auto replica_it = gpu_replicas_.find(replica_uuid);
+  if (replica_it == gpu_replicas_.end()) {
+    LOG(ERROR) << "Replica " << replica_uuid << " not found";
+    return -1;
+  }
+  auto gpu_replica = replica_it->second;
+  lock.unlock();
+
+  std::unordered_set<uint64_t> dedup(task_ids.begin(), task_ids.end());
+  auto collect_pending = [&]() {
+    bool all_done = true;
+    if (pending_task_ids != nullptr) {
+      pending_task_ids->clear();
+    }
+    for (uint64_t task_id : dedup) {
+      if (!gpu_replica->completed_bitmap_.test(gpu_replica->TaskBit(task_id))) {
+        all_done = false;
+        if (pending_task_ids != nullptr) {
+          pending_task_ids->push_back(task_id);
+        }
+      }
+    }
+    return all_done;
+  };
+
+  if (collect_pending()) {
+    return 0;
+  }
+
+  std::unique_lock<std::mutex> task_lock(gpu_replica->task_mu_);
+  bool finished = false;
+  if (timeout_ms == 0) {
+    finished = gpu_replica->task_cv_.wait_for(
+        task_lock, std::chrono::milliseconds(1), collect_pending);
+  } else {
+    finished = gpu_replica->task_cv_.wait_for(
+        task_lock, std::chrono::milliseconds(timeout_ms), collect_pending);
+  }
+
+  return finished ? 0 : 1;
+}
+
+int Model::CopyTaskToGpu(const std::shared_ptr<GpuReplica>& gpu_replica,
+                         const std::shared_ptr<GpuReplica::CopyTask>& task,
+                         const std::vector<void*>& device_ptr_list,
+                         const std::vector<char*>& host_buffers) {
+  for (const auto& part : task->parts_) {
+    if (part.handle_idx_ >= device_ptr_list.size()) {
+      LOG(ERROR) << "Invalid handle index " << part.handle_idx_
+                 << " for task " << task->task_id_;
+      return -1;
+    }
+    if (part.chunk_id_ >= host_buffers.size()) {
+      LOG(ERROR) << "Invalid chunk id " << part.chunk_id_ << " for task "
+                 << task->task_id_;
+      return -1;
+    }
+    CUDA_CHECK(
+        cudaMemcpy((void*)((char*)device_ptr_list[part.handle_idx_] +
+                           part.gpu_offset_),
+                   (void*)(host_buffers[part.chunk_id_] + part.chunk_offset_),
+                   part.size_, cudaMemcpyHostToDevice),
+        "cudaMemcpy Error");
+  }
+  return 0;
+}
+
 int Model::FreeGpu(const std::string& replica_uuid) {
   std::unique_lock<std::mutex> lock(mutex_);
   if (gpu_replicas_.find(replica_uuid) == gpu_replicas_.end()) {
@@ -764,7 +996,7 @@ int Model::FreeGpu(const std::string& replica_uuid) {
 
   auto& gpu_replica = gpu_replicas_.at(replica_uuid);
   if (gpu_replica->state_ == MemoryState::UNINITIALIZED) {
-    LOG(INFO) << "Model " << model_path_ << " replica " << replica_uuid
+    LOG(WARNING) << "Model " << model_path_ << " replica " << replica_uuid
                  << " is not initialized";
     gpu_replicas_.erase(replica_uuid);
     return 0;
@@ -786,12 +1018,12 @@ int Model::FreeGpu(const std::string& replica_uuid) {
 int Model::FreeHost() {
   std::unique_lock<std::mutex> lock(mutex_);
   if (state_ == MemoryState::UNINITIALIZED) {
-    LOG(INFO) << "Model " << model_path_ << " is not initialized";
+    LOG(WARNING) << "Model " << model_path_ << " is not initialized";
     return 1;
   }
 
   if (state_ == MemoryState::UNALLOCATED) {
-    LOG(INFO) << "Model " << model_path_ << " is not allocated";
+    LOG(WARNING) << "Model " << model_path_ << " is not allocated";
     return 1;
   }
 
@@ -825,12 +1057,12 @@ int Model::FreeHost() {
 int Model::TryFreeHost() {
   std::unique_lock<std::mutex> lock(mutex_);
   if (state_ == MemoryState::UNINITIALIZED) {
-    LOG(INFO) << "Model " << model_path_ << " is not initialized";
+    LOG(WARNING) << "Model " << model_path_ << " is not initialized";
     return 0;
   }
 
   if (state_ == MemoryState::UNALLOCATED) {
-    LOG(INFO) << "Model " << model_path_ << " is not allocated";
+    LOG(WARNING) << "Model " << model_path_ << " is not allocated";
     return 0;
   }
 
@@ -857,25 +1089,94 @@ int Model::DispatchToGpu(
     const std::shared_ptr<GpuReplica>& gpu_replica,
     const std::unordered_map<int, MemCopyChunkList>& mem_copy_chunks,
     const std::unordered_map<int, MemCopyHandleList>& mem_copy_handles) {
-  // device_id, chunk_offset, size, gpu_offset
+  if (!pinned_mem_ || pinned_mem_->num_chunks() == 0) {
+    LOG(ERROR) << "CPU memory not allocated";
+    return -1;
+  }
 
   size_t num_chunks = pinned_mem_->num_chunks();
-  std::vector<std::vector<GpuChunk>> chunk_id_to_gpu_chunks(num_chunks);
+  std::vector<std::vector<uint64_t>> chunk_id_to_task_ids(num_chunks);
+  std::unordered_map<uint64_t, size_t> task_total_parts;
+  std::unordered_map<uint64_t, size_t> task_ready_parts;
+
   for (const auto& [device_id, mem_copy_chunk_list] : mem_copy_chunks) {
+    if (mem_copy_handles.find(device_id) == mem_copy_handles.end()) {
+      LOG(ERROR) << "No mem handles for device " << device_id;
+      return -1;
+    }
     const auto& device_handles = mem_copy_handles.at(device_id);
     std::vector<size_t> handle_offsets(device_handles.size(), 0);
 
-    for (auto [host_offset, size, gpu_offset, handle_idx] :
-         mem_copy_chunk_list) {
-      handle_offsets[handle_idx] = gpu_offset;
+    for (const auto& chunk : mem_copy_chunk_list) {
+      const auto host_offset = chunk.src_offset_;
+      const auto size = chunk.size_;
+      const auto gpu_offset = chunk.dst_offset_;
+      const auto handle_idx = chunk.handle_idx_;
+      if (handle_idx >= handle_offsets.size()) {
+        LOG(ERROR) << "Invalid handle index " << handle_idx << " for device "
+                   << device_id;
+        return -1;
+      }
 
-      std::vector<std::tuple<int, size_t, size_t>> chunks =
+      uint64_t task_id = chunk.task_id_;
+      if (task_id == 0) {
+        task_id = BuildCopyTaskId(host_offset, size, gpu_offset, device_id,
+                                  handle_idx);
+      }
+      CopyPriority priority =
+          chunk.priority_ == static_cast<uint8_t>(CopyPriority::HIGH)
+              ? CopyPriority::HIGH
+              : CopyPriority::LOW;
+
+      std::shared_ptr<GpuReplica::CopyTask> task;
+      {
+        std::lock_guard<std::mutex> lock(gpu_replica->task_mu_);
+        auto task_it = gpu_replica->task_map_.find(task_id);
+        if (task_it == gpu_replica->task_map_.end()) {
+          task = std::make_shared<GpuReplica::CopyTask>();
+          task->task_id_ = task_id;
+          task->device_id_ = device_id;
+          task->priority_ = priority;
+          task->reorder_hint_ = chunk.reorder_hint_;
+          gpu_replica->task_map_[task_id] = task;
+        } else {
+          task = task_it->second;
+          if (priority == CopyPriority::HIGH) {
+            task->priority_ = CopyPriority::HIGH;
+          }
+          if (chunk.reorder_hint_) {
+            task->reorder_hint_ = true;
+          }
+        }
+      }
+
+      handle_offsets[handle_idx] = gpu_offset;
+      std::vector<std::tuple<int, size_t, size_t>> parts =
           MapDataToChunks(host_offset, size, pinned_mem_->chunk_size());
-      for (const auto& [chunk_id, chunk_offset, size] : chunks) {
-        chunk_id_to_gpu_chunks[chunk_id].push_back(
-            std::make_tuple(device_id, chunk_offset, size,
-                            handle_offsets[handle_idx], handle_idx));
-        handle_offsets[handle_idx] += size;
+      for (const auto& [chunk_id, chunk_offset, part_size] : parts) {
+        GpuReplica::TaskPart task_part;
+        task_part.chunk_id_ = static_cast<size_t>(chunk_id);
+        task_part.chunk_offset_ = chunk_offset;
+        task_part.size_ = part_size;
+        task_part.gpu_offset_ = handle_offsets[handle_idx];
+        task_part.handle_idx_ = handle_idx;
+        {
+          std::lock_guard<std::mutex> lock(gpu_replica->task_mu_);
+          task->parts_.push_back(task_part);
+        }
+        task_total_parts[task_id] += 1;
+        if (chunk_id >= 0 && static_cast<size_t>(chunk_id) < num_chunks) {
+          chunk_id_to_task_ids[chunk_id].push_back(task_id);
+        } else {
+          LOG(ERROR) << "Chunk id out of range: " << chunk_id;
+          return -1;
+        }
+        handle_offsets[handle_idx] += part_size;
+      }
+
+      if (chunk.reorder_hint_) {
+        std::lock_guard<std::mutex> lock(gpu_replica->task_mu_);
+        gpu_replica->reorder_bitmap_.test_and_set(gpu_replica->TaskBit(task_id));
       }
     }
   }
@@ -883,21 +1184,37 @@ int Model::DispatchToGpu(
   for (int i = 0; i < host_ptr_vector_->capacity(); i++) {
     auto data_chunk = host_ptr_vector_->dequeue(i);
     auto chunk_id = data_chunk.chunk_id_;
-    auto& gpu_chunks = chunk_id_to_gpu_chunks[chunk_id];
-    for (const auto& [device_id, chunk_offset, size, gpu_offset, handle_idx] :
-         gpu_chunks) {
-      auto& gpu_loading_queue = gpu_replica->gpu_loading_queue_.at(device_id);
-      // LOG(INFO) << "Enqueueing chunk " << chunk_id << " offset " <<
-      // chunk_offset
-      //           << " size " << size << " to device " << device_id;
-      gpu_loading_queue->enqueue(
-          GpuBatch{chunk_id, chunk_offset, size, gpu_offset, handle_idx});
-    }
-  }
+    auto& task_ids = chunk_id_to_task_ids[chunk_id];
+    for (uint64_t task_id : task_ids) {
+      task_ready_parts[task_id] += 1;
+      if (task_ready_parts[task_id] < task_total_parts[task_id]) {
+        continue;
+      }
+      std::shared_ptr<GpuReplica::CopyTask> task;
+      {
+        std::lock_guard<std::mutex> lock(gpu_replica->task_mu_);
+        auto task_it = gpu_replica->task_map_.find(task_id);
+        if (task_it == gpu_replica->task_map_.end()) {
+          continue;
+        }
+        task = task_it->second;
+        task->ready_.store(true, std::memory_order_release);
+      }
 
-  // notify end of loading
-  for (auto& [device_id, gpu_loading_queue] : gpu_replica->gpu_loading_queue_) {
-    gpu_loading_queue->enqueue(GpuBatch{});
+      const size_t bit = gpu_replica->TaskBit(task_id);
+      if (gpu_replica->completed_bitmap_.test(bit)) {
+        continue;
+      }
+      if (gpu_replica->enqueued_bitmap_.test_and_set(bit)) {
+        continue;
+      }
+      auto queue_it = gpu_replica->gpu_loading_queue_.find(task->device_id_);
+      if (queue_it == gpu_replica->gpu_loading_queue_.end()) {
+        LOG(ERROR) << "No queue for device " << task->device_id_;
+        return -1;
+      }
+      queue_it->second->Push(task_id, task->priority_);
+    }
   }
 
   return 0;
@@ -933,119 +1250,19 @@ int Model::AllocatePinnedMemory(std::shared_ptr<PinnedMemoryPool> pool) {
   if (state_ != MemoryState::UNALLOCATED) {
     return 0;
   }
-  
-  // 如果使用 resize，则分配 model_size_resize_ 的大小
-  size_t size_to_allocate = model_size_;
-  if (!tensor_index_resize_.empty() && model_size_resize_ > 0) {
-    size_to_allocate = model_size_resize_;
-    LOG(INFO) << "Using resize layout, allocating " << size_to_allocate
-              << " bytes (" << size_to_allocate / MB << " MB)";
-  } else {
-    LOG(INFO) << "Using normal layout, allocating " << size_to_allocate
-              << " bytes (" << size_to_allocate / MB << " MB)";
-  }
-  
   pinned_mem_ = std::make_shared<PinnedMemory>();
-  int ret = pinned_mem_->Allocate(size_to_allocate, pool);
+  int ret = pinned_mem_->Allocate(model_size_, pool);
   if (ret < 0) {
     LOG(ERROR) << "Error allocating CPU memory for model " << model_path_;
     return ret;
   } else if (ret > 0) {
-    LOG(INFO) << "Not enough memory for model " << model_path_;
+    LOG(WARNING) << "Not enough memory for model " << model_path_;
     return ret;
   } else if (!pinned_mem_ || pinned_mem_->num_chunks() == 0) {
     LOG(ERROR) << "CPU memory not allocated";
     return -1;
   }
-  
+
   state_ = MemoryState::ALLOCATED;
   return 0;
-}
-
-int Model::AllocatePinnedMemory(std::shared_ptr<PinnedMemoryPoolShared> pool) {
-  std::lock_guard<std::mutex> lock(mutex_);
-  if (state_ == MemoryState::UNINITIALIZED) {
-    LOG(ERROR) << "Model " << model_path_ << " is not initialized";
-    return -1;
-  }
-  if (state_ != MemoryState::UNALLOCATED) {
-    return 0;
-  }
-  
-  // 如果使用 resize，则分配 model_size_resize_ 的大小
-  size_t size_to_allocate = model_size_;
-  if (!tensor_index_resize_.empty() && model_size_resize_ > 0) {
-    size_to_allocate = model_size_resize_;
-    LOG(INFO) << "Using resize layout, allocating " << size_to_allocate
-              << " bytes (" << size_to_allocate / MB << " MB)";
-  } else {
-    LOG(INFO) << "Using normal layout, allocating " << size_to_allocate
-              << " bytes (" << size_to_allocate / MB << " MB)";
-  }
-  
-  pinned_mem_ = std::make_shared<PinnedMemory>();
-  int ret = pinned_mem_->Allocate(size_to_allocate, pool);
-  if (ret < 0) {
-    LOG(ERROR) << "Error allocating shared CPU memory for model " << model_path_;
-    return ret;
-  } else if (ret > 0) {
-    LOG(INFO) << "Not enough shared memory for model " << model_path_;
-    return ret;
-  } else if (!pinned_mem_ || pinned_mem_->num_chunks() == 0) {
-    LOG(ERROR) << "Shared CPU memory not allocated";
-    return -1;
-  }
-  
-  state_ = MemoryState::ALLOCATED;
-  return 0;
-}
-
-std::vector<std::string> Model::GetSharedMemoryNames() {
-  std::lock_guard<std::mutex> lock(mutex_);
-  if (!pinned_mem_) {
-    return {};
-  }
-  return pinned_mem_->get_shm_names();
-}
-
-void Model::SetTensorInfo(const TensorIndexMap& tensor_index,
-                          const TensorIndexResizeMap& tensor_index_resize) {
-  std::lock_guard<std::mutex> lock(mutex_);
-  
-  // 深拷贝 tensor_index
-  tensor_index_.clear();
-  for (const auto& [name, info] : tensor_index) {
-    auto [offset, size, shape, strides, dtype] = info;
-    tensor_index_[name] = std::make_tuple(
-        offset,
-        size,
-        std::vector<size_t>(shape),  // 深拷贝 shape vector
-        std::vector<size_t>(strides),  // 深拷贝 strides vector
-        std::string(dtype)  // 深拷贝 dtype string
-    );
-  }
-  
-  // 深拷贝 tensor_index_resize 并计算 model_size_resize_
-  tensor_index_resize_.clear();
-  uint64_t max_offset_plus_size = 0;
-  for (const auto& [name, info] : tensor_index_resize) {
-    auto [offset, size, shape, strides, dtype] = info;
-    tensor_index_resize_[name] = std::make_tuple(
-        offset,
-        size,
-        std::vector<size_t>(shape),  // 深拷贝 shape vector
-        std::vector<size_t>(strides),  // 深拷贝 strides vector
-        std::string(dtype)  // 深拷贝 dtype string
-    );
-    
-    // 计算最终大小：找到最大的 offset + size
-    uint64_t end_offset = offset + size;
-    if (end_offset > max_offset_plus_size) {
-      max_offset_plus_size = end_offset;
-    }
-  }
-  model_size_resize_ = max_offset_plus_size;
-  
-  LOG(INFO) << "SetTensorInfo: model_size_resize_ = " << model_size_resize_
-            << " bytes (" << model_size_resize_ / MB << " MB)";
-}
+};

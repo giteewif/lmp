@@ -6,18 +6,14 @@ service Storage {
   rpc LoadModelAsync (LoadModelRequest) returns (LoadModelResponse) {}
   rpc ConfirmModel (ConfirmModelRequest) returns (ConfirmModelResponse) {}
   rpc UnloadModel (UnloadModelRequest) returns (UnloadModelResponse) {}
+  rpc SubmitHighPriorityTasks (SubmitHighPriorityTasksRequest) returns (SubmitHighPriorityTasksResponse) {}
+  rpc SetReorderBitmap (SetReorderBitmapRequest) returns (SetReorderBitmapResponse) {}
+  rpc WaitCopyTasks (WaitCopyTasksRequest) returns (WaitCopyTasksResponse) {}
 
   rpc ClearMem (ClearMemRequest) returns (ClearMemResponse) {}
 
   rpc RegisterModel (RegisterModelRequest) returns (RegisterModelResponse) {}
   rpc GetServerConfig (GetServerConfigRequest) returns (GetServerConfigResponse) {}
-
-  // Pool memory management
-  rpc RegisterFixedGpuPtrs (RegisterFixedGpuPtrsRequest) returns (RegisterFixedGpuPtrsResponse) {}
-  rpc ReleaseRegisteredFixedGpuPtrs (ReleaseRegisteredFixedGpuPtrsRequest) returns (ReleaseRegisteredFixedGpuPtrsResponse) {}
-  rpc ReleaseAllRegisteredFixedGpuPtrs (RegisterFixedGpuPtrsRequest) returns (ReleaseRegisteredFixedGpuPtrsResponse) {}
-  // Shared memory management
-  rpc GetModelSharedMemoryNames (GetModelSharedMemoryNamesRequest) returns (GetModelSharedMemoryNamesResponse) {}
 }
 
 message GetServerConfigRequest {
@@ -43,11 +39,19 @@ enum DeviceType {
   DEVICE_TYPE_GPU = 2;
 }
 
+enum CopyPriority {
+  COPY_PRIORITY_LOW = 0;
+  COPY_PRIORITY_HIGH = 1;
+}
+
 message MemCopyChunk {
   uint64 src_offset = 1;
   uint64 size = 2;
   uint64 dst_offset = 3;
   uint64 handle_idx = 4;
+  uint64 task_id = 5;
+  CopyPriority priority = 6;
+  bool reorder_hint = 7;
 }
 message MemCopyChunkList {
   repeated MemCopyChunk chunks = 1;
@@ -66,7 +70,6 @@ message LoadModelRequest {
   map<string, MemCopyChunkList> chunks = 3;
   map<string, MemCopyHandleList> handles = 4;
   DeviceType target_device_type = 5;
-  bool use_fixed_gpu_ptrs = 6;
 }
 
 message LoadModelResponse {
@@ -101,25 +104,38 @@ message ClearMemRequest {
 message ClearMemResponse {
 }
 
-// RegisterFixedGpuPtrs
-message RegisterFixedGpuPtrsRequest {
-  map<string, MemCopyHandleList> handles = 1;
-}
-message RegisterFixedGpuPtrsResponse {
-}
-// ReleaseRegisteredFixedGpuPtrs
-message ReleaseRegisteredFixedGpuPtrsRequest {
-  map<string, MemCopyHandleList> handles = 1;
-}
-message ReleaseRegisteredFixedGpuPtrsResponse {
+message SubmitHighPriorityTasksRequest {
+  string model_path = 1;
+  string replica_uuid = 2;
+  repeated uint64 task_ids = 3;
+  uint64 epoch_id = 4;
 }
 
-// GetModelSharedMemoryNames
-message GetModelSharedMemoryNamesRequest {
-  string model_path = 1;
+message SubmitHighPriorityTasksResponse {
+  int32 code = 1;
+  repeated uint64 pending_task_ids = 2;
 }
-message GetModelSharedMemoryNamesResponse {
+
+message SetReorderBitmapRequest {
   string model_path = 1;
-  repeated string shm_names = 2;
-  uint64 chunk_size = 3; 
+  string replica_uuid = 2;
+  repeated uint64 task_ids = 3;
+  uint64 epoch_id = 4;
+}
+
+message SetReorderBitmapResponse {
+  int32 code = 1;
+}
+
+message WaitCopyTasksRequest {
+  string model_path = 1;
+  string replica_uuid = 2;
+  repeated uint64 task_ids = 3;
+  uint64 timeout_ms = 4;
+  uint64 epoch_id = 5;
+}
+
+message WaitCopyTasksResponse {
+  int32 code = 1;
+  repeated uint64 pending_task_ids = 2;
 }

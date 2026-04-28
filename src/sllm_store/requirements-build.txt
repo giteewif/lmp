@@ -1,6 +1,13 @@
 cmake>=3.20,<4.0.0
 ninja
-peft==0.15.2
+numpy
+peft>=0.16.0
 setuptools
-# torch==2.5.1
+torch==2.9.1
 wheel
+
+# 编译 C++/CUDA 扩展：系统默认 /usr/local/cuda 若为 11.x，而 PyTorch 为 cu12+/cu13，
+# CMake 会报 “PyTorch requires CUDA 12.0 or above”。方案一：安装 CUDA 12+ toolkit 并设置环境：
+#   sudo bash scripts/install_cuda_toolkit_12_ubuntu.sh
+#   source scripts/env_cuda_toolkit_12.sh
+#   pip install -e .

@@ -16,9 +16,6 @@
 #  limitations under the License.                                              #
 # ---------------------------------------------------------------------------- #
 
-import os
-from typing import Optional
-
 import grpc
 import sllm_store.proto.storage_pb2 as storage_pb2
 import sllm_store.proto.storage_pb2_grpc as storage_pb2_grpc
@@ -26,32 +23,12 @@ from sllm_store.logger import init_logger
 
 logger = init_logger(__name__)
 
-_DEFAULT_STORE_HOST = "127.0.0.1"
-_DEFAULT_STORE_PORT = "8073"
-
-
-def get_store_server_address(explicit: Optional[str] = None) -> str:
-    """gRPC target for checkpoint store (``host:port``).
-
-    Resolution: ``explicit`` if given; else ``SLLM_STORE_ADDRESS``;
-    else ``SLLM_STORE_HOST`` (default ``127.0.0.1``) and ``SLLM_STORE_PORT``
-    (default ``8073``).
-    """
-    if explicit:
-        return explicit.strip()
-    addr = os.environ.get("SLLM_STORE_ADDRESS", "").strip()
-    if addr:
-        return addr
-    host = os.environ.get("SLLM_STORE_HOST", _DEFAULT_STORE_HOST).strip() or _DEFAULT_STORE_HOST
-    port = os.environ.get("SLLM_STORE_PORT", _DEFAULT_STORE_PORT).strip() or _DEFAULT_STORE_PORT
-    return f"{host}:{port}"
-
 
 # This is a singleton class that manages the checkpoint
 class SllmStoreClient:
-    def __init__(self, server_address: Optional[str] = "127.0.0.1:8073"):
-        self.server_address = get_store_server_address(server_address)
-        self.channel = grpc.insecure_channel(self.server_address)
+    def __init__(self, server_address="127.0.0.1:8073"):
+        self.server_address = server_address
+        self.channel = grpc.insecure_channel(server_address)
         self.stub = storage_pb2_grpc.StorageStub(self.channel)
         self.checkpoints_in_gpu = {}
 
@@ -90,22 +67,38 @@ class SllmStoreClient:
             return response
 
     def load_into_gpu(
-        self, model_path, replica_uuid, tensor_copy_chunks, cuda_memory_handles, use_fixed_gpu_ptrs=False
+        self, model_path, replica_uuid, tensor_copy_chunks, cuda_memory_handles
     ):
-        # logger.debug(f"load_into_gpu: {model_path}, {replica_uuid}")
+        logger.debug(f"load_into_gpu: {model_path}, {replica_uuid}")
 
         gpu_chunk_map = {}
         for device_uuid, chunks in tensor_copy_chunks.items():
-            gpu_chunk_map[device_uuid] = storage_pb2.MemCopyChunkList(
-                chunks=[
+            pb_chunks = []
+            for chunk in chunks:
+                if len(chunk) < 4:
+                    raise ValueError(
+                        "chunk must at least contain src_offset,size,dst_offset,handle_idx"
+                    )
+                task_id = chunk[4] if len(chunk) > 4 else 0
+                priority = (
+                    chunk[5]
+                    if len(chunk) > 5
+                    else storage_pb2.COPY_PRIORITY_LOW
+                )
+                reorder_hint = bool(chunk[6]) if len(chunk) > 6 else False
+                pb_chunks.append(
                     storage_pb2.MemCopyChunk(
                         src_offset=chunk[0],
                         size=chunk[1],
                         dst_offset=chunk[2],
                         handle_idx=chunk[3],
+                        task_id=task_id,
+                        priority=priority,
+                        reorder_hint=reorder_hint,
                     )
-                    for chunk in chunks
-                ]
+                )
+            gpu_chunk_map[device_uuid] = storage_pb2.MemCopyChunkList(
+                chunks=pb_chunks
             )
         cuda_handle_map = {}
         for device_uuid, handles in cuda_memory_handles.items():
@@ -123,10 +116,8 @@ class SllmStoreClient:
             chunks=gpu_chunk_map,
             handles=cuda_handle_map,
             target_device_type=storage_pb2.DeviceType.DEVICE_TYPE_GPU,
-            use_fixed_gpu_ptrs=use_fixed_gpu_ptrs,
         )
         try:
-            # logger.debug(f"call stub.LoadModelAsync")
             response = self.stub.LoadModelAsync(request)
         except grpc.RpcError as e:
             if e.code() == grpc.StatusCode.CANCELLED:
@@ -135,11 +126,63 @@ class SllmStoreClient:
                 logger.error(f"Error: {e}")
             return False
         else:
-            # logger.debug(f"Model loaded: {model_path}, {replica_uuid}")
+            logger.info(f"Model loaded: {model_path}, {replica_uuid}")
             return response
 
+    def submit_high_priority_copy_tasks(
+        self, model_path, replica_uuid, task_ids, epoch_id=0
+    ):
+        request = storage_pb2.SubmitHighPriorityTasksRequest(
+            model_path=model_path,
+            replica_uuid=replica_uuid,
+            task_ids=list(dict.fromkeys(task_ids)),
+            epoch_id=epoch_id,
+        )
+        try:
+            response = self.stub.SubmitHighPriorityTasks(request)
+        except grpc.RpcError as e:
+            logger.error(f"Error: {e}")
+            return False, list(task_ids)
+        return response.code == 0, list(response.pending_task_ids)
+
+    def set_reorder_bitmap(
+        self, model_path, replica_uuid, reorder_bitmap, epoch_id=0
+    ):
+        request = storage_pb2.SetReorderBitmapRequest(
+            model_path=model_path,
+            replica_uuid=replica_uuid,
+            task_ids=list(dict.fromkeys(reorder_bitmap)),
+            epoch_id=epoch_id,
+        )
+        try:
+            response = self.stub.SetReorderBitmap(request)
+        except grpc.RpcError as e:
+            logger.error(f"Error: {e}")
+            return False
+        return response.code == 0
+
+    def wait_copy_tasks(
+        self, model_path, replica_uuid, task_ids, timeout_ms=30000, epoch_id=0
+    ):
+        request = storage_pb2.WaitCopyTasksRequest(
+            model_path=model_path,
+            replica_uuid=replica_uuid,
+            task_ids=list(dict.fromkeys(task_ids)),
+            timeout_ms=timeout_ms,
+            epoch_id=epoch_id,
+        )
+        try:
+            response = self.stub.WaitCopyTasks(request)
+        except grpc.RpcError as e:
+            if e.code() == grpc.StatusCode.DEADLINE_EXCEEDED:
+                logger.warning("wait_copy_tasks timeout")
+                return False, list(task_ids)
+            logger.error(f"Error: {e}")
+            return False, list(task_ids)
+        return response.code == 0, list(response.pending_task_ids)
+
     def confirm_model_loaded(self, model_path, replica_uuid):
-        # logger.debug(f"confirm_model_loaded: {model_path}, {replica_uuid}")
+        logger.info(f"confirm_model_loaded: {model_path}, {replica_uuid}")
         request = storage_pb2.ConfirmModelRequest(
             model_path=model_path,
             replica_uuid=replica_uuid,
@@ -147,7 +190,7 @@ class SllmStoreClient:
         )
         try:
             _ = self.stub.ConfirmModel(request)
-            # logger.debug("Model loaded")
+            logger.info("Model loaded")
         except grpc.RpcError as e:
             if e.code() == grpc.StatusCode.CANCELLED:
                 logger.error("Model not loaded")
@@ -157,7 +200,7 @@ class SllmStoreClient:
                 return False
 
     def register_model(self, model_path) -> int:
-        logger.debug(f"register_model: {model_path}")
+        logger.info(f"register_model: {model_path}")
         request = storage_pb2.RegisterModelRequest(model_path=model_path)
         try:
             response = self.stub.RegisterModel(request)
@@ -165,7 +208,7 @@ class SllmStoreClient:
             logger.error(f"Error: {e}")
             return -1
         else:
-            logger.debug("Model registered")
+            logger.info("Model registered")
             return response.model_size
 
     def get_server_config(self):
@@ -180,73 +223,3 @@ class SllmStoreClient:
                 "chunk_size": response.chunk_size,
                 "mem_pool_size": response.mem_pool_size,
             }
-
-    def register_fixed_gpu_ptrs(self, model_path, cuda_memory_handles):
-        logger.debug(f"register_fixed_gpu_ptrs: {model_path}")
-        cuda_handle_map = {}
-        for device_uuid, handles_list in cuda_memory_handles.items():
-            cuda_handle_map[device_uuid] = storage_pb2.MemCopyHandleList(
-                handles=[
-                    storage_pb2.MemCopyHandle(
-                        cuda_ipc_handle=handle_str,
-                    )
-                    for handle_str in handles_list
-                ]
-            )
-        request = storage_pb2.RegisterFixedGpuPtrsRequest(
-            handles=cuda_handle_map,
-        )
-        try:
-            response = self.stub.RegisterFixedGpuPtrs(request)
-        except grpc.RpcError as e:
-            logger.error(f"Error on register fixed gpu ptrs: {e}")
-            return False
-        else:
-            logger.debug("Fixed gpu pointers registered")
-            return response
-    def release_registered_fixed_gpu_ptrs(self, cuda_memory_handles_need_released):
-        logger.debug(f"release_registered_fixed_gpu_ptrs")
-        cuda_handle_map = {}
-        for device_uuid, handles_list in cuda_memory_handles_need_released.items():
-            handles = []
-            if handles_list is not None:
-                handles=[
-                    storage_pb2.MemCopyHandle(
-                        cuda_ipc_handle=handle_str,
-                    )
-                    for handle_str in handles_list
-                ]
-            cuda_handle_map[device_uuid] = storage_pb2.MemCopyHandleList(
-                handles=handles
-            )
-        request = storage_pb2.ReleaseRegisteredFixedGpuPtrsRequest(
-            handles=cuda_handle_map,
-        )
-        try:
-            response = self.stub.ReleaseRegisteredFixedGpuPtrs(request)
-        except grpc.RpcError as e:
-            logger.error(f"Error on release registered fixed gpu ptrs: {e}")
-            return False
-        else:
-            logger.debug("Registered fixed gpu pointers released")
-            return response
-    def release_all_registered_fixed_gpu_ptrs(self):
-        logger.debug(f"release_all_registered_fixed_gpu_ptrs")
-        request = storage_pb2.ReleaseRegisteredFixedGpuPtrsRequest()
-        try:
-            response = self.stub.ReleaseAllRegisteredFixedGpuPtrs(request)
-        except grpc.RpcError as e:
-            logger.error(f"Error on release all registered fixed gpu ptrs: {e}")
-            return -1
-        else:
-            logger.debug("All registered fixed gpu pointers released")
-            return response
-    def get_model_shared_memory_names(self, model_path):
-        request = storage_pb2.GetModelSharedMemoryNamesRequest(model_path=model_path)
-        try:
-            response = self.stub.GetModelSharedMemoryNames(request)
-        except grpc.RpcError as e:
-            logger.error(f"Error on get model shared memory names: {e}")
-            return None, None, None
-        else:
-            return response.shm_names, response.chunk_size
