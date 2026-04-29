@@ -29,6 +29,7 @@
 #include <future>
 #include <mutex>
 #include <queue>
+#include <shared_mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -57,11 +58,21 @@ struct GpuReplica {
   struct CopyTask {
     uint64_t task_id_ = 0;
     int device_id_ = 0;
-    CopyPriority priority_ = CopyPriority::LOW;
+    std::atomic<uint8_t> priority_raw_{static_cast<uint8_t>(CopyPriority::LOW)};
     bool reorder_hint_ = false;
     std::vector<TaskPart> parts_;
     std::atomic<bool> ready_{false};
     std::atomic<int> exec_state_{0};  // 0: queued, 1: running, 2: finished
+
+    CopyPriority priority() const {
+      return static_cast<CopyPriority>(
+          priority_raw_.load(std::memory_order_acquire));
+    }
+
+    void set_priority(CopyPriority priority) {
+      priority_raw_.store(static_cast<uint8_t>(priority),
+                          std::memory_order_release);
+    }
   };
 
   struct PriorityGpuQueue {
@@ -84,7 +95,8 @@ struct GpuReplica {
   MemPtrListMap device_ptrs_;
   std::unordered_map<uint64_t, std::shared_ptr<CopyTask>> task_map_;
   LockFreeBitmap reorder_bitmap_{kBitmapBits};
-  std::mutex task_mu_;
+  mutable std::shared_mutex task_mu_;
+  std::mutex wait_mu_;
   std::condition_variable task_cv_;
   LockFreeBitmap completed_bitmap_{kBitmapBits};
   LockFreeBitmap enqueued_bitmap_{kBitmapBits};

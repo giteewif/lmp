@@ -62,7 +62,7 @@ def test():
     # only for mp process, mp process for cpu experts thread
 
 
-    tensor_index_json = mlpllm.read_tensor_index_json(model_path=model_path)
+    tensor_index_json = mlpllm.read_tensor_index_json(model_path=mlpllm.mlpm.model_abs_path)
     tensor_to_device = mlpllm.test_tensor_index_locate(tensor_index_json=tensor_index_json)
     print(tensor_to_device)
 

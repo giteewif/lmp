@@ -39,7 +39,11 @@ class PinnedMemory {
   std::vector<char*>& get();
   const std::vector<std::string>& get_shm_names() const { return shm_names_; }
   size_t num_chunks() const { return buffers_.size(); }
-  size_t chunk_size() const { return mempool_->chunk_size(); }
+  size_t chunk_size() const {
+    if (mempool_) return mempool_->chunk_size();
+    if (mempool_shared_) return mempool_shared_->chunk_size();
+    return 0;
+  }
 
  private:
   std::vector<char*> buffers_;

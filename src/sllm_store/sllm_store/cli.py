@@ -187,6 +187,17 @@ def cli():
     default=False,
     help="Require registration before loading model",
 )
+@click.option(
+    "--use-shared-memory",
+    default=False,
+    type=bool,
+    help="Enable shared-memory pinned pool",
+)
+@click.option(
+    "--shm-name-prefix",
+    default="/sllm_pinned_pool",
+    help="Shared-memory object name prefix",
+)
 def start(
     host,
     port,
@@ -196,6 +207,8 @@ def start(
     mem_pool_size,
     disk_size,
     registration_required,
+    use_shared_memory,
+    shm_name_prefix,
 ):
     """Start the gRPC server."""
     # Resolve storage path with priority: CLI > env var > default
@@ -220,6 +233,8 @@ def start(
                 # disk size is not used
                 # disk_size=disk_size,
                 registration_required=registration_required,
+                use_shared_memory=use_shared_memory,
+                shm_name_prefix=shm_name_prefix,
             )
         )
     except KeyboardInterrupt:

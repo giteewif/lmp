@@ -37,12 +37,15 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
       .def_readwrite("reorder_hint", &MemCopyChunk::reorder_hint_);
 
   py::class_<CheckpointStore>(m, "CheckpointStore")
-      .def(py::init<const std::string&, size_t, int, size_t>(),
+      .def(py::init<const std::string&, size_t, int, size_t, bool, const std::string&>(),
            py::arg("storage_path"), py::arg("memory_pool_size"),
-           py::arg("num_thread"), py::arg("chunk_size"))
-      .def("register_model_info", &CheckpointStore::RegisterModelInfo,
-           py::arg("model_path"),
-           "Register the model information and return its size.")
+           py::arg("num_thread"), py::arg("chunk_size"), 
+           py::arg("use_shared_memory") = false, 
+           py::arg("shm_name_prefix") = "/sllm_pinned_pool")
+     .def("register_model_info", &CheckpointStore::RegisterModelInfo,
+          py::arg("model_path"), py::arg("tensor_index"), 
+          py::arg("tensor_index_resize"),
+          "Register the model information and return its size.")
       .def("load_model_from_disk_async",
            &CheckpointStore::LoadModelFromDiskAsync, py::arg("model_path"),
            "Load a model from disk asynchronously.")
@@ -110,6 +113,9 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
            "Get the memory pool size.")
       .def("get_chunk_size", &CheckpointStore::GetChunkSize,
            "Get the chunk size.")
+      .def("get_model_shared_memory_names", &CheckpointStore::GetModelSharedMemoryNames,
+           py::arg("model_path"),
+           "Get shared memory names for a model.")
       .def("__repr__",
            [](const CheckpointStore& cs) { return "<CheckpointStore>"; });
 }

@@ -20,9 +20,7 @@ from sllm_store._C import (
     get_cuda_memory_handles,
     get_device_uuid_map,
     restore_tensors_from_shared_memory_names,
-    restore_experts_tensor_from_shared_memory,
     restore_tensors2,
-    free_cuda_memory,
 )
 from sllm_store.client import SllmStoreClient
 
@@ -77,7 +75,7 @@ class MLPLLM:
         self.cmv.start_init_meta_model()
 
         empty_model = copy.deepcopy(self.cmv.mlpm_ci)
-        self.hmv = HostMemoryView(self.mlpm, empty_model=empty_model)
+        # self.hmv = HostMemoryView(self.mlpm, empty_model=empty_model)
         cuda_hook_time_end("init_cmv_hmv")
 
         sllmtm = SLLMTM(num_workers=1)  # SLLM 线程管理器，用于异步加载
@@ -2074,9 +2072,10 @@ class MLPLLM:
         根据当前 GPU 数量与可用显存，为 tensor_index 中的权重分配设备。
 
         约束：
-        1) 同一 (layer, expert) 下的所有参数必须放在同一个设备。
-        2) 同一 layer 的 experts 在设备间尽量均匀（按 expert 组数量）。
-        3) 分配时尽量不超过设备可用显存；若都放不下则退化为剩余显存最多设备。
+        1) 同一 layer 的 除 expert 和 lm_head, norm embed_tokens等参数的其他参数 self_attn, gate, layernorm 参数放在同一个设备，不同层尽量分散到不同设备, 让GPU显存使用尽量均匀。
+        2) 同一 (layer, expert) 下的所有参数必须放在同一个设备，且同层 experts 尽量均匀分配, 让experts 均匀分配到设备中。
+        3) lm_head, norm embed_tokens 都放到第一个设备；所有参数名解析优先使用 mlpm 接口。
+        4) 先放均匀分配专家, 再放其他参数，再放self-attn 类参数
 
         Returns:
             dict[str, str]: tensor_name -> "cuda:<id>"
@@ -2134,39 +2133,81 @@ class MLPLLM:
                 return 0
 
         # 分组策略：
-        # 1) 专家参数：同 layer 同 expert 的所有参数归为一组，跨设备均衡分配；
-        # 2) 非专家参数（包括 self_attn 等）：全部固定放在第一个设备。
+        # 1) 每层 self_attn + gate + layernorm 同层绑定同卡，跨层尽量分散；
+        # 2) 专家参数：同 layer 同 expert 的所有参数归为一组，同层尽量均衡分配；
+        # 3) lm_head / embed_tokens / final norm 等通用参数固定放在第一张卡。
+        # 4) 分配顺序：专家 -> 通用参数(first_device) -> 每层 self_attn/gate/layernorm。
         expert_group_tensors: dict[tuple[int, int], list[str]] = defaultdict(list)
         expert_group_sizes: dict[tuple[int, int], int] = defaultdict(int)
-        non_expert_tensors: list[tuple[str, int]] = []
+        layer_sagln_tensors: dict[int, list[str]] = defaultdict(list)
+        layer_sagln_sizes: dict[int, int] = defaultdict(int)
+        general_tensors: list[tuple[str, int]] = []
+        other_tensors: list[tuple[str, int]] = []
+
+        # 通过 mlpm 接口获取每层 self_attn/gate 参数名，再映射到 tensor_index。
+        # 配置层数缺失时按要求直接报错，不做任何 fallback。
+        cfg = getattr(self.mlpm, "config", None)
+        layer_num = int(getattr(cfg, "num_hidden_layers", 0))
+        if layer_num <= 0:
+            raise RuntimeError(
+                "[test_tensor_index_locate] invalid mlpm config: num_hidden_layers is missing or <= 0"
+            )
+        layer_ids = range(layer_num)
+
+        get_attention_names = getattr(self.mlpm, "get_attention_names", None)
+        get_gate_names = getattr(self.mlpm, "get_gate_names", None)
+        get_layernorm_names = getattr(self.mlpm, "get_layernorm_names", None)
+        get_tensor_index_general_names = getattr(self.mlpm, "get_tensor_index_general_names", None)
+        get_tensor_expert_group_key = getattr(self.mlpm, "get_tensor_expert_group_key", None)
+        if (
+            not callable(get_attention_names)
+            or not callable(get_gate_names)
+            or not callable(get_layernorm_names)
+        ):
+            raise RuntimeError(
+                "[test_tensor_index_locate] mlpm must provide get_attention_names/get_gate_names/get_layernorm_names"
+            )
+        if not callable(get_tensor_index_general_names):
+            raise RuntimeError(
+                "[test_tensor_index_locate] mlpm must provide get_tensor_index_general_names"
+            )
+        if not callable(get_tensor_expert_group_key):
+            raise RuntimeError(
+                "[test_tensor_index_locate] mlpm must provide get_tensor_expert_group_key"
+            )
+        layer_sagln_by_name: dict[str, int] = {}
+        for layer_idx in layer_ids:
+            names = []
+            names.extend(get_attention_names(layer_idx))
+            names.extend(get_gate_names(layer_idx))
+            names.extend(get_layernorm_names(layer_idx))
+            for n in names:
+                if n in tensor_index_json:
+                    layer_sagln_by_name[n] = layer_idx
+        general_name_set = set(get_tensor_index_general_names())
 
         for tname, tmeta in tensor_index_json.items():
             tsize = _tensor_size_bytes(tmeta)
-            key = self.mlpm.get_tensor_expert_group_key(tname)
-            if key is not None:
-                expert_group_tensors[key].append(tname)
-                expert_group_sizes[key] += tsize
+            layer_idx = layer_sagln_by_name.get(tname)
+            if layer_idx is not None:
+                layer_sagln_tensors[layer_idx].append(tname)
+                layer_sagln_sizes[layer_idx] += tsize
+                continue
+
+            expert_key = get_tensor_expert_group_key(tname)
+            if expert_key is not None:
+                expert_group_tensors[expert_key].append(tname)
+                expert_group_sizes[expert_key] += tsize
+            elif tname in general_name_set:
+                general_tensors.append((tname, tsize))
             else:
-                non_expert_tensors.append((tname, tsize))
+                other_tensors.append((tname, tsize))
 
         tensor_to_device: dict[str, str] = {}
         first_device = device_names[0]
 
-        # 先预留：非专家参数全部放在第一个设备（含 self_attn / embed / norm 等）。
-        non_expert_total_size = sum(tsize for _, tsize in non_expert_tensors)
-        if device_remaining[first_device] < non_expert_total_size:
-            raise RuntimeError(
-                f"[test_tensor_index_locate] insufficient GPU memory on first device "
-                f"{first_device} for non-expert tensors total={non_expert_total_size} bytes, "
-                f"remaining={device_remaining[first_device]} bytes"
-            )
-        for tname, tsize in non_expert_tensors:
-            tensor_to_device[tname] = first_device
-            device_remaining[first_device] -= tsize
-
-        # 再按 layer 分配专家组：
-        # 在满足可容纳前提下，优先最小化各卡“已用显存占初始可用显存”的离散度，
-        # 使整体 GPU 显存使用尽可能均匀。
+        # 先按 layer 分配专家组（规则4第一步）：
+        # 在满足可容纳前提下，优先同层专家个数均衡，再兼顾显存水位均衡。
         layer_to_groups: dict[int, list[tuple[int, int]]] = defaultdict(list)
         for key in expert_group_tensors:
             layer_to_groups[key[0]].append(key)
@@ -2184,15 +2225,12 @@ class MLPLLM:
                     rem = device_remaining[dev_name]
                     fits = 0 if rem >= gsize else 1  # 必须可放下
                     initial = max(1, device_initial_free[dev_name])
-                    # 放置前后该卡使用率
-                    before_used_ratio = (initial - rem) / initial
                     after_used_ratio = (initial - (rem - gsize)) / initial if rem >= gsize else float("inf")
-                    # 主目标：让“放置后”的使用率尽量低，从而拉齐各卡水位。
+                    # 主目标：同层专家计数均衡；次级：显存水位均衡。
                     return (
                         fits,
+                        per_layer_device_counts[dev_name],
                         after_used_ratio,
-                        before_used_ratio,
-                        per_layer_device_counts[dev_name],  # 次级：同层专家数尽量均衡
                         -rem,
                         dev_name,
                     )
@@ -2209,17 +2247,76 @@ class MLPLLM:
                 for tname in expert_group_tensors[g]:
                     tensor_to_device[tname] = chosen
 
+        # 第二步：lm_head / embed_tokens / final norm 等通用参数放在第一张卡。
+        general_total_size = sum(tsize for _, tsize in general_tensors)
+        other_total_size = sum(tsize for _, tsize in other_tensors)
+        first_device_total_size = general_total_size + other_total_size
+        if device_remaining[first_device] < first_device_total_size:
+            raise RuntimeError(
+                f"[test_tensor_index_locate] insufficient GPU memory on first device "
+                f"{first_device} for general+other tensors total={first_device_total_size} bytes, "
+                f"remaining={device_remaining[first_device]} bytes"
+            )
+        for tname, tsize in general_tensors:
+            tensor_to_device[tname] = first_device
+            device_remaining[first_device] -= tsize
+        for tname, tsize in other_tensors:
+            tensor_to_device[tname] = first_device
+            device_remaining[first_device] -= tsize
+
+        # 第三步：分配每层 self_attn + gate + layernorm（规则4最后一步）。
+        # 同层绑定同卡，层间尽量分散。
+        # 目标顺序：1) 必须能放下；2) 优先层数较少的卡；3) 再看相对使用率，尽量水位均衡。
+        layer_sagln_counts = {d: 0 for d in device_names}
+        for layer_id, _ in sorted(layer_sagln_tensors.items(), key=lambda x: x[0]):
+            gsize = layer_sagln_sizes[layer_id]
+
+            def _layer_sagln_cand_key(dev_name: str):
+                rem = device_remaining[dev_name]
+                fits = 0 if rem >= gsize else 1
+                initial = max(1, device_initial_free[dev_name])
+                after_used_ratio = (initial - (rem - gsize)) / initial if rem >= gsize else float("inf")
+                return (
+                    fits,
+                    layer_sagln_counts[dev_name],
+                    after_used_ratio,
+                    -rem,
+                    dev_name,
+                )
+
+            chosen = min(device_names, key=_layer_sagln_cand_key)
+            if device_remaining[chosen] < gsize:
+                raise RuntimeError(
+                    f"[test_tensor_index_locate] insufficient GPU memory for "
+                    f"layer={layer_id} self_attn+gate+layernorm size={gsize} bytes, "
+                    f"remaining={device_remaining}"
+                )
+            layer_sagln_counts[chosen] += 1
+            device_remaining[chosen] -= gsize
+            for tname in layer_sagln_tensors[layer_id]:
+                tensor_to_device[tname] = chosen
+
         device_usage_ratio = {}
+        device_expected_used_bytes = {}
+        device_expected_used_mib = {}
         for d in device_names:
             initial = max(1, device_initial_free[d])
-            device_usage_ratio[d] = (initial - device_remaining[d]) / initial
+            used_bytes = initial - device_remaining[d]
+            device_usage_ratio[d] = used_bytes / initial
+            device_expected_used_bytes[d] = used_bytes
+            device_expected_used_mib[d] = used_bytes / (1024.0 * 1024.0)
         logger.info(
-            "[test_tensor_index_locate] tensors=%d expert_groups=%d first_device=%s "
-            "remaining=%s usage_ratio=%s",
+            "[test_tensor_index_locate] tensors=%d sagln_layers=%d expert_groups=%d general_tensors=%d other_tensors=%d first_device=%s "
+            "remaining=%s expected_used_bytes=%s expected_used_mib=%s usage_ratio=%s",
             len(tensor_to_device),
+            len(layer_sagln_tensors),
             len(expert_group_tensors),
+            len(general_tensors),
+            len(other_tensors),
             first_device,
             {d: device_remaining[d] for d in device_names},
+            device_expected_used_bytes,
+            device_expected_used_mib,
             device_usage_ratio,
         )
         return tensor_to_device

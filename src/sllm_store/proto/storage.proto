@@ -9,6 +9,7 @@ service Storage {
   rpc SubmitHighPriorityTasks (SubmitHighPriorityTasksRequest) returns (SubmitHighPriorityTasksResponse) {}
   rpc SetReorderBitmap (SetReorderBitmapRequest) returns (SetReorderBitmapResponse) {}
   rpc WaitCopyTasks (WaitCopyTasksRequest) returns (WaitCopyTasksResponse) {}
+  rpc GetModelSharedMemoryNames (GetModelSharedMemoryNamesRequest) returns (GetModelSharedMemoryNamesResponse) {}
 
   rpc ClearMem (ClearMemRequest) returns (ClearMemResponse) {}
 
@@ -138,4 +139,14 @@ message WaitCopyTasksRequest {
 message WaitCopyTasksResponse {
   int32 code = 1;
   repeated uint64 pending_task_ids = 2;
+}
+
+message GetModelSharedMemoryNamesRequest {
+  string model_path = 1;
+}
+
+message GetModelSharedMemoryNamesResponse {
+  string model_path = 1;
+  repeated string shm_names = 2;
+  uint64 chunk_size = 3;
 }

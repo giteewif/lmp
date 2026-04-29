@@ -151,6 +151,17 @@ class LockFreeBitmap {
     words_[idx].fetch_and(mask, std::memory_order_acq_rel);
   }
 
+  bool test_and_clear(size_t bit) {
+    const size_t idx = bit / 64;
+    if (idx >= words_.size()) {
+      return false;
+    }
+    const uint64_t mask = 1ULL << (bit % 64);
+    const uint64_t old =
+        words_[idx].fetch_and(~mask, std::memory_order_acq_rel);
+    return (old & mask) != 0;
+  }
+
   void reset() {
     for (auto& word : words_) {
       word.store(0, std::memory_order_release);

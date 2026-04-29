@@ -128,7 +128,20 @@ class SllmStoreClient:
         else:
             logger.info(f"Model loaded: {model_path}, {replica_uuid}")
             return response
-
+    def get_model_shared_memory_names(self, model_path):
+        request = storage_pb2.GetModelSharedMemoryNamesRequest(model_path=model_path)
+        try:
+            response = self.stub.GetModelSharedMemoryNames(request)
+        except AttributeError:
+            logger.error(
+                "GetModelSharedMemoryNames RPC is unavailable in current server stub"
+            )
+            return None, None
+        except grpc.RpcError as e:
+            logger.error(f"Error on get model shared memory names: {e}")
+            return None, None
+        else:
+            return response.shm_names, response.chunk_size
     def submit_high_priority_copy_tasks(
         self, model_path, replica_uuid, task_ids, epoch_id=0
     ):

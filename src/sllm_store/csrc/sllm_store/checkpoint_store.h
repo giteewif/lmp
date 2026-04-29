@@ -45,7 +45,10 @@ class CheckpointStore {
                   const std::string& shm_name_prefix = "/sllm_pinned_pool");
   ~CheckpointStore();
 
-  int64_t RegisterModelInfo(const std::string& model_path);
+  int64_t RegisterModelInfo(
+      const std::string& model_path,
+      const TensorIndexMap& tensor_index = {},
+      const TensorIndexResizeMap& tensor_index_resize = {});
   int LoadModelFromDisk(const std::string& model_path);
   int LoadModelFromDiskAsync(const std::string& model_path);
   int LoadModelFromMem(const std::string& model_path,
@@ -72,6 +75,7 @@ class CheckpointStore {
   int UnloadModelFromHost(const std::string& model_path);
   int ClearMem();
 
+  std::pair<std::vector<std::string>, size_t> GetModelSharedMemoryNames(const std::string& model_path);
  public:
   // Get methods
   size_t GetMemPoolSize() const { return memory_pool_size_; }

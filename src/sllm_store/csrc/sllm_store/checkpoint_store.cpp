@@ -97,10 +97,14 @@ CheckpointStore::CheckpointStore(const std::string& storage_path,
 
 CheckpointStore::~CheckpointStore() { ClearMem(); }
 
-int64_t CheckpointStore::RegisterModelInfo(const std::string& model_path) {
+int64_t CheckpointStore::RegisterModelInfo(
+  const std::string& model_path,
+  const TensorIndexMap& tensor_index,
+  const TensorIndexResizeMap& tensor_index_resize
+) {
   std::unique_lock<std::mutex> lock_info(model_info_mutex_);
   if (model_map_.find(model_path) != model_map_.end()) {
-    // LOG(WARNING) << "Model " << model_path << " is already regfistered";
+    // LOG(INFO) << "Model " << model_path << " is already regfistered";
     auto model = model_map_.at(model_path);
     return model->GetModelSize();
   }
@@ -108,6 +112,8 @@ int64_t CheckpointStore::RegisterModelInfo(const std::string& model_path) {
   auto model = std::make_shared<Model>(model_path);
 
   int ret = model->Initialize(storage_path_);
+  model->SetTensorInfo(tensor_index, tensor_index_resize);
+
   if (ret != 0) {
     LOG(ERROR) << "Failed to initialize model " << model_path;
     return ret;
@@ -416,4 +422,24 @@ MemPtrListMap CheckpointStore::GetDevicePtrsFromMemHandles(
     }
   }
   return gpu_ptrs;
+}
+
+std::pair<std::vector<std::string>, size_t> CheckpointStore::GetModelSharedMemoryNames(
+  const std::string& model_path) {
+std::unique_lock<std::mutex> lock_info(model_info_mutex_);
+auto model = GetModelPtr(model_path);
+if (model == nullptr) {
+  LOG(ERROR) << "Model " << model_path << " is not registered";
+  return {{}, 0};
+}
+lock_info.unlock();
+
+if (!use_shared_memory_) {
+  LOG(ERROR) << "Not using shared memory pool";
+  return {{}, 0};
+}
+
+std::vector<std::string> shm_names = model->GetSharedMemoryNames();
+size_t chunk_size = chunk_size_;
+return {shm_names, chunk_size};
 }

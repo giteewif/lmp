@@ -1,4 +1,5 @@
 import asyncio
+import json
 import grpc
 import sllm_store
 from sllm_store.proto import storage_pb2, storage_pb2_grpc
@@ -10,7 +11,10 @@ import torch  # noqa: F401
 import ctypes
 import os
 
-ctypes.CDLL(os.path.join(sllm_store.__path__[0], "libglog.so"))
+_PACKAGE_DIR = sllm_store.__path__[0]
+
+
+ctypes.CDLL(os.path.join(_PACKAGE_DIR, "libglog.so"))
 
 from sllm_store._checkpoint_store import (  # noqa: E402
     CheckpointStore,
@@ -46,11 +50,64 @@ class StorageServicer(storage_pb2_grpc.StorageServicer):
             f"registration_required={registration_required}"
         )
 
-        self.storage = CheckpointStore(
-            storage_path, mem_pool_size, num_thread, chunk_size,
-            use_shared_memory, shm_name_prefix
-        )
+        # Backward compatibility: older/native builds expose only the
+        # 4-argument constructor and do not support shared-memory options.
+        try:
+            self.storage = CheckpointStore(
+                storage_path,
+                mem_pool_size,
+                num_thread,
+                chunk_size,
+                use_shared_memory,
+                shm_name_prefix,
+            )
+        except TypeError:
+            logger.warning(
+                "CheckpointStore in current native extension does not support "
+                "shared-memory constructor args; falling back to legacy mode."
+            )
+            self.storage = CheckpointStore(
+                storage_path, mem_pool_size, num_thread, chunk_size
+            )
         self.registration_required = registration_required
+        self.storage_path = storage_path
+
+    def _load_tensor_index_files(self, model_path):
+        tensor_index_path = os.path.join(
+            self.storage_path, model_path, "tensor_index.json"
+        )
+        tensor_index_resize_path = os.path.join(
+            self.storage_path, model_path, "tensor_index_resize.json"
+        )
+
+        tensor_index = {}
+        tensor_index_resize = {}
+
+        if os.path.exists(tensor_index_path):
+            try:
+                with open(tensor_index_path, "r", encoding="utf-8") as f:
+                    tensor_index = json.load(f)
+            except Exception as e:
+                raise ValueError(
+                    f"Failed to load tensor index file: {tensor_index_path}, error: {e}"
+                ) from e
+        else:
+            logger.warning(
+                f"tensor_index.json not found for model {model_path}, fallback to full load"
+            )
+
+        # tensor_index_resize.json is optional
+        if os.path.exists(tensor_index_resize_path):
+            try:
+                with open(tensor_index_resize_path, "r", encoding="utf-8") as f:
+                    tensor_index_resize = json.load(f)
+            except Exception as e:
+                raise ValueError(
+                    "Failed to load tensor index resize file: "
+                    f"{tensor_index_resize_path}, error: {e}"
+                ) from e
+
+        return tensor_index, tensor_index_resize
 
     async def LoadModelAsync(self, request, context):
         model_path = request.model_path
@@ -59,29 +116,16 @@ class StorageServicer(storage_pb2_grpc.StorageServicer):
             context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
             return storage_pb2.LoadModelResponse()
 
-        if not self.registration_required:
-            model_size = self.storage.register_model_info(model_path)
-            if model_size < 0:
-                logger.error("RegisterModel failed")
-                context.set_code(grpc.StatusCode.INTERNAL)
-                return storage_pb2.LoadModelResponse()
 
         device_type = request.target_device_type
         if device_type == storage_pb2.DEVICE_TYPE_CPU:
             if not self.registration_required:
-                import json
-                import os
-                tensor_index_path = os.path.join(self.storage_path, model_path, "tensor_index.json")
-                tensor_index_resize_path = os.path.join(self.storage_path, model_path, "tensor_index_resize.json")
-                tensor_index = {}
-                tensor_index_resize = {}
                 try:
-                    with open(tensor_index_path, "r") as f:
-                        tensor_index = json.load(f)
-                    with open(tensor_index_resize_path, "r") as f:
-                        tensor_index_resize = json.load(f)
-                except Exception as e:
-                    logger.error(f"Failed to load {tensor_index_path}: {e}")
+                    tensor_index, tensor_index_resize = self._load_tensor_index_files(
+                        model_path
+                    )
+                except ValueError as e:
+                    logger.error(str(e))
                     context.set_code(grpc.StatusCode.INTERNAL)
                     return storage_pb2.LoadModelResponse()
                 model_size = self.storage.register_model_info(model_path, tensor_index, tensor_index_resize)
@@ -89,6 +133,7 @@ class StorageServicer(storage_pb2_grpc.StorageServicer):
                     logger.error("RegisterModel failed")
                     context.set_code(grpc.StatusCode.INTERNAL)
                     return storage_pb2.LoadModelResponse()
+
             ret = self.storage.load_model_from_disk_async(model_path)
         elif device_type == storage_pb2.DEVICE_TYPE_GPU:
             replica_uuid = request.replica_uuid
@@ -312,7 +357,18 @@ class StorageServicer(storage_pb2_grpc.StorageServicer):
             context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
             return storage_pb2.RegisterModelResponse()
 
-        model_size = self.storage.register_model_info(model_path)
+        try:
+            tensor_index, tensor_index_resize = self._load_tensor_index_files(
+                model_path
+            )
+        except ValueError as e:
+            logger.error(str(e))
+            context.set_code(grpc.StatusCode.INTERNAL)
+            return storage_pb2.RegisterModelResponse()
+
+        model_size = self.storage.register_model_info(
+            model_path, tensor_index, tensor_index_resize
+        )
         if model_size < 0:
             logger.error("RegisterModel failed")
             context.set_code(grpc.StatusCode.INTERNAL)
@@ -326,6 +382,37 @@ class StorageServicer(storage_pb2_grpc.StorageServicer):
         return storage_pb2.GetServerConfigResponse(
             mem_pool_size=self.storage.get_mem_pool_size(),
             chunk_size=self.storage.get_chunk_size(),
+        )
+
+    async def GetModelSharedMemoryNames(self, request, context):
+        model_path = request.model_path
+        if not model_path:
+            logger.error("model_path is empty")
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            return storage_pb2.GetModelSharedMemoryNamesResponse()
+
+        try:
+            shm_names, chunk_size = self.storage.get_model_shared_memory_names(
+                model_path
+            )
+        except Exception as e:
+            logger.error(
+                f"GetModelSharedMemoryNames failed for model {model_path}: {e}"
+            )
+            context.set_code(grpc.StatusCode.INTERNAL)
+            return storage_pb2.GetModelSharedMemoryNamesResponse()
+
+        if not shm_names:
+            context.set_code(grpc.StatusCode.FAILED_PRECONDITION)
+            context.set_details(
+                "No shared memory names available; verify shared-memory mode and model state."
+            )
+            return storage_pb2.GetModelSharedMemoryNamesResponse()
+
+        return storage_pb2.GetModelSharedMemoryNamesResponse(
+            model_path=model_path,
+            shm_names=shm_names,
+            chunk_size=chunk_size,
         )
 
 

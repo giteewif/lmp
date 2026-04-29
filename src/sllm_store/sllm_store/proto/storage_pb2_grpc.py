@@ -67,6 +67,11 @@ class StorageStub(object):
                 request_serializer=storage__pb2.WaitCopyTasksRequest.SerializeToString,
                 response_deserializer=storage__pb2.WaitCopyTasksResponse.FromString,
                 _registered_method=True)
+        self.GetModelSharedMemoryNames = channel.unary_unary(
+                '/storage.Storage/GetModelSharedMemoryNames',
+                request_serializer=storage__pb2.GetModelSharedMemoryNamesRequest.SerializeToString,
+                response_deserializer=storage__pb2.GetModelSharedMemoryNamesResponse.FromString,
+                _registered_method=True)
         self.ClearMem = channel.unary_unary(
                 '/storage.Storage/ClearMem',
                 request_serializer=storage__pb2.ClearMemRequest.SerializeToString,
@@ -123,6 +128,12 @@ class StorageServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetModelSharedMemoryNames(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def ClearMem(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -173,6 +184,11 @@ def add_StorageServicer_to_server(servicer, server):
                     servicer.WaitCopyTasks,
                     request_deserializer=storage__pb2.WaitCopyTasksRequest.FromString,
                     response_serializer=storage__pb2.WaitCopyTasksResponse.SerializeToString,
+            ),
+            'GetModelSharedMemoryNames': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetModelSharedMemoryNames,
+                    request_deserializer=storage__pb2.GetModelSharedMemoryNamesRequest.FromString,
+                    response_serializer=storage__pb2.GetModelSharedMemoryNamesResponse.SerializeToString,
             ),
             'ClearMem': grpc.unary_unary_rpc_method_handler(
                     servicer.ClearMem,
@@ -352,6 +368,33 @@ class Storage(object):
             '/storage.Storage/WaitCopyTasks',
             storage__pb2.WaitCopyTasksRequest.SerializeToString,
             storage__pb2.WaitCopyTasksResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetModelSharedMemoryNames(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/storage.Storage/GetModelSharedMemoryNames',
+            storage__pb2.GetModelSharedMemoryNamesRequest.SerializeToString,
+            storage__pb2.GetModelSharedMemoryNamesResponse.FromString,
             options,
             channel_credentials,
             insecure,

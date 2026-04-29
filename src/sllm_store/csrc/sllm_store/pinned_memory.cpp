@@ -21,9 +21,15 @@
 
 PinnedMemory::~PinnedMemory() {
   LOG(INFO) << "Deallocating " << buffers_.size() << " memory chunks";
-  int ret = mempool_->Deallocate(buffers_);
+  int ret = 0;
+  if (mempool_shared_) {
+    ret = mempool_shared_->Deallocate(buffers_);
+  } else if (mempool_) {
+    ret = mempool_->Deallocate(buffers_);
+  }
+
   if (ret != 0) {
-    LOG(ERROR) << "Error deallocating CPU memory";
+    LOG(ERROR) << "Error deallocating pinned memory";
   }
 }
 
@@ -35,7 +41,20 @@ int PinnedMemory::Allocate(size_t size,
   }
 
   mempool_ = mempool;
+  mempool_shared_.reset();
   return mempool_->Allocate(size, buffers_);
+}
+
+int PinnedMemory::Allocate(size_t size,
+                           std::shared_ptr<PinnedMemoryPoolShared> mempool) {
+  if (buffers_.size() > 0) {
+    LOG(ERROR) << "Memory already allocated";
+    return 1;
+  }
+
+  mempool_shared_ = mempool;
+  mempool_.reset();
+  return mempool_shared_->Allocate(size, buffers_, shm_names_);
 }
 
 std::vector<char*>& PinnedMemory::get() { return buffers_; }

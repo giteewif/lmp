@@ -319,10 +319,10 @@ int Model::ToHostResize(int num_threads) {
   }
 
   LOG(INFO) << "ToHostResize: Starting to load model " << model_path_
-            << " model_size_=" << model_size_ 
+            << " model_size_=" << model_size_
             << " model_size_resize_=" << model_size_resize_
             << " with " << num_threads << " threads";
-  
+
   if (!pinned_mem_ || pinned_mem_->num_chunks() == 0) {
     LOG(ERROR) << "CPU memory not allocated";
     return 1;
@@ -330,254 +330,216 @@ int Model::ToHostResize(int num_threads) {
 
   auto& host_buffers = pinned_mem_->get();
   size_t chunk_size = pinned_mem_->chunk_size();
+  size_t num_chunks = pinned_mem_->num_chunks();
 
-  // 打开所有分区文件
+  // Open all partition files.
+  // Do NOT use O_DIRECT: tensor resize_offsets are not guaranteed to be
+  // block-aligned, so O_DIRECT pread() would fail with EINVAL.
   std::vector<int> file_descriptors;
-  for (int partition_id = 0; partition_id < partition_sizes_.size();
+  for (size_t partition_id = 0; partition_id < partition_sizes_.size();
        ++partition_id) {
     auto tensor_path = partition_paths_[partition_id];
     if (access(tensor_path.c_str(), F_OK) == -1) {
       LOG(ERROR) << "File " << tensor_path << " does not exist";
+      for (int fd : file_descriptors) close(fd);
       return -1;
     }
-
-    int fd = open(tensor_path.c_str(), O_DIRECT | O_RDONLY);
+    int fd = open(tensor_path.c_str(), O_RDONLY);
+    // int fd = open(tensor_path.c_str(), O_DIRECT | O_RDONLY);
     if (fd < 0) {
-      std::string err = "open() failed for file: " + tensor_path.string() +
-                        ", error: " + strerror(errno);
-      LOG(ERROR) << err;
+      LOG(ERROR) << "open() failed for file: " << tensor_path.string()
+                 << ", error: " << strerror(errno);
+      for (int ofd : file_descriptors) close(ofd);
       return -1;
     }
     file_descriptors.push_back(fd);
   }
 
-  LOG(INFO) << "Loading " << tensor_index_resize_.size()
-            << " tensors from disk to host with resized layout";
+  // Build an immutable flat list of tensor copy tasks in the main thread.
+  // Each task records everything a worker needs; no shared mutable map access
+  // in worker threads, which eliminates the data-race that caused segfaults.
+  struct TensorTask {
+    size_t resize_offset;  // destination byte offset in pinned buffer
+    size_t file_offset;    // source byte offset across all partitions
+    size_t size;           // bytes to copy (file_size == resize_size)
+  };
+  std::vector<TensorTask> tasks;
+  tasks.reserve(tensor_index_resize_.size());
 
-  // 按 chunk 分组 tensors，以便多线程处理
-  size_t num_chunks = pinned_mem_->num_chunks();
-  std::vector<std::vector<std::string>> chunk_tensors(num_chunks);
-  
   for (const auto& [name, resize_info] : tensor_index_resize_) {
-    if (tensor_index_.find(name) == tensor_index_.end()) {
+    auto it = tensor_index_.find(name);
+    if (it == tensor_index_.end()) {
+      LOG(WARNING) << "Tensor " << name
+                   << " in tensor_index_resize_ but not in tensor_index_, skipping";
       continue;
     }
-    auto [resize_offset, resize_size, resize_shape, resize_strides,
-          resize_dtype] = resize_info;
-    
-    // 计算 tensor 跨越的 chunks
-    std::vector<std::tuple<int, size_t, size_t>> chunks =
-        MapDataToChunks(resize_offset, resize_size, chunk_size);
-    
-    for (const auto& [chunk_id, chunk_offset, chunk_size_in_chunk] : chunks) {
-      if (chunk_id >= 0 && static_cast<size_t>(chunk_id) < num_chunks) {
-        chunk_tensors[chunk_id].push_back(name);
-      }
+    const auto& [resize_offset, resize_size, resize_shape, resize_strides,
+                 resize_dtype] = resize_info;
+    const auto& [file_offset, file_size, file_shape, file_strides, file_dtype] =
+        it->second;
+
+    if (file_size != resize_size) {
+      LOG(ERROR) << "Tensor " << name << " size mismatch: file_size=" << file_size
+                 << " resize_size=" << resize_size << ", skipping";
+      continue;
     }
+    if (resize_offset + resize_size > model_size_resize_) {
+      LOG(ERROR) << "Tensor " << name << " resize_offset=" << resize_offset
+                 << " size=" << resize_size
+                 << " exceeds model_size_resize_=" << model_size_resize_;
+      continue;
+    }
+    tasks.push_back({resize_offset, file_offset, resize_size});
   }
+
+  LOG(INFO) << "ToHostResize: " << tasks.size() << " tensors, "
+            << num_chunks << " chunks, chunk_size=" << chunk_size;
 
   host_ptr_vector_ = std::make_shared<BatchVector>();
   host_ptr_vector_->init("queue_name", num_chunks);
-  std::vector<std::future<int>> futures;
-  size_t chunk_per_thread = (num_chunks + num_threads - 1) / num_threads;
-  LOG(INFO) << "Loading model " << model_path_ << " to host with "
-            << num_threads << " threads, " << num_chunks << " chunks, "
-            << chunk_size << " chunk size, " << chunk_per_thread
-            << " chunks per thread";
 
-  // Progress tracking
-  std::atomic<size_t> completed_chunks{0};
+  // Divide tensors among threads (not chunks).
+  // Each tensor is owned by exactly one thread → no write-side data races on
+  // host_buffers (tensors have non-overlapping resize destinations).
+  size_t total_tasks = tasks.size();
+  size_t tasks_per_thread = (total_tasks + num_threads - 1) / num_threads;
+
+  std::atomic<size_t> completed_tasks{0};
   std::atomic<bool> progress_thread_running{true};
-  
-  // Start progress display thread
+
   std::thread progress_thread([&]() {
-    LOG(INFO) << "ToHostResize: Progress thread started, monitoring " << num_chunks << " chunks";
-    size_t last_completed = 0;
-    int iteration = 0;
     while (progress_thread_running.load()) {
-      size_t completed = completed_chunks.load();
-      double progress = num_chunks > 0 ? (double)completed / num_chunks * 100.0 : 0.0;
-      size_t bytes_processed = completed * chunk_size;
-      size_t total_bytes = num_chunks * chunk_size;
-      
-      // 每次迭代都输出，或者当进度有变化时输出
-      if (completed != last_completed || iteration == 0) {
-        // Create progress bar
-        int bar_width = 50;
-        int pos = num_chunks > 0 ? (int)(progress / 100.0 * bar_width) : 0;
-        std::string progress_bar = "[";
-        for (int i = 0; i < bar_width; ++i) {
-          if (i < pos) progress_bar += "=";
-          else if (i == pos) progress_bar += ">";
-          else progress_bar += " ";
-        }
-        progress_bar += "]";
-        
-        LOG(INFO) << "ToHostResize loading progress: " << progress_bar 
-                  << " " << std::fixed << std::setprecision(1) << progress << "%"
-                  << " (" << completed << "/" << num_chunks << " chunks)"
-                  << " " << (bytes_processed / 1024 / 1024) << "MB/" 
-                  << (total_bytes / 1024 / 1024) << "MB";
-        last_completed = completed;
-      }
-      
-      if (completed >= num_chunks) {
-        LOG(INFO) << "ToHostResize: Progress thread finished, all " << num_chunks << " chunks completed";
-        break;
-      }
-      iteration++;
-      std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+      size_t done = completed_tasks.load();
+      double pct = total_tasks > 0 ? 100.0 * done / total_tasks : 0.0;
+      LOG(INFO) << "ToHostResize progress: " << done << "/" << total_tasks
+                << " tensors (" << std::fixed << std::setprecision(1) << pct << "%)";
+      if (done >= total_tasks) break;
+      std::this_thread::sleep_for(std::chrono::seconds(2));
     }
   });
 
   state_ = MemoryState::LOADING;
   lock.unlock();
 
+  std::vector<std::future<int>> futures;
   for (int thread_idx = 0; thread_idx < num_threads; ++thread_idx) {
-    futures.emplace_back(std::async(std::launch::async, [&, thread_idx]() {
-      for (size_t chunk_idx = thread_idx * chunk_per_thread;
-           chunk_idx < (thread_idx + 1) * chunk_per_thread &&
-           chunk_idx < num_chunks;
-           ++chunk_idx) {
-        
-        if (state_ == MemoryState::CANCELLED) {
-          LOG(INFO) << "Loading from disk for model " << model_path_
-                    << " is cancelled";
+    futures.emplace_back(
+        std::async(std::launch::async, [&, thread_idx]() -> int {
+          size_t t_start = static_cast<size_t>(thread_idx) * tasks_per_thread;
+          size_t t_end = std::min(t_start + tasks_per_thread, total_tasks);
+
+          for (size_t ti = t_start; ti < t_end; ++ti) {
+            if (state_ == MemoryState::CANCELLED) {
+              LOG(INFO) << "ToHostResize cancelled for model " << model_path_;
+              return 0;
+            }
+
+            const TensorTask& task = tasks[ti];
+
+            // Locate the starting partition for this tensor's file_offset.
+            size_t src_ptn = 0;
+            size_t src_off = task.file_offset;
+            while (src_ptn < partition_sizes_.size() &&
+                   src_off >= partition_sizes_[src_ptn]) {
+              src_off -= partition_sizes_[src_ptn];
+              src_ptn++;
+            }
+            if (src_ptn >= partition_sizes_.size()) {
+              LOG(ERROR) << "task file_offset=" << task.file_offset
+                         << " exceeds total file size";
+              return -1;
+            }
+
+            // Copy tensor data byte-by-byte across chunk and partition boundaries.
+            // Both source (file) and destination (pinned buffer) are traversed
+            // in a single pass without revisiting any byte → no data races.
+            size_t remaining = task.size;
+            size_t dst_abs = task.resize_offset;
+
+            while (remaining > 0) {
+              size_t cid = dst_abs / chunk_size;
+              size_t coff = dst_abs % chunk_size;
+              if (cid >= host_buffers.size()) {
+                LOG(ERROR) << "chunk_id=" << cid
+                           << " out of range (num_chunks=" << host_buffers.size() << ")";
+                return -1;
+              }
+
+              // Bytes available in the current destination chunk and source partition.
+              size_t avail_dst = chunk_size - coff;
+              size_t avail_src = partition_sizes_[src_ptn] - src_off;
+              size_t to_read = std::min({remaining, avail_dst, avail_src});
+
+              char* dst_ptr = host_buffers[cid] + coff;
+              ssize_t ret =
+                  pread(file_descriptors[src_ptn], dst_ptr, to_read, src_off);
+              if (ret != static_cast<ssize_t>(to_read)) {
+                LOG(ERROR) << "pread failed: expected=" << to_read
+                           << " got=" << ret << " errno=" << strerror(errno)
+                           << " partition=" << src_ptn << " offset=" << src_off;
+                return -1;
+              }
+
+              remaining -= to_read;
+              dst_abs += to_read;
+              src_off += to_read;
+
+              // Advance to next partition if current one is exhausted.
+              if (src_off >= partition_sizes_[src_ptn]) {
+                src_off = 0;
+                src_ptn++;
+              }
+            }
+
+            completed_tasks.fetch_add(1, std::memory_order_relaxed);
+          }
           return 0;
-        }
-
-        // 处理该 chunk 中的所有 tensors
-        std::set<std::string> processed_tensors;  // 避免重复处理
-        for (const auto& name : chunk_tensors[chunk_idx]) {
-          if (processed_tensors.find(name) != processed_tensors.end()) {
-            continue;
-          }
-          processed_tensors.insert(name);
-
-          // 从 tensor_index_ 获取原始文件中的位置
-          if (tensor_index_.find(name) == tensor_index_.end()) {
-            continue;
-          }
-
-          auto [resize_offset, resize_size, resize_shape, resize_strides,
-                resize_dtype] = tensor_index_resize_[name];
-          auto [file_offset, file_size, file_shape, file_strides, file_dtype] =
-              tensor_index_[name];
-
-          if (file_size != resize_size) {
-            LOG(ERROR) << "Tensor " << name << " size mismatch: file_size="
-                       << file_size << ", resize_size=" << resize_size;
-            continue;
-          }
-
-          // 计算 tensor 在 resize 布局中跨越的 chunks
-          std::vector<std::tuple<int, size_t, size_t>> resize_chunks =
-              MapDataToChunks(resize_offset, resize_size, chunk_size);
-
-          // 处理每个 chunk 部分
-          size_t remaining_size = resize_size;
-          size_t file_read_offset = 0;
-
-          for (const auto& [resize_chunk_id, resize_chunk_offset,
-                            resize_chunk_size] : resize_chunks) {
-            if (resize_chunk_id < 0 ||
-                static_cast<size_t>(resize_chunk_id) >= num_chunks) {
-              LOG(ERROR) << "Tensor " << name << " invalid chunk_id "
-                         << resize_chunk_id;
-              return -1;
-            }
-
-            // 找到包含该 offset 的分区
-            size_t partition_id = 0;
-            size_t partition_file_offset = file_offset + file_read_offset;
-            while (partition_id < partition_sizes_.size() &&
-                   partition_file_offset >= partition_sizes_[partition_id]) {
-              partition_file_offset -= partition_sizes_[partition_id];
-              partition_id++;
-            }
-
-            if (partition_id >= partition_sizes_.size()) {
-              LOG(ERROR) << "Tensor " << name << " offset " << file_offset
-                         << " exceeds file size";
-              return -1;
-            }
-
-            // 从文件读取到 pinned memory
-            int fd = file_descriptors[partition_id];
-            void* dst_ptr = host_buffers[resize_chunk_id] + resize_chunk_offset;
-            ssize_t ret = pread(fd, (void*)dst_ptr, resize_chunk_size,
-                                partition_file_offset);
-            if (ret != static_cast<ssize_t>(resize_chunk_size)) {
-              LOG(ERROR) << "Failed to read tensor " << name
-                         << " from file: read " << ret << " expected "
-                         << resize_chunk_size;
-              return -1;
-            }
-
-            file_read_offset += resize_chunk_size;
-            remaining_size -= resize_chunk_size;
-          }
-        }
-
-        host_ptr_vector_->enqueue(chunk_idx, Batch{chunk_idx, chunk_size});
-        
-        // Update progress
-        size_t current = completed_chunks.fetch_add(1) + 1;
-        if (current % 10 == 0 || current == num_chunks) {
-          LOG(INFO) << "ToHostResize: Completed " << current << "/" << num_chunks << " chunks";
-        }
-      }
-
-      return 0;
-    }));
+        }));
   }
 
   bool error = false;
   for (auto& future : futures) {
-    int ret = future.get();
-    if (ret != 0) {
-      LOG(ERROR) << "Error reading from disk, ret " << ret;
+    if (future.get() != 0) {
+      LOG(ERROR) << "ToHostResize: worker thread returned error";
       error = true;
     }
   }
-  
-  // Stop progress thread
-  progress_thread_running.store(false);
-  if (progress_thread.joinable()) {
-    progress_thread.join();
-  }
 
-  // close file
-  for (int fd : file_descriptors) {
-    close(fd);
-  }
+  progress_thread_running.store(false);
+  if (progress_thread.joinable()) progress_thread.join();
+
+  for (int fd : file_descriptors) close(fd);
 
   lock.lock();
   if (error) {
     state_ = MemoryState::INTERRUPTED;
-    // Deal with gpu replicas
     for (auto& [replica_uuid, gpu_replica] : gpu_replicas_) {
       if (gpu_replica->state_ == MemoryState::LOADING) {
         gpu_replica->state_ = MemoryState::CANCELLED;
         gpu_replica->cv_.notify_all();
       }
-      // wait for gpu replicas to finish
       gpu_replica->cv_.wait(lock, [&gpu_replica] {
         return gpu_replica->state_ == MemoryState::LOADED ||
                gpu_replica->state_ == MemoryState::INTERRUPTED;
       });
-      // Note: gpu replicas will be handled by the caller
     }
-    // release pinned memory
     pinned_mem_.reset();
     state_ = MemoryState::UNALLOCATED;
-
     return -1;
   }
 
-  state_ = MemoryState::LOADED;
-  LOG(INFO) << "Finished loading model " << model_path_ << " from disk with resized layout";
+  // Enqueue all chunks so that DispatchToGpu can consume them.
+  // ToHostResize completes fully before ToGpu is called, so batch-enqueueing
+  // here is correct and avoids partially-written chunk notifications.
+  for (size_t chunk_idx = 0; chunk_idx < num_chunks; ++chunk_idx) {
+    size_t sz = std::min(chunk_size,
+                         model_size_resize_ - chunk_idx * chunk_size);
+    host_ptr_vector_->enqueue(chunk_idx, Batch{chunk_idx, sz});
+  }
 
+  state_ = MemoryState::LOADED;
+  LOG(INFO) << "Finished loading model " << model_path_
+            << " from disk with resized layout";
   return 0;
 }
 
@@ -651,7 +613,8 @@ int Model::ToGpu(
             }
             std::shared_ptr<GpuReplica::CopyTask> task;
             {
-              std::lock_guard<std::mutex> task_lock(gpu_replica->task_mu_);
+              std::shared_lock<std::shared_mutex> task_lock(
+                  gpu_replica->task_mu_);
               auto it = gpu_replica->task_map_.find(task_id);
               if (it == gpu_replica->task_map_.end()) {
                 continue;
@@ -668,16 +631,10 @@ int Model::ToGpu(
             }
             const size_t task_bit = gpu_replica->TaskBit(task_id);
 
-            if (task->priority_ == CopyPriority::LOW) {
-              bool should_reorder = false;
-              {
-                std::lock_guard<std::mutex> task_lock(gpu_replica->task_mu_);
-                const size_t reorder_bit = gpu_replica->TaskBit(task_id);
-                if (gpu_replica->reorder_bitmap_.test(reorder_bit)) {
-                  should_reorder = true;
-                  gpu_replica->reorder_bitmap_.clear(reorder_bit);
-                }
-              }
+            if (task->priority() == CopyPriority::LOW) {
+              const size_t reorder_bit = task_bit;
+              const bool should_reorder =
+                  gpu_replica->reorder_bitmap_.test_and_clear(reorder_bit);
               if (should_reorder) {
                 task->exec_state_.store(0);
                 gpu_loading_queue->Push(task_id, CopyPriority::LOW);
@@ -868,7 +825,7 @@ int Model::SubmitHighPriorityTasks(const std::string& replica_uuid,
 
     std::shared_ptr<GpuReplica::CopyTask> task;
     {
-      std::lock_guard<std::mutex> task_lock(gpu_replica->task_mu_);
+      std::unique_lock<std::shared_mutex> task_lock(gpu_replica->task_mu_);
       auto task_it = gpu_replica->task_map_.find(task_id);
       if (task_it == gpu_replica->task_map_.end()) {
         if (pending_task_ids != nullptr) {
@@ -877,7 +834,7 @@ int Model::SubmitHighPriorityTasks(const std::string& replica_uuid,
         continue;
       }
       task = task_it->second;
-      task->priority_ = CopyPriority::HIGH;
+      task->set_priority(CopyPriority::HIGH);
     }
 
     if (task && task->ready_.load(std::memory_order_acquire) &&
@@ -902,7 +859,6 @@ int Model::SetReorderBitmap(const std::string& replica_uuid,
   auto gpu_replica = replica_it->second;
   lock.unlock();
 
-  std::lock_guard<std::mutex> task_lock(gpu_replica->task_mu_);
   gpu_replica->reorder_bitmap_.reset();
   for (uint64_t task_id : task_ids) {
     auto bit = gpu_replica->TaskBit(task_id);
@@ -928,6 +884,7 @@ int Model::WaitCopyTasks(const std::string& replica_uuid,
   lock.unlock();
 
   std::unordered_set<uint64_t> dedup(task_ids.begin(), task_ids.end());
+  dedup.reserve(task_ids.size());
   auto collect_pending = [&]() {
     bool all_done = true;
     if (pending_task_ids != nullptr) {
@@ -948,14 +905,14 @@ int Model::WaitCopyTasks(const std::string& replica_uuid,
     return 0;
   }
 
-  std::unique_lock<std::mutex> task_lock(gpu_replica->task_mu_);
+  std::unique_lock<std::mutex> wait_lock(gpu_replica->wait_mu_);
   bool finished = false;
   if (timeout_ms == 0) {
     finished = gpu_replica->task_cv_.wait_for(
-        task_lock, std::chrono::milliseconds(1), collect_pending);
+        wait_lock, std::chrono::milliseconds(1), collect_pending);
   } else {
     finished = gpu_replica->task_cv_.wait_for(
-        task_lock, std::chrono::milliseconds(timeout_ms), collect_pending);
+        wait_lock, std::chrono::milliseconds(timeout_ms), collect_pending);
   }
 
   return finished ? 0 : 1;
@@ -1095,9 +1052,20 @@ int Model::DispatchToGpu(
   }
 
   size_t num_chunks = pinned_mem_->num_chunks();
+  size_t estimated_tasks = 0;
+  for (const auto& [_, mem_copy_chunk_list] : mem_copy_chunks) {
+    estimated_tasks += mem_copy_chunk_list.size();
+  }
+  {
+    std::unique_lock<std::shared_mutex> lock(gpu_replica->task_mu_);
+    gpu_replica->task_map_.reserve(gpu_replica->task_map_.size() +
+                                   estimated_tasks);
+  }
   std::vector<std::vector<uint64_t>> chunk_id_to_task_ids(num_chunks);
   std::unordered_map<uint64_t, size_t> task_total_parts;
   std::unordered_map<uint64_t, size_t> task_ready_parts;
+  task_total_parts.reserve(estimated_tasks);
+  task_ready_parts.reserve(estimated_tasks);
 
   for (const auto& [device_id, mem_copy_chunk_list] : mem_copy_chunks) {
     if (mem_copy_handles.find(device_id) == mem_copy_handles.end()) {
@@ -1130,19 +1098,19 @@ int Model::DispatchToGpu(
 
       std::shared_ptr<GpuReplica::CopyTask> task;
       {
-        std::lock_guard<std::mutex> lock(gpu_replica->task_mu_);
+        std::unique_lock<std::shared_mutex> lock(gpu_replica->task_mu_);
         auto task_it = gpu_replica->task_map_.find(task_id);
         if (task_it == gpu_replica->task_map_.end()) {
           task = std::make_shared<GpuReplica::CopyTask>();
           task->task_id_ = task_id;
           task->device_id_ = device_id;
-          task->priority_ = priority;
+          task->set_priority(priority);
           task->reorder_hint_ = chunk.reorder_hint_;
           gpu_replica->task_map_[task_id] = task;
         } else {
           task = task_it->second;
           if (priority == CopyPriority::HIGH) {
-            task->priority_ = CopyPriority::HIGH;
+            task->set_priority(CopyPriority::HIGH);
           }
           if (chunk.reorder_hint_) {
             task->reorder_hint_ = true;
@@ -1153,6 +1121,8 @@ int Model::DispatchToGpu(
       handle_offsets[handle_idx] = gpu_offset;
       std::vector<std::tuple<int, size_t, size_t>> parts =
           MapDataToChunks(host_offset, size, pinned_mem_->chunk_size());
+      std::vector<GpuReplica::TaskPart> new_parts;
+      new_parts.reserve(parts.size());
       for (const auto& [chunk_id, chunk_offset, part_size] : parts) {
         GpuReplica::TaskPart task_part;
         task_part.chunk_id_ = static_cast<size_t>(chunk_id);
@@ -1160,10 +1130,7 @@ int Model::DispatchToGpu(
         task_part.size_ = part_size;
         task_part.gpu_offset_ = handle_offsets[handle_idx];
         task_part.handle_idx_ = handle_idx;
-        {
-          std::lock_guard<std::mutex> lock(gpu_replica->task_mu_);
-          task->parts_.push_back(task_part);
-        }
+        new_parts.push_back(task_part);
         task_total_parts[task_id] += 1;
         if (chunk_id >= 0 && static_cast<size_t>(chunk_id) < num_chunks) {
           chunk_id_to_task_ids[chunk_id].push_back(task_id);
@@ -1173,9 +1140,13 @@ int Model::DispatchToGpu(
         }
         handle_offsets[handle_idx] += part_size;
       }
+      if (!new_parts.empty()) {
+        std::unique_lock<std::shared_mutex> lock(gpu_replica->task_mu_);
+        task->parts_.insert(task->parts_.end(), new_parts.begin(),
+                            new_parts.end());
+      }
 
       if (chunk.reorder_hint_) {
-        std::lock_guard<std::mutex> lock(gpu_replica->task_mu_);
         gpu_replica->reorder_bitmap_.test_and_set(gpu_replica->TaskBit(task_id));
       }
     }
@@ -1192,14 +1163,14 @@ int Model::DispatchToGpu(
       }
       std::shared_ptr<GpuReplica::CopyTask> task;
       {
-        std::lock_guard<std::mutex> lock(gpu_replica->task_mu_);
+        std::shared_lock<std::shared_mutex> lock(gpu_replica->task_mu_);
         auto task_it = gpu_replica->task_map_.find(task_id);
         if (task_it == gpu_replica->task_map_.end()) {
           continue;
         }
         task = task_it->second;
-        task->ready_.store(true, std::memory_order_release);
       }
+      task->ready_.store(true, std::memory_order_release);
 
       const size_t bit = gpu_replica->TaskBit(task_id);
       if (gpu_replica->completed_bitmap_.test(bit)) {
@@ -1213,7 +1184,7 @@ int Model::DispatchToGpu(
         LOG(ERROR) << "No queue for device " << task->device_id_;
         return -1;
       }
-      queue_it->second->Push(task_id, task->priority_);
+      queue_it->second->Push(task_id, task->priority());
     }
   }
 
@@ -1266,3 +1237,29 @@ int Model::AllocatePinnedMemory(std::shared_ptr<PinnedMemoryPool> pool) {
   state_ = MemoryState::ALLOCATED;
   return 0;
 };
+
+int Model::AllocatePinnedMemory(std::shared_ptr<PinnedMemoryPoolShared> pool) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (state_ == MemoryState::UNINITIALIZED) {
+    LOG(ERROR) << "Model " << model_path_ << " is not initialized";
+    return -1;
+  }
+  if (state_ != MemoryState::UNALLOCATED) {
+    return 0;
+  }
+  pinned_mem_ = std::make_shared<PinnedMemory>();
+  int ret = pinned_mem_->Allocate(model_size_, pool);
+  if (ret < 0) {
+    LOG(ERROR) << "Error allocating shared CPU memory for model " << model_path_;
+    return ret;
+  } else if (ret > 0) {
+    LOG(WARNING) << "Not enough shared memory for model " << model_path_;
+    return ret;
+  } else if (!pinned_mem_ || pinned_mem_->num_chunks() == 0) {
+    LOG(ERROR) << "Shared CPU memory not allocated";
+    return -1;
+  }
+
+  state_ = MemoryState::ALLOCATED;
+  return 0;
+}
