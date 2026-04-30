@@ -1,6 +1,7 @@
 import sys
 import os
 from time import sleep
+from lmp.src.lmp import cuda_memory_view
 import torch
 
 # 获取项目根目录和必要的路径
@@ -14,6 +15,12 @@ sys.path.insert(0, sllm_store_dir)
 # 2. 添加 src 目录（用于导入 lmp, utils 等）
 sys.path.insert(0, src_dir)
 
+
+def print_layer_parameters(layer):
+    print("=" * 60)
+    for name, param in layer.named_parameters():
+        print(f"  {name}: {param.device} (shape: {param.shape}) (dtype: {param.dtype})")
+    print("=" * 60)
 
 
 def warm_up():
@@ -61,10 +68,14 @@ def test():
     mlpllm = MLPLLM(model_name_type=model_name_type, model_path=model_path, device_num=device_num)
     # only for mp process, mp process for cpu experts thread
 
+    mlpllm.test_gpuloader()
 
-    tensor_index_json = mlpllm.read_tensor_index_json(model_path=mlpllm.mlpm.model_abs_path)
-    tensor_to_device = mlpllm.test_tensor_index_locate(tensor_index_json=tensor_index_json)
-    print(tensor_to_device)
+    
+
+
+
+    # print_layer_parameters(mlpllm.hmv.mlpm_hi)
+
 
     # layer_idx=0
     # mlpllm.cmv.load_general_and_init()

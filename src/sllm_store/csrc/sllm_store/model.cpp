@@ -1088,8 +1088,11 @@ int Model::DispatchToGpu(
 
       uint64_t task_id = chunk.task_id_;
       if (task_id == 0) {
-        task_id = BuildCopyTaskId(host_offset, size, gpu_offset, device_id,
-                                  handle_idx);
+        LOG(ERROR) << "Invalid task_id=0 for device " << device_id
+                   << " host_offset=" << host_offset << " size=" << size
+                   << " dst_offset=" << gpu_offset
+                   << ". Client must provide non-zero task_id.";
+        return -1;
       }
       CopyPriority priority =
           chunk.priority_ == static_cast<uint8_t>(CopyPriority::HIGH)

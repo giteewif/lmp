@@ -1180,6 +1180,15 @@ class MLPModuleWrapper:
         else:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")
 
+    def get_tensor_index_skip_prefixes(self):
+        """
+        返回 tensor_index 中需要跳过（不参与设备放置）的参数名前缀列表。
+        """
+        if self.model_name_type == GEMMA4_MODEL_NAME_TYPE:
+            # Gemma4 多模态场景下跳过 vision tower 权重。
+            return ["model.vision_tower.", "model.embed_vision."]
+        return []
+
     def get_shared_experts_names(self, layer_idx: int):
         """返回指定层 shared expert（若存在）相关权重名列表；无则返回空列表。"""
         if self.model_name_type == DEEPSEEK_MODEL_NAME_TYPE:
@@ -1532,13 +1541,35 @@ class MLPModuleWrapper:
         else:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")
 
+    def get_tensor_index_layer_names(self, layer_idx: int):
+        """
+        返回 tensor_index 定位中该层需要“同层同卡”放置的参数名：
+        ``self_attn + gate + layernorm``。
+        """
+        names = []
+        names.extend(self.get_attention_names(layer_idx))
+        names.extend(self.get_gate_names(layer_idx))
+        names.extend(self.get_layernorm_names(layer_idx))
+        names.extend(self.get_layer_general_names(layer_idx))
+        names.extend(self.get_mlp_names(layer_idx))
+        return names
+
+    def get_layer_general_names(self, layer_idx: int):
+        if self.model_name_type == GEMMA4_MODEL_NAME_TYPE:
+            p = self._gemma4_weight_prefix()
+            return [
+                f"{p}.layers.{layer_idx}.layer_scalar",
+            ]
+        else:
+            return []
+
     def get_mlp_names(self, layer_idx: int):
         if self.model_name_type == GEMMA4_MODEL_NAME_TYPE:
             p = self._gemma4_weight_prefix()
             return [
                 f"{p}.layers.{layer_idx}.mlp.down_proj.weight",
                 f"{p}.layers.{layer_idx}.mlp.up_proj.weight",
-                f"{p}.layers.{layer_idx}.mlp.gate_up_proj.weight",
+                f"{p}.layers.{layer_idx}.mlp.gate_proj.weight",
             ]
         else:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")

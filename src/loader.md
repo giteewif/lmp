@@ -622,3 +622,128 @@ if not ok:
 - 如果你继续使用旧格式 chunk（4 元组：`src_offset,size,dst_offset,handle_idx`），链路仍兼容；
 - 要使用提优/重排序/按任务等待能力，建议显式传 `task_id`（并在客户端与服务端保持同一计算规则）；
 - `reorder_bitmap` 当前语义是 **命中一次后自动清位**，避免同一 low 任务反复延后。
+
+
+import uuid
+from sllm_store.client import SllmStoreClient
+from sllm_store.proto import storage_pb2
+
+# 你项目里已有这些工具函数（示例按常见签名写）
+# from lmp.cuda_utils import allocate_cuda_memory, get_cuda_memory_handles, get_device_uuid_map
+
+def build_task_id(src_offset: int, size: int, dst_offset: int, device_id: int, handle_idx: int) -> int:
+    """与服务端保持稳定映射即可；不要求和服务端内部实现完全一致。"""
+    seed = 0
+    for v in (src_offset, size, dst_offset, device_id, handle_idx):
+        seed ^= v + 0x9E3779B97F4A7C15 + ((seed << 6) & 0xFFFFFFFFFFFFFFFF) + (seed >> 2)
+    return seed & 0xFFFFFFFFFFFFFFFF
+
+
+# ----------------------------
+# 1) 申请 GPU 内存 + 获取 handle（对应你标注的 553-555）
+# ----------------------------
+device_id = 0
+device_memory = {device_id: 8 * 1024 * 1024 * 1024}  # 例：8GB
+
+cuda_memory_ptrs = allocate_cuda_memory(device_memory)
+cuda_memory_handles = get_cuda_memory_handles(cuda_memory_ptrs)
+
+# 假设拿到类似:
+# cuda_memory_ptrs   = {0: <cuda_ptr>}
+# cuda_memory_handles= {0: b"...cudaIpcHandle bytes..."}
+
+device_uuid_map = get_device_uuid_map()  # 例如 {0: "GPU-xxxxxxxx-..."}
+device_uuid = device_uuid_map[device_id]
+
+
+# ----------------------------
+# 2) 构造 copy chunks（gpuloader 任务模型）
+# ----------------------------
+# 原始4元组: (src_offset, size, dst_offset, handle_idx)
+raw_chunks = [
+    (0,        4 << 20, 0,        0),
+    (4 << 20,  2 << 20, 4 << 20,  0),
+    (6 << 20,  8 << 20, 6 << 20,  0),
+    (14 << 20, 1 << 20, 14 << 20, 0),
+]
+
+patched_chunks = []
+critical_task_ids = []     # 想优先恢复的关键任务
+reorder_task_ids = []      # 想延后的一些低优任务
+
+for src_offset, size, dst_offset, handle_idx in raw_chunks:
+    task_id = build_task_id(src_offset, size, dst_offset, device_id, handle_idx)
+
+    # 示例策略：>=4MB 作为关键任务
+    is_critical = size >= (4 << 20)
+    if is_critical:
+        critical_task_ids.append(task_id)
+    else:
+        reorder_task_ids.append(task_id)
+
+    # 7元组:
+    # (src_offset, size, dst_offset, handle_idx, task_id, priority, reorder_hint)
+    patched_chunks.append(
+        (
+            src_offset,
+            size,
+            dst_offset,
+            handle_idx,
+            task_id,
+            storage_pb2.COPY_PRIORITY_LOW,  # 初始都先LOW，后续再动态提优
+            False,                          # 可选 hint；也可统一走 set_reorder_bitmap
+        )
+    )
+
+
+# ----------------------------
+# 3) client 提交 + 提优 + 重排序 + 按任务等待
+# ----------------------------
+client = SllmStoreClient("127.0.0.1:8073")
+model_path = "your_model_path"
+replica_uuid = str(uuid.uuid4())
+
+# 首次提交到GPU
+ret = client.load_into_gpu(
+    model_path=model_path,
+    replica_uuid=replica_uuid,
+    tensor_copy_chunks={
+        device_uuid: patched_chunks,               # key 必须是 device_uuid
+    },
+    cuda_memory_handles={
+        device_uuid: [cuda_memory_handles[device_id]],  # list[bytes]
+    },
+)
+if not ret:
+    raise RuntimeError("load_into_gpu failed")
+
+# 低优重排序：命中的 low 任务会被延后（当前实现是命中一次后清位）
+ok_reorder = client.set_reorder_bitmap(
+    model_path=model_path,
+    replica_uuid=replica_uuid,
+    reorder_bitmap=reorder_task_ids[:2],  # 示例：延后2个低优任务
+)
+if not ok_reorder:
+    raise RuntimeError("set_reorder_bitmap failed")
+
+# 动态提优：把关键任务推到 high 队列
+ok_high, pending_high = client.submit_high_priority_copy_tasks(
+    model_path=model_path,
+    replica_uuid=replica_uuid,
+    task_ids=critical_task_ids,
+)
+if not ok_high:
+    # pending_high 常见含义：尚未可提优/未找到的task
+    print("submit_high_priority_copy_tasks partial:", pending_high)
+
+# 按任务等待：只等关键子集，不必等整模型
+ok_wait, pending = client.wait_copy_tasks(
+    model_path=model_path,
+    replica_uuid=replica_uuid,
+    task_ids=critical_task_ids,
+    timeout_ms=5000,
+)
+if not ok_wait:
+    raise RuntimeError(f"critical tasks timeout, pending={pending}")
+
+print("critical tasks done")

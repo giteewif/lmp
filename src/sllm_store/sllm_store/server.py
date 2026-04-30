@@ -142,6 +142,19 @@ class StorageServicer(storage_pb2_grpc.StorageServicer):
                 context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
                 return storage_pb2.LoadModelResponse()
 
+            for device_uuid, chunk_list in request.chunks.items():
+                for chunk in chunk_list.chunks:
+                    if chunk.task_id == 0:
+                        context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+                        context.set_details(
+                            "task_id is required for GPU load chunks and must be non-zero"
+                        )
+                        logger.error(
+                            "LoadModelAsync rejected: device_uuid=%s has chunk with task_id=0",
+                            device_uuid,
+                        )
+                        return storage_pb2.LoadModelResponse()
+
             gpu_memory_handles = {
                 device_uuid: [
                     handle.cuda_ipc_handle for handle in handle_list.handles

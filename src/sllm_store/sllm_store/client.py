@@ -79,7 +79,13 @@ class SllmStoreClient:
                     raise ValueError(
                         "chunk must at least contain src_offset,size,dst_offset,handle_idx"
                     )
-                task_id = chunk[4] if len(chunk) > 4 else 0
+                if len(chunk) < 5:
+                    raise ValueError(
+                        "chunk must include non-zero task_id as the 5th field"
+                    )
+                task_id = chunk[4]
+                if task_id == 0:
+                    raise ValueError("task_id must be non-zero")
                 priority = (
                     chunk[5]
                     if len(chunk) > 5

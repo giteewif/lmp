@@ -30,7 +30,7 @@ from utils import cuda_h
 from utils.cuda_h import cuda_hook, cuda_hook_end, cuda_hook_time, cuda_hook_time_end
 from utils.logger import init_logger
 from utils.helper import *
-from models.mlpmodule import MLPModuleWrapper, ExpertEinsumTask
+from models.mlpmodule import MLPModuleWrapper, ExpertEinsumTask, WeightType
 from lmp.cuda_memory_view import (
     CudaMemoryView,
     HostMemoryView,
@@ -75,7 +75,7 @@ class MLPLLM:
         self.cmv.start_init_meta_model()
 
         empty_model = copy.deepcopy(self.cmv.mlpm_ci)
-        # self.hmv = HostMemoryView(self.mlpm, empty_model=empty_model)
+        self.hmv = HostMemoryView(self.mlpm, empty_model=empty_model)
         cuda_hook_time_end("init_cmv_hmv")
 
         sllmtm = SLLMTM(num_workers=1)  # SLLM 线程管理器，用于异步加载
@@ -2060,6 +2060,240 @@ class MLPLLM:
         cuda_hook_time_end(f"layer_moe_dgenerate_mp_multi_device_l_{layer_idx+1}")
         return layer_output
     
+    def extract_gate_up_down_locate_info(self, layer_idx: int, tensor_to_device: dict):
+        """
+        1) 从 tensor_to_device 提取 某层layer 的 gate_up_proj, down_proj 的信息
+        """
+        if not isinstance(tensor_to_device, dict):
+            raise TypeError("tensor_to_device must be a dict")
+        if layer_idx < 0:
+            raise ValueError("layer_idx must be >= 0")
+
+        get_experts_num = getattr(self.mlpm, "get_experts_num", None)
+        if not callable(get_experts_num):
+            raise RuntimeError("mlpm must provide get_experts_num")
+        experts_num = int(get_experts_num())
+        expert_ids = list(range(experts_num))
+
+        gate_names = self.mlpm.get_experts_names_w(layer_idx, expert_ids, WeightType.W1)
+        down_names = self.mlpm.get_experts_names_w(layer_idx, expert_ids, WeightType.W2)
+
+        def _collect(names: list[str]):
+            tensor_map: dict[str, object] = {}
+            expert_id_to_device: dict[int, str] = {}
+            device_to_expert_ids: dict[str, list[int]] = {}
+            for n in names:
+                if n not in tensor_to_device:
+                    continue
+                v = tensor_to_device[n]
+                tensor_map[n] = v
+                # fused: {"expert_id_to_device": {...}, ...}
+                if isinstance(v, dict) and "expert_id_to_device" in v:
+                    raw = v.get("expert_id_to_device", {})
+                    normalized = {int(k): str(dev) for k, dev in raw.items()}
+                    for eid, dev in normalized.items():
+                        expert_id_to_device[eid] = dev
+                        device_to_expert_ids.setdefault(dev, []).append(eid)
+                    continue
+                # non-fused: parse (layer, expert) from tensor name
+                key = self.mlpm.get_tensor_expert_group_key(n)
+                if key is not None and key[0] == layer_idx and key[1] >= 0:
+                    eid = int(key[1])
+                    dev = str(v)
+                    expert_id_to_device[eid] = dev
+                    device_to_expert_ids.setdefault(dev, []).append(eid)
+
+            for dev in device_to_expert_ids:
+                device_to_expert_ids[dev].sort()
+            return tensor_map, expert_id_to_device, device_to_expert_ids
+
+        gate_tensor_map, gate_e2d, gate_d2e = _collect(gate_names)
+        down_tensor_map, down_e2d, down_d2e = _collect(down_names)
+
+        common_eids = sorted(set(gate_e2d.keys()) & set(down_e2d.keys()))
+        for eid in common_eids:
+            if gate_e2d[eid] != down_e2d[eid]:
+                raise RuntimeError(
+                    f"gate/down locate mismatch at layer={layer_idx}, expert_id={eid}, "
+                    f"gate={gate_e2d[eid]}, down={down_e2d[eid]}"
+                )
+
+        return {
+            "layer_idx": layer_idx,
+            "gate_up_proj": {
+                "tensor_to_device": gate_tensor_map,
+                "expert_id_to_device": gate_e2d,
+                "device_to_expert_ids": gate_d2e,
+            },
+            "down_proj": {
+                "tensor_to_device": down_tensor_map,
+                "expert_id_to_device": down_e2d,
+                "device_to_expert_ids": down_d2e,
+            },
+        }
+
+    def extract_attn_locate_info(self, layer_idx: int, tensor_to_device: dict):
+        """
+        1) 从 tensor_to_device 提取 某层attn类 的信息
+        """
+        if not isinstance(tensor_to_device, dict):
+            raise TypeError("tensor_to_device must be a dict")
+        if layer_idx < 0:
+            raise ValueError("layer_idx must be >= 0")
+
+        get_tensor_index_layer_names = getattr(self.mlpm, "get_tensor_index_layer_names", None)
+        if not callable(get_tensor_index_layer_names):
+            raise RuntimeError("mlpm must provide get_tensor_index_layer_names")
+
+        layer_names = list(get_tensor_index_layer_names(layer_idx))
+        out: dict[str, object] = {}
+        for n in layer_names:
+            if n in tensor_to_device:
+                out[n] = tensor_to_device[n]
+        return out
+
+    def extract_generate_locate_info(self,tensor_to_device: dict):
+        """
+        1) 从 tensor_to_device 提取 generate类 的信息
+        """
+        if not isinstance(tensor_to_device, dict):
+            raise TypeError("tensor_to_device must be a dict")
+
+        get_tensor_index_general_names = getattr(self.mlpm, "get_tensor_index_general_names", None)
+        if not callable(get_tensor_index_general_names):
+            raise RuntimeError("mlpm must provide get_tensor_index_general_names")
+
+        general_names = list(get_tensor_index_general_names())
+        out: dict[str, object] = {}
+        for n in general_names:
+            if n in tensor_to_device:
+                out[n] = tensor_to_device[n]
+        return out
+
+    def calculate_device_memory_from_tensor_to_device(self, tensor_to_device: dict, tensor_index_json: dict) -> dict[str, int]:
+        """
+        1) 从 tensor_to_device 计算每个设备的显存使用情况，依赖 tensor_index_json 中的 tensor_meta 信息
+        Args:
+            tensor_to_device (dict): 张量名称到设备的映射。如 { "layer.0.weight": "cuda:0", ... }
+            tensor_index_json (dict): tensor_index.json 中的信息
+        Returns:
+            dict: 设备 -> 显存占用（字节）
+        """
+        if not isinstance(tensor_to_device, dict):
+            raise TypeError("tensor_to_device must be a dict")
+        if not isinstance(tensor_index_json, dict):
+            raise TypeError("tensor_index_json must be a dict")
+
+        def _tensor_size_bytes(meta) -> int:
+            if not isinstance(meta, (list, tuple)) or len(meta) < 2:
+                return 0
+            try:
+                return int(meta[1])
+            except Exception:
+                return 0
+
+        def _tensor_num_experts(meta) -> int | None:
+            if not isinstance(meta, (list, tuple)) or len(meta) < 3:
+                return None
+            shape = meta[2]
+            if not isinstance(shape, (list, tuple)) or not shape:
+                return None
+            try:
+                n = int(shape[0])
+            except Exception:
+                return None
+            return n if n > 0 else None
+
+        device_memory: dict[str, int] = {}
+        for tensor_name, locate in tensor_to_device.items():
+            if tensor_name not in tensor_index_json:
+                continue
+            total_bytes = _tensor_size_bytes(tensor_index_json[tensor_name])
+            if total_bytes <= 0:
+                continue
+
+            # 常规结构: tensor_name -> "cuda:x"
+            if isinstance(locate, str):
+                device_memory[locate] = device_memory.get(locate, 0) + total_bytes
+                continue
+
+            # fused 专家结构:
+            # {
+            #   "default_device": "cuda:x",
+            #   "expert_id_to_device": {...},
+            #   "device_to_expert_ids": {...},
+            # }
+            if isinstance(locate, dict):
+                e2d = locate.get("expert_id_to_device")
+                if isinstance(e2d, dict) and e2d:
+                    # fused 专家张量：按“单专家显存 * 每设备专家数”严格计费。
+                    normalized_e2d: dict[int, str] = {}
+                    for raw_eid, raw_dev in e2d.items():
+                        try:
+                            eid = int(raw_eid)
+                        except Exception as e:
+                            raise TypeError(
+                                f"invalid expert_id in expert_id_to_device for {tensor_name}: {raw_eid}"
+                            ) from e
+                        normalized_e2d[eid] = str(raw_dev)
+
+                    if not normalized_e2d:
+                        continue
+                    sorted_eids = sorted(normalized_e2d.keys())
+
+                    # 优先用 shape[0] 作为专家总数（对 Gemma fused 权重最准确）。
+                    # 若缺失 shape 信息，则退化为映射里出现的 expert 数。
+                    experts_num_from_shape = _tensor_num_experts(tensor_index_json[tensor_name])
+                    experts_num = experts_num_from_shape if experts_num_from_shape is not None else len(sorted_eids)
+                    if experts_num <= 0:
+                        raise RuntimeError(f"invalid experts_num for {tensor_name}: {experts_num}")
+                    if len(sorted_eids) > experts_num:
+                        raise RuntimeError(
+                            f"expert mapping overflow for {tensor_name}: "
+                            f"mapped={len(sorted_eids)}, experts_num={experts_num}"
+                        )
+
+                    per_expert_bytes, remainder = divmod(total_bytes, experts_num)
+                    if remainder != 0:
+                        raise RuntimeError(
+                            f"tensor bytes not divisible by experts_num for {tensor_name}: "
+                            f"total_bytes={total_bytes}, experts_num={experts_num}, remainder={remainder}"
+                        )
+                    if per_expert_bytes <= 0:
+                        raise RuntimeError(
+                            f"invalid per_expert_bytes for {tensor_name}: "
+                            f"total_bytes={total_bytes}, experts_num={experts_num}"
+                        )
+
+                    device_to_expert_count: dict[str, int] = {}
+                    for eid in sorted_eids:
+                        dev = normalized_e2d[eid]
+                        device_to_expert_count[dev] = device_to_expert_count.get(dev, 0) + 1
+
+                    assigned_total = 0
+                    for dev, count in device_to_expert_count.items():
+                        dev_bytes = per_expert_bytes * count
+                        device_memory[dev] = device_memory.get(dev, 0) + dev_bytes
+                        assigned_total += dev_bytes
+
+                    # 当前映射覆盖的 expert 字节必须严格守恒。
+                    expected_total = per_expert_bytes * len(sorted_eids)
+                    if assigned_total != expected_total:
+                        raise RuntimeError(
+                            f"expert byte allocation mismatch for {tensor_name}: "
+                            f"assigned_total={assigned_total}, expected_total={expected_total}"
+                        )
+                    continue
+
+                default_device = locate.get("default_device")
+                if isinstance(default_device, str):
+                    device_memory[default_device] = device_memory.get(default_device, 0) + total_bytes
+                continue
+
+            raise TypeError(
+                f"invalid tensor_to_device value for {tensor_name}: expected str/dict, got {type(locate)}"
+            )
+        return device_memory
 
     def read_tensor_index_json(self, model_path: str):
         tensor_index_json_path = os.path.join(model_path, "tensor_index.json")
@@ -2072,13 +2306,21 @@ class MLPLLM:
         根据当前 GPU 数量与可用显存，为 tensor_index 中的权重分配设备。
 
         约束：
-        1) 同一 layer 的 除 expert 和 lm_head, norm embed_tokens等参数的其他参数 self_attn, gate, layernorm 参数放在同一个设备，不同层尽量分散到不同设备, 让GPU显存使用尽量均匀。
-        2) 同一 (layer, expert) 下的所有参数必须放在同一个设备，且同层 experts 尽量均匀分配, 让experts 均匀分配到设备中。
+        1) 同一 layer 的 除 expert 和 lm_head, norm embed_tokens等参数的其他参数 self_attn, gate, layernorm 参数放在同一个设备，不同层尽量可以分散到不同设备, 确保让GPU显存使用尽量均匀。
+        2) 同一 (layer, expert) 下的所有参数必须放在同一个设备，且同层 experts 尽量均匀分配, 让experts 均匀分配到设备中， 属于同个专家的参数必须放在一个设备中，逐个专家贪心放置。
         3) lm_head, norm embed_tokens 都放到第一个设备；所有参数名解析优先使用 mlpm 接口。
-        4) 先放均匀分配专家, 再放其他参数，再放self-attn 类参数
+        4) 首先专家均匀分配，分配完所有专家后，再放置 lm_head, norm embed_tokens 参数, 最后放置attn 等其他参数，用于确保显存均匀。
+        5) 不有未处理的其他参数，有的话请报错, 跳过 vision_tower 的参数由mlpm接口指定
+        7) 由于layer的专家 按照 gate_up_proj, down_proj (num_experts, num_experts, 2 * intermediate_dim, hidden_size) (num_experts, num_experts, 2 * intermediate_dim, hidden_size)
+        8) 请你为gate_up_proj , down_proj 按experts 均匀分配到 设备中，给出 gate_up_proj的 哪个专家分配到的设备，down_proj的 哪个专家分配到的设备，即相应的expert_id
 
         Returns:
-            dict[str, str]: tensor_name -> "cuda:<id>"
+            tuple[dict[str, object], dict[str, int]]:
+                - ``tensor_to_device``:
+                  - 常规参数: ``tensor_name -> "cuda:<id>"``
+                  - fused 专家参数（gate_up_proj/down_proj）:
+                    ``tensor_name -> {"default_device": "...", "expert_id_to_device": {...}, "device_to_expert_ids": {...}}``
+                - ``device_expected_used_bytes``: 每个设备预期使用显存（bytes）
         """
         if not isinstance(tensor_index_json, dict) or not tensor_index_json:
             return {}
@@ -2137,6 +2379,7 @@ class MLPLLM:
         # 2) 专家参数：同 layer 同 expert 的所有参数归为一组，同层尽量均衡分配；
         # 3) lm_head / embed_tokens / final norm 等通用参数固定放在第一张卡。
         # 4) 分配顺序：专家 -> 通用参数(first_device) -> 每层 self_attn/gate/layernorm。
+        # 5) 不允许存在未分类参数；若存在，直接报错。
         expert_group_tensors: dict[tuple[int, int], list[str]] = defaultdict(list)
         expert_group_sizes: dict[tuple[int, int], int] = defaultdict(int)
         layer_sagln_tensors: dict[int, list[str]] = defaultdict(list)
@@ -2154,22 +2397,23 @@ class MLPLLM:
             )
         layer_ids = range(layer_num)
 
-        get_attention_names = getattr(self.mlpm, "get_attention_names", None)
-        get_gate_names = getattr(self.mlpm, "get_gate_names", None)
-        get_layernorm_names = getattr(self.mlpm, "get_layernorm_names", None)
+        get_tensor_index_layer_names = getattr(self.mlpm, "get_tensor_index_layer_names", None)
         get_tensor_index_general_names = getattr(self.mlpm, "get_tensor_index_general_names", None)
+        get_tensor_index_skip_prefixes = getattr(self.mlpm, "get_tensor_index_skip_prefixes", None)
         get_tensor_expert_group_key = getattr(self.mlpm, "get_tensor_expert_group_key", None)
         if (
-            not callable(get_attention_names)
-            or not callable(get_gate_names)
-            or not callable(get_layernorm_names)
+            not callable(get_tensor_index_layer_names)
         ):
             raise RuntimeError(
-                "[test_tensor_index_locate] mlpm must provide get_attention_names/get_gate_names/get_layernorm_names"
+                "[test_tensor_index_locate] mlpm must provide get_tensor_index_layer_names"
             )
         if not callable(get_tensor_index_general_names):
             raise RuntimeError(
                 "[test_tensor_index_locate] mlpm must provide get_tensor_index_general_names"
+            )
+        if not callable(get_tensor_index_skip_prefixes):
+            raise RuntimeError(
+                "[test_tensor_index_locate] mlpm must provide get_tensor_index_skip_prefixes"
             )
         if not callable(get_tensor_expert_group_key):
             raise RuntimeError(
@@ -2177,16 +2421,18 @@ class MLPLLM:
             )
         layer_sagln_by_name: dict[str, int] = {}
         for layer_idx in layer_ids:
-            names = []
-            names.extend(get_attention_names(layer_idx))
-            names.extend(get_gate_names(layer_idx))
-            names.extend(get_layernorm_names(layer_idx))
+            names = list(get_tensor_index_layer_names(layer_idx))
             for n in names:
                 if n in tensor_index_json:
                     layer_sagln_by_name[n] = layer_idx
         general_name_set = set(get_tensor_index_general_names())
+        skip_prefixes = tuple(get_tensor_index_skip_prefixes())
+        skipped_tensors: list[str] = []
 
         for tname, tmeta in tensor_index_json.items():
+            if skip_prefixes and str(tname).startswith(skip_prefixes):
+                skipped_tensors.append(tname)
+                continue
             tsize = _tensor_size_bytes(tmeta)
             layer_idx = layer_sagln_by_name.get(tname)
             if layer_idx is not None:
@@ -2203,30 +2449,38 @@ class MLPLLM:
             else:
                 other_tensors.append((tname, tsize))
 
-        tensor_to_device: dict[str, str] = {}
+        tensor_to_device: dict[str, object] = {}
         first_device = device_names[0]
+        get_experts_num = getattr(self.mlpm, "get_experts_num", None)
+        if not callable(get_experts_num):
+            raise RuntimeError("[test_tensor_index_locate] mlpm must provide get_experts_num")
+        experts_num = int(get_experts_num())
+        if experts_num <= 0:
+            raise RuntimeError("[test_tensor_index_locate] invalid experts_num <= 0")
 
-        # 先按 layer 分配专家组（规则4第一步）：
-        # 在满足可容纳前提下，优先同层专家个数均衡，再兼顾显存水位均衡。
+        # 第一步：专家逐个贪心放置，且同层 experts 尽量均匀分配到设备。
+        # 同个 (layer, expert) 组内参数必须放在同一设备。
+        # 额外产出：gate_up_proj/down_proj 的 expert_id -> device 映射（用于按专家均匀分配视图）。
+        expert_id_device_map: dict[int, dict[str, dict[int, str]]] = {}
         layer_to_groups: dict[int, list[tuple[int, int]]] = defaultdict(list)
-        for key in expert_group_tensors:
-            layer_to_groups[key[0]].append(key)
+        for g in expert_group_tensors:
+            layer_to_groups[g[0]].append(g)
 
         for layer_id, groups in sorted(layer_to_groups.items(), key=lambda x: x[0]):
-            # 保留同层专家计数作为次级 tie-break（主目标是显存均衡）。
             per_layer_device_counts = {d: 0 for d in device_names}
-            # 大组先放，降低后续碎片
             groups_sorted = sorted(groups, key=lambda g: expert_group_sizes[g], reverse=True)
-
+            gate_map: dict[int, str] = {}
+            down_map: dict[int, str] = {}
             for g in groups_sorted:
                 gsize = expert_group_sizes[g]
+                group_tensors = expert_group_tensors[g]
+                group_tensor_name = group_tensors[0] if group_tensors else f"layer={layer_id},expert={g[1]}"
 
-                def _cand_key(dev_name: str):
+                def _expert_cand_key(dev_name: str):
                     rem = device_remaining[dev_name]
-                    fits = 0 if rem >= gsize else 1  # 必须可放下
+                    fits = 0 if rem >= gsize else 1
                     initial = max(1, device_initial_free[dev_name])
                     after_used_ratio = (initial - (rem - gsize)) / initial if rem >= gsize else float("inf")
-                    # 主目标：同层专家计数均衡；次级：显存水位均衡。
                     return (
                         fits,
                         per_layer_device_counts[dev_name],
@@ -2235,7 +2489,7 @@ class MLPLLM:
                         dev_name,
                     )
 
-                chosen = min(device_names, key=_cand_key)
+                chosen = min(device_names, key=_expert_cand_key)
                 if device_remaining[chosen] < gsize:
                     raise RuntimeError(
                         f"[test_tensor_index_locate] insufficient GPU memory for "
@@ -2243,43 +2497,186 @@ class MLPLLM:
                         f"remaining={device_remaining}"
                     )
                 per_layer_device_counts[chosen] += 1
-                device_remaining[chosen] -= gsize
-                for tname in expert_group_tensors[g]:
-                    tensor_to_device[tname] = chosen
+                if g[1] >= 0:
+                    device_remaining[chosen] -= gsize
+                    for tname in group_tensors:
+                        tensor_to_device[tname] = chosen
+                    gate_map[g[1]] = chosen
+                    down_map[g[1]] = chosen
+                else:
+                    # fused expert bank（如 Gemma4）在 tensor_index 中是整层参数，无法按 tensor 级别拆分。
+                    # 这里额外给出“按 expert_id 硬配额均匀分配”的逻辑分配表，供后续调度/统计使用。
+                    virtual_remaining = dict(device_remaining)
+                    if gsize % experts_num != 0:
+                        raise RuntimeError(
+                            f"[test_tensor_index_locate] fused expert group bytes not divisible by experts_num: "
+                            f"group={group_tensor_name}, gsize={gsize}, experts_num={experts_num}"
+                        )
+                    per_expert_bytes = gsize // experts_num
+                    if per_expert_bytes <= 0:
+                        raise RuntimeError(
+                            f"[test_tensor_index_locate] invalid per_expert_bytes for fused group: "
+                            f"group={group_tensor_name}, gsize={gsize}, experts_num={experts_num}"
+                        )
+                    num_devices = max(1, len(device_names))
+                    base_quota, rem_quota = divmod(experts_num, num_devices)
+                    target_counts = {
+                        d: base_quota + (1 if i < rem_quota else 0)
+                        for i, d in enumerate(device_names)
+                    }
+                    assigned_counts = {d: 0 for d in device_names}
+                    for expert_id in range(experts_num):
+                        candidate_devices = [
+                            d for d in device_names if assigned_counts[d] < target_counts[d]
+                        ]
+                        if not candidate_devices:
+                            raise RuntimeError(
+                                f"[test_tensor_index_locate] no candidate device for layer={layer_id} "
+                                f"expert_id={expert_id} under quota targets={target_counts}"
+                            )
+
+                        def _expert_id_cand_key(dev_name: str):
+                            rem = virtual_remaining[dev_name]
+                            fits = 0 if rem >= per_expert_bytes else 1
+                            initial = max(1, device_initial_free[dev_name])
+                            after_used_ratio = (
+                                (initial - (rem - per_expert_bytes)) / initial
+                                if rem >= per_expert_bytes
+                                else float("inf")
+                            )
+                            return (
+                                fits,
+                                assigned_counts[dev_name],
+                                after_used_ratio,
+                                -rem,
+                                dev_name,
+                            )
+
+                        e_chosen = min(candidate_devices, key=_expert_id_cand_key)
+                        if virtual_remaining[e_chosen] < per_expert_bytes:
+                            raise RuntimeError(
+                                f"[test_tensor_index_locate] insufficient virtual memory for "
+                                f"layer={layer_id} expert_id={expert_id} split bytes={per_expert_bytes}"
+                            )
+                        assigned_counts[e_chosen] += 1
+                        virtual_remaining[e_chosen] -= per_expert_bytes
+                        gate_map[expert_id] = e_chosen
+                        down_map[expert_id] = e_chosen
+
+                    assigned_total = per_expert_bytes * sum(assigned_counts.values())
+                    if assigned_total != gsize:
+                        raise RuntimeError(
+                            f"[test_tensor_index_locate] fused split byte mismatch: "
+                            f"group={group_tensor_name}, assigned_total={assigned_total}, gsize={gsize}"
+                        )
+
+                    # 使用按专家拆分后的真实分配结果更新设备剩余显存，确保 expected_used_bytes 精确。
+                    for dev_name, count in assigned_counts.items():
+                        split_bytes = per_expert_bytes * count
+                        if split_bytes <= 0:
+                            continue
+                        if device_remaining[dev_name] < split_bytes:
+                            raise RuntimeError(
+                                f"[test_tensor_index_locate] insufficient GPU memory after fused split: "
+                                f"group={group_tensor_name}, device={dev_name}, "
+                                f"need={split_bytes}, remaining={device_remaining[dev_name]}"
+                            )
+                        device_remaining[dev_name] -= split_bytes
+
+                    def _device_to_expert_ids(eid_map: dict[int, str]) -> dict[str, list[int]]:
+                        out = {d: [] for d in device_names}
+                        for eid, dev in sorted(eid_map.items(), key=lambda x: x[0]):
+                            out[dev].append(int(eid))
+                        return out
+
+                    gate_device_to_ids = _device_to_expert_ids(gate_map)
+                    down_device_to_ids = _device_to_expert_ids(down_map)
+                    for tname in group_tensors:
+                        if ".experts.gate_up_proj" in tname:
+                            tensor_to_device[tname] = {
+                                "default_device": chosen,
+                                "expert_id_to_device": dict(gate_map),
+                                "device_to_expert_ids": gate_device_to_ids,
+                            }
+                        elif ".experts.down_proj" in tname:
+                            tensor_to_device[tname] = {
+                                "default_device": chosen,
+                                "expert_id_to_device": dict(down_map),
+                                "device_to_expert_ids": down_device_to_ids,
+                            }
+                        else:
+                            tensor_to_device[tname] = chosen
+            if gate_map or down_map:
+                # 约束校验：同一(layer, expert_id)下 gate_up_proj / down_proj 必须同卡。
+                shared_eids = set(gate_map.keys()) & set(down_map.keys())
+                for eid in shared_eids:
+                    if gate_map[eid] != down_map[eid]:
+                        raise RuntimeError(
+                            f"[test_tensor_index_locate] gate/down device mismatch "
+                            f"at layer={layer_id}, expert_id={eid}, "
+                            f"gate={gate_map[eid]}, down={down_map[eid]}"
+                        )
+                expert_id_device_map[layer_id] = {
+                    "gate_up_proj": gate_map,
+                    "down_proj": down_map,
+                }
+        self.tensor_index_expert_id_device_map = expert_id_device_map
 
         # 第二步：lm_head / embed_tokens / final norm 等通用参数放在第一张卡。
         general_total_size = sum(tsize for _, tsize in general_tensors)
-        other_total_size = sum(tsize for _, tsize in other_tensors)
-        first_device_total_size = general_total_size + other_total_size
-        if device_remaining[first_device] < first_device_total_size:
+        if device_remaining[first_device] < general_total_size:
             raise RuntimeError(
                 f"[test_tensor_index_locate] insufficient GPU memory on first device "
-                f"{first_device} for general+other tensors total={first_device_total_size} bytes, "
+                f"{first_device} for general tensors total={general_total_size} bytes, "
                 f"remaining={device_remaining[first_device]} bytes"
             )
         for tname, tsize in general_tensors:
             tensor_to_device[tname] = first_device
             device_remaining[first_device] -= tsize
-        for tname, tsize in other_tensors:
-            tensor_to_device[tname] = first_device
-            device_remaining[first_device] -= tsize
+
+        # 规则5：不允许有未处理参数（other_tensors）。
+        if other_tensors:
+            sample_names = [name for name, _ in other_tensors[:10]]
+            raise RuntimeError(
+                "[test_tensor_index_locate] found unhandled tensors not in "
+                "expert/general/layer_sagln groups, "
+                f"count={len(other_tensors)}, sample={sample_names}"
+            )
 
         # 第三步：分配每层 self_attn + gate + layernorm（规则4最后一步）。
-        # 同层绑定同卡，层间尽量分散。
-        # 目标顺序：1) 必须能放下；2) 优先层数较少的卡；3) 再看相对使用率，尽量水位均衡。
+        # 同层绑定同卡；以“显存水位均衡”为主目标，层数分散仅作为次级 tie-break。
+        # 目标顺序：1) 必须能放下；2) 优先让投影后使用率靠近设备均值；3) 再看层数均衡。
         layer_sagln_counts = {d: 0 for d in device_names}
         for layer_id, _ in sorted(layer_sagln_tensors.items(), key=lambda x: x[0]):
             gsize = layer_sagln_sizes[layer_id]
+            feasible_projected_ratio = []
+            for dev_name in device_names:
+                rem = device_remaining[dev_name]
+                if rem >= gsize:
+                    initial = max(1, device_initial_free[dev_name])
+                    projected_ratio = (initial - (rem - gsize)) / initial
+                    feasible_projected_ratio.append(projected_ratio)
+            projected_ratio_mean = (
+                (sum(feasible_projected_ratio) / len(feasible_projected_ratio))
+                if feasible_projected_ratio
+                else float("inf")
+            )
 
             def _layer_sagln_cand_key(dev_name: str):
                 rem = device_remaining[dev_name]
                 fits = 0 if rem >= gsize else 1
                 initial = max(1, device_initial_free[dev_name])
                 after_used_ratio = (initial - (rem - gsize)) / initial if rem >= gsize else float("inf")
+                ratio_gap_to_mean = (
+                    abs(after_used_ratio - projected_ratio_mean)
+                    if rem >= gsize
+                    else float("inf")
+                )
                 return (
                     fits,
-                    layer_sagln_counts[dev_name],
+                    ratio_gap_to_mean,
                     after_used_ratio,
+                    layer_sagln_counts[dev_name],
                     -rem,
                     dev_name,
                 )
@@ -2306,20 +2703,64 @@ class MLPLLM:
             device_expected_used_bytes[d] = used_bytes
             device_expected_used_mib[d] = used_bytes / (1024.0 * 1024.0)
         logger.info(
-            "[test_tensor_index_locate] tensors=%d sagln_layers=%d expert_groups=%d general_tensors=%d other_tensors=%d first_device=%s "
+            "[test_tensor_index_locate] tensors=%d skipped_tensors=%d sagln_layers=%d expert_groups=%d general_tensors=%d first_device=%s "
             "remaining=%s expected_used_bytes=%s expected_used_mib=%s usage_ratio=%s",
             len(tensor_to_device),
+            len(skipped_tensors),
             len(layer_sagln_tensors),
             len(expert_group_tensors),
             len(general_tensors),
-            len(other_tensors),
             first_device,
             {d: device_remaining[d] for d in device_names},
             device_expected_used_bytes,
             device_expected_used_mib,
             device_usage_ratio,
         )
-        return tensor_to_device
+        for layer_id, layer_plan in sorted(expert_id_device_map.items(), key=lambda x: x[0]):
+            counts = {d: 0 for d in device_names}
+            for _expert_id, dev in sorted(layer_plan["gate_up_proj"].items(), key=lambda x: x[0]):
+                counts[dev] += 1
+            logger.info(
+                "[test_tensor_index_locate] layer=%d gate_up/down expert_id_device_counts=%s",
+                layer_id,
+                counts,
+            )
+        return tensor_to_device, device_expected_used_bytes
+
+
+    def resort_tensor_to_device(self, tensor_to_device: dict):
+        """
+        1) 对
+        """
+        pass
+
+    def generate_chunk(self, tensor_to_device: dict, tensor_index_json: dict, device_memory_used: dict):
+        pass
+
+    def test_gpuloader(self):
+        mlpllm = self
+        tensor_index_json = mlpllm.read_tensor_index_json(model_path=mlpllm.mlpm.model_abs_path)
+        tensor_to_device, device_expected_used_bytes = mlpllm.test_tensor_index_locate(tensor_index_json=tensor_index_json)
+        print(tensor_to_device)
+        gate_up_down_locate_info = mlpllm.extract_gate_up_down_locate_info(layer_idx=0, tensor_to_device=tensor_to_device)
+        print(gate_up_down_locate_info)
+        attn_locate_info = mlpllm.extract_attn_locate_info(layer_idx=0, tensor_to_device=tensor_to_device)
+        print(attn_locate_info)
+        generate_locate_info = mlpllm.extract_generate_locate_info(tensor_to_device=tensor_to_device)
+        print(generate_locate_info)
+
+        device_memory_used = mlpllm.calculate_device_memory_from_tensor_to_device(tensor_to_device=tensor_to_device, tensor_index_json=tensor_index_json)
+        print(device_memory_used)
+        print(device_expected_used_bytes)
+
+
+        cuda_memory_ptrs = allocate_cuda_memory(device_memory_used)
+        cuda_memory_handles = get_cuda_memory_handles(cuda_memory_ptrs)
+        device_uuid_map = get_device_uuid_map()
+
+
+
+
 
     def test_gate_experts(self):
         device = self.device1
