@@ -255,6 +255,17 @@ std::unordered_map<int, void*> AllocateCudaMemory(
   return memory_ptrs;
 }
 
+void FreeCudaMemory(const std::unordered_map<int, void*>& memory_ptrs) {
+  for (const auto& p : memory_ptrs) {
+    int device = p.first;
+    void* ptr = p.second;
+    if (ptr != nullptr) {
+      cudaSetDevice(device);
+      cudaFree(ptr);
+    }
+  }
+}
+
 std::unordered_map<int, std::string> GetCudaMemoryHandles(
     const std::unordered_map<int, void*>& memory_ptrs) {
   std::unordered_map<int, std::string> memory_handles;

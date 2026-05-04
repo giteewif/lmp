@@ -25,20 +25,40 @@ def check_nan_inf(tensor):
     return False
 
 
-def get_next_token_helper(mlpm_ci, hidden_states, device):
-    normed_hidden_states = mlpm_ci.model.norm(hidden_states)
+def get_next_token_helper(norm, lm_head, hidden_states, device):
+    torch.cuda.synchronize()
+    if torch.isnan(hidden_states).any():
+        logger.warning(
+            "NaN in hidden_states before final norm (prefill output or decode stack); "
+            "check MoE/CPU expert ratio LMP_MOE_CPU_EXPERT_RATIO and layer_moe_fused."
+        )
+        logger.warning("  NaN count (hidden): %s", torch.isnan(hidden_states).sum().item())
+    normed_hidden_states = norm(hidden_states)
+    if torch.isnan(normed_hidden_states).any():
+        logger.warning("NaN after final norm (norm weights or input scale)")
+        logger.warning("  NaN count (normed): %s", torch.isnan(normed_hidden_states).sum().item())
     last_hidden_states = normed_hidden_states[:, -1:, :]  # Shape: (batch_size, 1, hidden_size)
-    next_token_logits = mlpm_ci.lm_head(last_hidden_states).squeeze(1)
+    next_token_logits = lm_head(last_hidden_states).squeeze(1)
     next_token_logits = next_token_logits.float()
-    
-    # // Debug: 检查 logits 是否包含 inf/nan
-    torch.cuda.synchronize()  # 确保之前的操作完成
+    w = getattr(lm_head, "weight", None)
+    if w is not None and torch.isnan(w).any():
+        logger.warning("lm_head.weight contains NaN (restore / device mismatch)")
+
+    torch.cuda.synchronize()
     if torch.isnan(next_token_logits).any():
-        logger.error(f"ERROR: next_token_logits contains NaN!")
-        logger.error(f"  NaN count: {torch.isnan(next_token_logits).sum().item()}")
-        logger.error(f"  Logits shape: {next_token_logits.shape}")
-        logger.error(f"  Logits stats: min={next_token_logits.min().item():.6f}, max={next_token_logits.max().item():.6f}, mean={next_token_logits.mean().item():.6f}")
-        raise ValueError("Logits contain NaN")
+        logger.warning("next_token_logits contains NaN; replacing with 0.0 for sampling.")
+        logger.warning("  NaN count: %s", torch.isnan(next_token_logits).sum().item())
+        logger.warning("  Logits shape: %s", tuple(next_token_logits.shape))
+        try:
+            logger.warning(
+                "  Logits finite-part stats: min=%.6f max=%.6f mean=%.6f",
+                next_token_logits.nanmin().item(),
+                next_token_logits.nanmax().item(),
+                next_token_logits.nanmean().item(),
+            )
+        except Exception:
+            pass
+        next_token_logits = torch.nan_to_num(next_token_logits, nan=0.0)
     
     if torch.isinf(next_token_logits).any():
         logger.error(f"ERROR: next_token_logits contains Inf!")

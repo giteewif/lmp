@@ -543,6 +543,22 @@ int Model::ToHostResize(int num_threads) {
   return 0;
 }
 
+int Model::EnsureGpuReplica(const std::string& replica_uuid) {
+  std::unique_lock<std::mutex> lock(mutex_);
+  if (state_ == MemoryState::UNINITIALIZED) {
+    LOG(ERROR) << "Model " << model_path_ << " is not initialized";
+    return -1;
+  }
+  auto replica_it = gpu_replicas_.find(replica_uuid);
+  if (replica_it != gpu_replicas_.end()) {
+    return 0;
+  }
+  LOG(INFO) << "Pre-creating replica " << replica_uuid;
+  gpu_replicas_.emplace(replica_uuid, std::make_shared<GpuReplica>());
+  cv_.notify_all();
+  return 0;
+}
+
 int Model::ToGpu(
     const std::string& replica_uuid, const MemPtrListMap& device_ptrs,
     const std::unordered_map<int, MemCopyChunkList>& mem_copy_chunks,
@@ -553,13 +569,21 @@ int Model::ToGpu(
     return -1;
   }
 
-  if (gpu_replicas_.find(replica_uuid) != gpu_replicas_.end()) {
-    LOG(ERROR) << "Replica " << replica_uuid << " already exists";
-    return -1;
+  GpuReplicaPtr gpu_replica;
+  auto replica_it = gpu_replicas_.find(replica_uuid);
+  if (replica_it != gpu_replicas_.end()) {
+    gpu_replica = replica_it->second;
+    if (gpu_replica->state_ != MemoryState::UNINITIALIZED) {
+      LOG(ERROR) << "Replica " << replica_uuid << " already exists";
+      return -1;
+    }
+    LOG(INFO) << "Initializing pre-created replica " << replica_uuid;
+  } else {
+    LOG(INFO) << "Creating replica " << replica_uuid;
+    gpu_replicas_.emplace(replica_uuid, std::make_shared<GpuReplica>());
+    gpu_replica = gpu_replicas_.at(replica_uuid);
   }
-  LOG(INFO) << "Creating replica " << replica_uuid;
-  gpu_replicas_.emplace(replica_uuid, std::make_shared<GpuReplica>());
-  GpuReplicaPtr gpu_replica = gpu_replicas_.at(replica_uuid);
+  gpu_replica->gpu_loading_queue_.clear();
   for (const auto& [device_id, _] : device_ptrs) {
     LOG(INFO) << "Creating queue for device " << device_id;
     gpu_replica->gpu_loading_queue_.emplace(device_id,
@@ -1155,6 +1179,9 @@ int Model::DispatchToGpu(
     }
   }
 
+  /*
+  // Original behavior: enqueue as soon as a task becomes ready while scanning
+  // chunks, which makes enqueue order depend on chunk ready order.
   for (int i = 0; i < host_ptr_vector_->capacity(); i++) {
     auto data_chunk = host_ptr_vector_->dequeue(i);
     auto chunk_id = data_chunk.chunk_id_;
@@ -1189,6 +1216,53 @@ int Model::DispatchToGpu(
       }
       queue_it->second->Push(task_id, task->priority());
     }
+  }
+  */
+
+  // New behavior: task_id-priority enqueue.
+  // First mark ready tasks, then enqueue in ascending task_id order.
+  std::unordered_set<uint64_t> ready_task_ids;
+  ready_task_ids.reserve(task_total_parts.size());
+  for (int i = 0; i < host_ptr_vector_->capacity(); i++) {
+    auto data_chunk = host_ptr_vector_->dequeue(i);
+    auto chunk_id = data_chunk.chunk_id_;
+    auto& task_ids = chunk_id_to_task_ids[chunk_id];
+    for (uint64_t task_id : task_ids) {
+      task_ready_parts[task_id] += 1;
+      if (task_ready_parts[task_id] == task_total_parts[task_id]) {
+        ready_task_ids.insert(task_id);
+      }
+    }
+  }
+
+  std::vector<uint64_t> ready_task_ids_sorted(ready_task_ids.begin(),
+                                              ready_task_ids.end());
+  std::sort(ready_task_ids_sorted.begin(), ready_task_ids_sorted.end());
+  for (uint64_t task_id : ready_task_ids_sorted) {
+    std::shared_ptr<GpuReplica::CopyTask> task;
+    {
+      std::shared_lock<std::shared_mutex> lock(gpu_replica->task_mu_);
+      auto task_it = gpu_replica->task_map_.find(task_id);
+      if (task_it == gpu_replica->task_map_.end()) {
+        continue;
+      }
+      task = task_it->second;
+    }
+    task->ready_.store(true, std::memory_order_release);
+
+    const size_t bit = gpu_replica->TaskBit(task_id);
+    if (gpu_replica->completed_bitmap_.test(bit)) {
+      continue;
+    }
+    if (gpu_replica->enqueued_bitmap_.test_and_set(bit)) {
+      continue;
+    }
+    auto queue_it = gpu_replica->gpu_loading_queue_.find(task->device_id_);
+    if (queue_it == gpu_replica->gpu_loading_queue_.end()) {
+      LOG(ERROR) << "No queue for device " << task->device_id_;
+      return -1;
+    }
+    queue_it->second->Push(task_id, task->priority());
   }
 
   return 0;

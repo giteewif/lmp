@@ -1,7 +1,7 @@
 import sys
 import os
 from time import sleep
-from lmp.src.lmp import cuda_memory_view
+
 import torch
 
 # 获取项目根目录和必要的路径

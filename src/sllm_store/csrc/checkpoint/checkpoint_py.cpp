@@ -30,6 +30,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         py::arg("shm_names"), py::arg("tensor_metadata"), py::arg("chunk_size"),
         "Restore a state dict from shared memory names")
       .def("allocate_cuda_memory", &AllocateCudaMemory, "Allocate cuda memory")
+      .def("free_cuda_memory", &FreeCudaMemory, "Free cuda memory allocated by allocate_cuda_memory")
       .def(
           "get_cuda_memory_handles",
           [](const std::unordered_map<int, void*>& memory_ptrs) {

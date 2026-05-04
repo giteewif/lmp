@@ -1,10 +1,17 @@
 import os
 import time
+import warnings
 import torch
 import torch.nn.functional as F
-from typing import Dict, Optional
+from typing import TYPE_CHECKING, Dict, Optional
 from transformers import AutoConfig
 from transformers.activations import ACT2FN
+
+warnings.filterwarnings(
+    "ignore",
+    category=FutureWarning,
+    module=r"transformers\.modeling_attn_mask_utils",
+)
 from accelerate.utils import set_module_tensor_to_device
 
 from sllm_store.client import SllmStoreClient
@@ -16,8 +23,11 @@ from sllm_store._C import (
     restore_tensors2,
 )
 
-from lmp.sllm_store_c import *
-from lmp.sllm_store_c import TENSOR_INDEX_RESIZE_PATH, SLLM_ADDRESS, STORAGE_PATH
+from lmp.sllm_store_c import load_into_gpu_async
+
+if TYPE_CHECKING:
+    from lmp.sllm_thread_manager import SLLMTM
+
 from models.mlpmodule import QWEN3_MODEL_NAME_TYPE, MLPModuleWrapper, WeightType
 from utils.helper import (
     load_json, 
@@ -28,7 +38,6 @@ from utils.helper import (
 )
 from utils.cuda_h import *
 from utils.logger import init_logger
-from lmp.sllm_thread_manager import SLLMTM
 logger = init_logger(__name__)
 
 # ``_test_group_*_fused_experts``: pick half the experts to **minimize total top-1 routed tokens** into that set.
@@ -252,21 +261,19 @@ class CudaMemoryView:
     def __init__(
         self,
         mlpm: MLPModuleWrapper,
+        client: SllmStoreClient,
+        tensor_index_resize_json: dict,
+        meta_model,
         device_list: list[str]
     ):
-        self.sllmtm: SLLMTM = None
-
         self.mlpm = mlpm
-
-        self.client = SllmStoreClient(SLLM_ADDRESS)
-        tensor_index_resize_path = os.path.join(self.mlpm.model_abs_path, TENSOR_INDEX_RESIZE_PATH)
-        tensor_index_resize_json = load_json(tensor_index_resize_path)
+        self.client = client
+        self.tensor_index_resize_json = tensor_index_resize_json
+        self.mlpm_ci = meta_model
 
         mshm_names, chunk_size = self.client.get_model_shared_memory_names(self.mlpm.model_path)
         if len(mshm_names) <= 0:
             raise ValueError(f"Only Support shared memory, But sllm not shared")     
-
-        self.tensor_index_resize_json = tensor_index_resize_json
         self.mchunk_size = chunk_size
                 
         self.device_list = device_list
@@ -276,27 +283,27 @@ class CudaMemoryView:
         self.device_uuid_map = get_device_uuid_map()
 
         self.cuda_memory_ptrs_allocated = []
+
+        self.sllmtm: Optional["SLLMTM"] = None
+
+    def restore2model(self, model_state_dict, model):
+        with torch.no_grad():
+            for name, param in model_state_dict.items():
+                set_module_tensor_to_device(model, name, param.device, param, clear_cache=False)
         
-        # self.mlpm_ci = self.mlpm.create_empty_model()
-        # self.mlpm_ci.eval()
-        self.mlpm_ci = None
-        
-        # 跟踪每层参数是否已全部加载到 GPU
-        # {layer_idx: bool} - True 表示该层参数已全部加载到 GPU
-        self._layer_loaded_to_gpu = {}
-        # fused experts dual-restore: {layer_idx: {device_id: {"gate_up": [...], "down": [...], ...}}}
-        self._layer_experts_map_by_device = {}
+    def restore2model_strict(self, model_state_dict, model):
+        model_param_names = set(dict(model.named_parameters()).keys())
+        with torch.no_grad():
+            for name, param in model_state_dict.items():
+                if name not in model_param_names:
+                    continue
+                set_module_tensor_to_device(model, name, param.device, param, clear_cache=False)
+
 
     def load_general_and_init(self):     
         cuda_hook_time("load_general")
         tensor_index_general_names = self.mlpm.get_tensor_index_general_names()
-        # tensor_index_attention_names = self.mlpm.get_attention_names(layer_idx=0)
-        # tensor_index_layernorm_names = self.mlpm.get_layernorm_names(layer_idx=0)
-        # empty expert for 0
-        # tensor_experts0_names = self.mlpm.get_experts_names(
-        #     layer_idx=0, expert_idx_list=[i for i in range(self.mlpm.config.n_routed_experts)])
-        tensor_index_init_names = tensor_index_general_names 
-            # + tensor_index_attention_names + tensor_index_layernorm_names + tensor_experts0_names
+        tensor_index_init_names = tensor_index_general_names
 
         ret1, replica_uuid1, state_dict1 = \
             self.allocate_cuda_memory_and_load_into_gpu(tensor_index_init_names, device_index_int=self.device1)
@@ -305,9 +312,6 @@ class CudaMemoryView:
         self.wait_load_into_gpu(replica_uuid1)
         cuda_hook_time_end("load_general")
 
-    def start_init_meta_model(self):
-        cm = self.mlpm.init_chmv_meta_model(device=self.device1)
-        self.mlpm_ci = cm
 
     def start_load_qkvogn_s_weight(self, layer_idx: int, device: str):
         """
@@ -862,13 +866,7 @@ class CudaMemoryView:
     def wait_load_into_gpu(self, replica_uuid: str):
         self.client.confirm_model_loaded(self.mlpm.model_path, replica_uuid)
 
-    def restore2model(self, model_state_dict, model):
-        cuda_hook_time("restore2model")
-        with torch.no_grad():
-            for name, param in model_state_dict.items():
-                # print(f"{name}: device={param.device}, dtype={param.dtype} shape={param.shape}")
-                set_module_tensor_to_device(model, name, param.device, param, clear_cache=False)
-        cuda_hook_time_end("restore2model")
+    
 
     def prepare_cuda_memory_fused_experts(self, layer_idx: int, gpu_expert_ids_by_device: dict[int, set[int]]):
         fused_tensor_index_names = self.mlpm.get_experts_names(layer_idx=layer_idx, expert_idx_list=[])
@@ -1021,7 +1019,6 @@ class CudaMemoryView:
             model_path=self.mlpm.model_path,
             tensor_copy_chunks=tensor_copy_chunks_device_map,
             cuda_memory_handles=cuda_memory_handles_device_map,
-            use_fixed_gpu_ptrs=False,
         )
         cuda_hook_time_end("load_into_gpu_async_fused_experts")
 
@@ -1174,7 +1171,6 @@ class CudaMemoryView:
             model_path=self.mlpm.model_path,
             tensor_copy_chunks=tensor_copy_chunks_device_map,
             cuda_memory_handles=cuda_memory_handles_device_map,
-            use_fixed_gpu_ptrs=False,
         )
         cuda_hook_time_end("load_into_gpu_async_fused_experts_dual")
 
@@ -1230,7 +1226,6 @@ class CudaMemoryView:
             model_path=self.mlpm.model_path,
             tensor_copy_chunks=tensor_copy_chunks_device_map,
             cuda_memory_handles=cuda_memory_handles_device_map,
-            use_fixed_gpu_ptrs=False
         )
         state_dict = restore_tensors2(
             tensor_meta_index, cuda_memory_ptrs_device_map, tensor_device_offsets_device_map
@@ -1257,7 +1252,6 @@ class CudaMemoryView:
             model_path=self.mlpm.model_path,
             tensor_copy_chunks=tensor_copy_chunks,
             cuda_memory_handles=cuda_memory_handles,
-            use_fixed_gpu_ptrs=False
         )
         cuda_hook_time_end("load_into_gpu_async")
         cuda_hook_time("restore_tensors2")
@@ -1296,7 +1290,6 @@ class CudaMemoryView:
         self.allocate_cuda_memory_load_wait(tensor_index_names, device_index_int=device1_idx_int)
         cuda_hook_time_end("test_init_onelayer_experts_weight")
 
-import sys
 from pathlib import Path
 # 添加 kt-kernel 路径 - 使用固定路径 /mnt/zhengcf3/ktransformers/kt-kernel
 from kt_kernel import kt_kernel_ext
@@ -1341,42 +1334,40 @@ def make_worker_config(ext, threads: int, numa_nodes: list[int]):
     worker_config.subpool_numa_map = numa_nodes[:threadpool_count]
     worker_config.subpool_thread_count = [base + (1 if i < extra else 0) for i in range(threadpool_count)]
     return worker_config
-    
-numa_nodes = detect_numa_nodes()
-threads =  default_thread_count(numa_nodes)
-worker_config = make_worker_config(kt_kernel_ext, threads, numa_nodes)
 
-# CPUInfer = kt_kernel_ext.CPUInfer(CPUINFER_PARAM)
+
+numa_nodes = detect_numa_nodes()
+threads = default_thread_count(numa_nodes)
+worker_config = make_worker_config(kt_kernel_ext, threads, numa_nodes)
 CPUInfer = kt_kernel_ext.CPUInfer(worker_config)
 
 class HostMemoryView:
     def __init__(
         self, 
         mlpm: MLPModuleWrapper,
-        empty_model,
+        meta_model,
+        client,
+        tensor_index_resize_json,
     ):
-        self.client = SllmStoreClient(SLLM_ADDRESS)
-
+        self.client = client
         self.mlpm = mlpm
-        tensor_index_resize_path = os.path.join(self.mlpm.model_abs_path, TENSOR_INDEX_RESIZE_PATH)
-        tensor_index_resize_json = load_json(tensor_index_resize_path)
-
+        self.mlpm_hi = meta_model
+        self.tensor_index_resize_json = tensor_index_resize_json
+        
         mshm_names, chunk_size = self.client.get_model_shared_memory_names(self.mlpm.model_path)
         if len(mshm_names) <= 0:
             raise ValueError(f"Only Support shared memory, But sllm not shared")
+        self.mshm_names = mshm_names
+        self.mchunk_size = chunk_size
 
         time_start_restore = time.time()
         self.hm_state_dict = restore_tensors_from_shared_memory_names(
-                                mshm_names, tensor_index_resize_json, chunk_size)
+                                self.mshm_names, self.tensor_index_resize_json, self.mchunk_size)
         logger.debug(f"\nrestore_tensors_from_shared_memory_names time: {time.time() - time_start_restore}")
 
-        self.mshm_names = mshm_names
-        self.tensor_index_resize_json = tensor_index_resize_json
-        self.mchunk_size = chunk_size
-
-
-        self.mlpm_hi = empty_model
+        time_start_restore = time.time()
         self.mlpm.restore_hm_state_dict2model(self.hm_state_dict, self.mlpm_hi)
+        logger.debug(f"\nrestore_hm_state_dict2model time: {time.time() - time_start_restore}")
 
     def _test_kt_kernel_init(self, layer_idx: int, max_len: int = 1024):
         """测试 kt-kernel MOE 初始化，仿照 bench_bf16_moe.py 的模式"""

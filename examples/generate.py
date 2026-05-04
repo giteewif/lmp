@@ -61,13 +61,12 @@ def test():
     mlpllm = MLPLLM(model_name_type=model_name_type, model_path=model_path, device_num=device_num)
     # only for mp process, mp process for cpu experts thread
 
+    # mlpllm.init_mp_process()
 
-    mlpllm.init_mp_process()
-
-    mlpllm.test_mp_cpu_tensor()
+    # mlpllm.test_mp_cpu_tensor()
     
 
-    mlpllm.test_mp_cpu_tensor()
+    # mlpllm.test_mp_cpu_tensor()
 
     # mlpllm.test_mp_process()
 
@@ -88,19 +87,15 @@ def test():
 
     # mlpllm.hmv._test_group_gmm_fused_experts()
 
-    # times=2
-    # for i in range(times):
-    #     mlpllm.free_cmv()
-    #     torch.cuda.empty_cache()
-    #     sleep(2)
-    #     t0 = time.perf_counter()
-    #     mlpllm.test_mp_generate_multi_device_layer()
-    #     t1 = time.perf_counter()
-    #     print(f"Time taken: {t1 - t0} seconds")
-    # sleep(2)
+    times=2
+    for i in range(times):
+        torch.cuda.empty_cache()
+        t0 = time.perf_counter()
+        mlpllm.test_mp_generate_multi_device_layer()
+        t1 = time.perf_counter()
+        print(f"Time taken: {t1 - t0} seconds")
     
     # mlpllm.imm.stop()
     
-    mlpllm.mp_stop()
 if __name__ == "__main__":
     test()

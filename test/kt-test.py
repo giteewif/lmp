@@ -136,8 +136,8 @@ def main() -> None:
         type=Path,
         default=repo_root_from_file() / "lmp" / "src" / "models" / "Gemma" / "config.json",
     )
-    parser.add_argument("--batch", type=int, default=4)
-    parser.add_argument("--seq-len", type=int, default=256)
+    parser.add_argument("--batch", type=int, default=1)
+    parser.add_argument("--seq-len", type=int, default=4)
     parser.add_argument("--threads", type=int, default=0, help="CPU worker threads; default uses physical core count")
     parser.add_argument("--warmup", type=int, default=2)
     parser.add_argument("--iters", type=int, default=5)
@@ -164,6 +164,7 @@ def main() -> None:
 
     numa_nodes = detect_numa_nodes()
     threads = args.threads if args.threads > 0 else default_thread_count(numa_nodes)
+
     worker_config = make_worker_config(ext, threads, numa_nodes)
 
     print(f"kt-kernel version      : {kt_kernel.__version__}")
@@ -176,7 +177,9 @@ def main() -> None:
     print(f"threads/NUMA nodes    : {threads}/{worker_config.subpool_numa_map}")
     print(f"token distribution    : {'uniform' if args.uniform else 'random'}")
 
-    cpu_infer = ext.CPUInfer(worker_config)
+    CPUINFER_PARAM = 96
+    # cpu_infer = ext.CPUInfer(worker_config)
+    cpu_infer = ext.CPUInfer(CPUINFER_PARAM)
     gpu_experts_mask = torch.zeros(num_experts, dtype=torch.bool).contiguous()
 
     cfg = ext.moe.MOEConfig(num_experts, top_k, hidden_size, intermediate_size, 0)

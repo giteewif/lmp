@@ -118,6 +118,7 @@ class Model {
   
   int ToHost(int num_threads);
   int ToHostResize(int num_threads);
+  int EnsureGpuReplica(const std::string& replica_uuid);
   int ToGpu(const std::string& replica_uuid, const MemPtrListMap& device_ptrs,
             const std::unordered_map<int, MemCopyChunkList>& mem_copy_chunks,
             const std::unordered_map<int, MemCopyHandleList>& mem_copy_handles);

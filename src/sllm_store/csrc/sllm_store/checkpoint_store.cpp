@@ -281,6 +281,21 @@ int CheckpointStore::LoadModelFromMemAsync(
         gpu_memory_handles,
     const std::unordered_map<std::string, MemCopyChunkList>& mem_copy_chunks) {
   std::unique_lock<std::mutex> lock_info(model_info_mutex_);
+  auto model = GetModelPtr(model_path);
+  if (model == nullptr) {
+    LOG(ERROR) << "Model " << model_path << " is not registered";
+    return -1;
+  }
+  lock_info.unlock();
+
+  int ensure_ret = model->EnsureGpuReplica(replica_uuid);
+  if (ensure_ret != 0) {
+    LOG(ERROR) << "Failed to pre-create replica " << replica_uuid
+               << " for model " << model_path;
+    return -1;
+  }
+
+  lock_info.lock();
   async_tasks_.emplace(std::async(
       std::launch::async,
       [this, model_path, replica_uuid, gpu_memory_handles, mem_copy_chunks]() {

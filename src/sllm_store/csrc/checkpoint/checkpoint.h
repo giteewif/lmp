@@ -48,6 +48,7 @@ std::unordered_map<std::string, torch::Tensor> RestoreTensors2(
 // {dev_id: ptr}
 std::unordered_map<int, void*> AllocateCudaMemory(
     const std::unordered_map<int, size_t>& tensor_sizes);
+void FreeCudaMemory(const std::unordered_map<int, void*>& memory_ptrs);
 std::unordered_map<int, std::string> GetCudaMemoryHandles(
     const std::unordered_map<int, void*>& memory_ptrs);
 std::unordered_map<int, std::vector<std::string>> GetCudaMemoryHandles(

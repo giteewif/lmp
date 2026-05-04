@@ -5,6 +5,7 @@ from typing import Optional, Union
 
 STORAGE_PATH = os.getenv("STORAGE_PATH", "/mnt/zhengcf3/models/sllm_models")
 TENSOR_INDEX_RESIZE_PATH = os.getenv("TENSOR_INDEX_RESIZE_PATH", "tensor_index_resize.json")
+TENSOR_INDEX_PATH = os.getenv("TENSOR_INDEX_PATH", "tensor_index.json")
 SLLM_ADDRESS = os.getenv("SLLM_ADDRESS", "127.0.0.1:8073")
 
 from sllm_store.client import SllmStoreClient
@@ -22,7 +23,6 @@ def load_into_gpu_async(
         model_path: Optional[Union[str, os.PathLike]],
         tensor_copy_chunks,
         cuda_memory_handles,
-        use_fixed_gpu_ptrs=False
     ):
         logger.debug(f"get device uuid map")
         replica_uuid = _get_uuid()
@@ -38,7 +38,6 @@ def load_into_gpu_async(
                 device_uuid_map[device_id]: [v]
                 for device_id, v in cuda_memory_handles.items()
             },
-            use_fixed_gpu_ptrs=use_fixed_gpu_ptrs,
         )
         return ret, replica_uuid
 
