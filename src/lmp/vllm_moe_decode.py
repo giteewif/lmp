@@ -218,6 +218,7 @@ class _DeviceState:
     __slots__ = (
         "dev_idx", "device", "w1", "w2", "expert_map",
         "stream", "bundle",
+        "transfer_event", "replay_event",
     )
 
     def __init__(
@@ -237,6 +238,14 @@ class _DeviceState:
         self.expert_map = expert_map
         self.stream = stream
         self.bundle = bundle
+        # Pre-allocated CUDA events for fine-grained stream synchronisation
+        # (avoids full device synchronise in the CUDAGraph replay path).
+        #   transfer_event: recorded on primary stream after H2D input copies;
+        #                   ds.stream waits on it before replay.
+        #   replay_event:   recorded on ds.stream after graph replay;
+        #                   primary stream waits on it before reading s_out.
+        self.transfer_event: torch.cuda.Event = torch.cuda.Event()
+        self.replay_event:   torch.cuda.Event = torch.cuda.Event()
 
     def try_build_graph(
         self,
@@ -515,10 +524,17 @@ class VllmMoeDecodeManager:
                         hidden, topk_w_2d, topk_ids_2d, moe_act, global_num_experts
                     )
                 if ds.bundle is not None:
-                    # Synchronise D2H transfer before graph replay
-                    torch.cuda.synchronize(ds.device)
+                    # ── Event-based synchronisation (no CPU stall) ──────────
+                    # 1. Record on primary stream after the non_blocking H2D
+                    #    transfers above; ds.stream waits before touching inputs.
+                    ds.transfer_event.record(torch.cuda.current_stream(primary_device))
+                    ds.stream.wait_event(ds.transfer_event)
+                    # 2. Replay graph on ds.stream (inputs now guaranteed ready).
                     partial = ds.bundle.replay(h_dev, tw_dev, ti_dev)
-                    ds.stream.synchronize()
+                    # 3. Record on ds.stream after replay; primary stream waits
+                    #    before reading s_out / transferring back.
+                    ds.replay_event.record(ds.stream)
+                    torch.cuda.current_stream(primary_device).wait_event(ds.replay_event)
                     out.add_(partial.to(primary_device, non_blocking=True))
                     continue
 
@@ -542,7 +558,7 @@ class VllmMoeDecodeManager:
                 out.add_(partial.to(primary_device, non_blocking=True))
 
         # Single synchronisation point across all streams
-        torch.cuda.synchronize()
+        # torch.cuda.synchronize()
         return out
 
     def warmup_triton(

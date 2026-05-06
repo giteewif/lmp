@@ -204,7 +204,7 @@ class MLPLLM:
             os.environ.get("LMP_STATIC_KV_MAX_SEQ", "2048")
         )
 
-    def init_kt_kernel(self, max_len: int = 1024):
+    def init_kt_kernel(self, max_len: int = 2048):
         import kt_kernel_ext
         import kt_kernel
         
@@ -707,7 +707,10 @@ class MLPLLM:
         mi = self.cmv.mlpm_ci
         try:
             residual_in = ghidden_states
+            cuda_hook_time("prefill_ln")
             h = self.mlpm.iln_func(mi, layer_idx=layer_idx, hidden_states=ghidden_states)
+            cuda_hook_time_end("prefill_ln")
+            cuda_hook_time("prefill_attn")
             h = self.mlpm.flash_attn_prefill_func(
                 mi,
                 layer_idx=layer_idx,
@@ -718,29 +721,18 @@ class MLPLLM:
                 v_cache=v_cache,
                 cache_offset=cache_offset,
             )
+            cuda_hook_time_end("prefill_attn")
         except Exception as _exc:
-            logger.debug(
+            logger.error(
                 "flash_attn_prefill_func layer %d failed (%s); falling back to bench_path.",
                 layer_idx, _exc,
             )
-            # Fall back: use the bench path which goes through HF attention and
-            # writes into a temporary DynamicCache.  K/V won't be in the static
-            # buffers; the caller must handle the KV copy step if needed.
-            from transformers.cache_utils import DynamicCache  # noqa
-            _tmp_kv = DynamicCache()
-            return self._decoder_layer_forward_bench_path(
-                layer_idx, ghidden_states, attention_mask, position_ids,
-                past_key_value=_tmp_kv,
-                replica_uuid=replica_uuid,
-                experts_state_dict_slices_packed=experts_state_dict_slices_packed,
-                tensor_to_device=tensor_to_device,
-                tensor_task_queue_index=tensor_task_queue_index,
-                tensor_copy_chunks=tensor_copy_chunks,
-                tensor_device_offsets=tensor_device_offsets,
-            )
+            raise Exception("flash_attn_prefill_func layer %d failed (%s); falling back to bench_path." % (layer_idx, _exc))
 
+        cuda_hook_time("prefill_ffn_prep")
         ffn_skip = self.mlpm.bench_ffn_skip_hidden(mi, layer_idx, residual_in, h)
         gate_in  = self.mlpm.bench_gate_moe_hidden(mi, layer_idx, residual_in, h)
+        cuda_hook_time_end("prefill_ffn_prep")
 
         if layer_idx < self.mlpm.get_first_k_dense_replace():
             out = self.mlpm.dense_mlp_func(mi, layer_idx=layer_idx, hidden_states=gate_in)
@@ -748,7 +740,9 @@ class MLPLLM:
 
         dense_prefix = self.mlpm.ffn_dense_prefix_before_route(mi, layer_idx, ffn_skip)
         if dense_prefix is not None:
+            cuda_hook_time("prefill_gate")
             topk_idx, topk_weight, _ = self.mlpm.gate_func(mi, layer_idx, ffn_skip)
+            cuda_hook_time_end("prefill_gate")
             expert_in = self.mlpm.moe_experts_input_hidden(mi, layer_idx, ffn_skip)
             cuda_hook_time("*layer_moe_fused")
             routed = self.layer_moe_fused(
@@ -764,17 +758,24 @@ class MLPLLM:
                 tensor_device_offsets=tensor_device_offsets,
             )
             cuda_hook_time_end("*layer_moe_fused")
+            cuda_hook_time("prefill_merge_scale")
             merged = self.mlpm.ffn_merge_dense_and_routed(
                 mi, layer_idx, ffn_skip, dense_prefix, routed
             )
-            return self.mlpm.apply_decoder_layer_scale(mi, layer_idx, merged)
+            cuda_hook_time_end("prefill_merge_scale")
+            cuda_hook_time("prefill_merge_scale_apply_decoder_layer_scale")
+            out = self.mlpm.apply_decoder_layer_scale(mi, layer_idx, merged)
+            cuda_hook_time_end("prefill_merge_scale_apply_decoder_layer_scale")
+            return out
 
         if self.mlpm.ffn_skip_routed_moe_use_standalone_dense(mi, layer_idx):
             out = self.mlpm.ffn_dense_non_routed_after_attn(mi, layer_idx, ffn_skip)
             return self.mlpm.apply_decoder_layer_scale(mi, layer_idx, out)
 
-        topk_idx, topk_weight, _ = self.mlpm.gate_func(mi, layer_idx, gate_in)
         cuda_hook_time("*layer_moe_fused")
+        cuda_hook_time("prefill_gate")
+        topk_idx, topk_weight, _ = self.mlpm.gate_func(mi, layer_idx, gate_in)
+        cuda_hook_time_end("prefill_gate")
         routed = self.layer_moe_fused(
             layer_idx=layer_idx,
             hidden_states=gate_in,
@@ -788,8 +789,11 @@ class MLPLLM:
             tensor_device_offsets=tensor_device_offsets,
         )
         cuda_hook_time_end("*layer_moe_fused")
+        cuda_hook_time("prefill_merge_scale")
         merged = self.mlpm.ffn_merge_dense_and_routed(mi, layer_idx, ffn_skip, None, routed)
-        return self.mlpm.apply_decoder_layer_scale(mi, layer_idx, merged)
+        out = self.mlpm.apply_decoder_layer_scale(mi, layer_idx, merged)
+        cuda_hook_time_end("prefill_merge_scale")
+        return out
 
     # =========================================================================
     # Unified decode layer (always-on static KV + optional CUDA graph)
@@ -1097,10 +1101,10 @@ class MLPLLM:
         
         # 32, 64, 128
         # Keep this lightweight to avoid OOM on shared GPUs.
-        batch_size = 4
-        seq_len = 128
+        batch_size = 8
+        seq_len = 512
         # 与下方 decode 循环步数一致，用于一次分配 StaticCache 槽位（避免超过 max_cache_len）
-        num_decode_steps = 31
+        num_decode_steps = 3
         max_kv_len = _kv_static_max_len(seq_len, num_decode_steps, self.mlpm.config)
         dtype = self.mlpm.config.torch_dtype
         hidden_size = self.mlpm.config.hidden_size
@@ -1217,6 +1221,8 @@ class MLPLLM:
         )
         cuda_hook_time_end("init_loading_placement")
 
+        
+
         cuda_hook_time("init_general_sagl_loading_async")
         _, replica_uuid1 = load_into_gpu_async(
             client=self.client,
@@ -1233,7 +1239,6 @@ class MLPLLM:
         self.cmv.restore2model_strict(general_sagl_state_dict, self.cmv.mlpm_ci)
         self.client.confirm_model_loaded(self.mlpm.model_path, replica_uuid1)
         cuda_hook_time_end("init_general_sagl_loading_async")
-
         
         experts_tensor_copy_chunks = tensor_copy_chunks
         experts_tensor_device_offsets = MLPLLM._prune_device_offsets_to_copy_chunks_by_task_id(
@@ -1248,19 +1253,6 @@ class MLPLLM:
             experts_tensor_copy_chunks=experts_tensor_copy_chunks,
             experts_tensor_device_offsets=experts_tensor_device_offsets,
         )
-
-
-        time_start_prefill = time.time()
-        cuda_hook_time("init_experts_loading_async")
-        cuda_memory_handles = all_cuda_memory_handles
-        _, replica_uuid2 = load_into_gpu_async(
-            client=self.client,
-            device_uuid_map=device_uuid_map,
-            model_path=self.mlpm.model_path,
-            tensor_copy_chunks=experts_tensor_copy_chunks,
-            cuda_memory_handles=cuda_memory_handles,
-        )
-        cuda_hook_time_end("init_experts_loading_async")
 
         cuda_hook_time("restore_state_dict")
         experts_state_dict_slices_packed = self.restore_experts_state_dict(
@@ -1303,6 +1295,18 @@ class MLPLLM:
                         list(_pre_dev_map.keys()),
                     )
 
+        time_start_prefill = time.time()
+        cuda_hook_time("init_experts_loading_async")
+        cuda_memory_handles = all_cuda_memory_handles
+        _, replica_uuid2 = load_into_gpu_async(
+            client=self.client,
+            device_uuid_map=device_uuid_map,
+            model_path=self.mlpm.model_path,
+            tensor_copy_chunks=experts_tensor_copy_chunks,
+            cuda_memory_handles=cuda_memory_handles,
+        )
+        cuda_hook_time_end("init_experts_loading_async")
+
         cuda_hook_time("init_inputs_tokens")
         embed_tokens = self.mlpm.get_embed_tokens(self.cmv.mlpm_ci)
         inputs_tokens = embed_tokens(inputs_ids)
@@ -1330,7 +1334,7 @@ class MLPLLM:
         cuda_hook_time("prefill_step")
         
 
-        self.num_experts_on_cpu_ratio = 0.5
+        self.num_experts_on_cpu_ratio = 0.0
 
         # ── Determine whether to use the static-KV Triton prefill path ──────
         # True when static KV buffers were pre-allocated successfully above.
@@ -1369,6 +1373,8 @@ class MLPLLM:
                     tensor_device_offsets=tensor_device_offsets,
                 )
             else:
+                logger.warning("not use static prefill")
+                raise Exception("not use static prefill")
                 # ── Fallback: HF attention via bench_path with StaticCache ──────────
                 ghidden_states = self._decoder_layer_forward_bench_path(
                     layer_idx,
@@ -1814,6 +1820,12 @@ class MLPLLM:
             expert_token_counts_list.append((expert_id, end_idx - prev_end))
             prev_end = end_idx
 
+        logger.info(
+            "[layer_moe_fused] layer=%s active_experts=%d (nonzero tokens)",
+            layer_idx,
+            len(expert_indices_map),
+        )
+
         experts_alloc = self._layer_experts_alloc_cache.get(layer_idx)
         if experts_alloc is None:
             experts_alloc = self.get_layer_experts_device_allocation(
@@ -1861,6 +1873,7 @@ class MLPLLM:
         time_start = time.time()
         output_cpu_pin = None
         if len(cpu_expert_ids) > 0:
+            cuda_hook_time("moe_cpu_prep_submit")
             batch_tensor, tok_k, topk_ids_cpu, topk_weights_cpu, hidden_states_cpu, output_proto = (
                 self._make_kt_kernel_forward_inputs(
                     hidden_states=flat_hidden_states_on_cpu_pin,
@@ -1882,9 +1895,11 @@ class MLPLLM:
                 )
             )
             logger.info("[layer_moe_fused] kt_kernel_prep_submit time: %s seconds", time.time() - time_start)
+            cuda_hook_time_end("moe_cpu_prep_submit")
 
         # Wait for GPU expert weights to finish loading.
         if layer_gpu_expert_task_ids:
+            cuda_hook_time("moe_wait_copy_tasks")
             time_start = time.time()
             ok_wait, pending_wait = self.client.wait_copy_tasks(
                 self.mlpm.model_path,
@@ -1893,6 +1908,12 @@ class MLPLLM:
                 timeout_ms=60000,
             )
             logger.info(f"[layer_moe_fused] wait_copy_tasks ok={ok_wait} pending={len(pending_wait)} time: {time.time() - time_start}s")
+            # wait_copy_tasks is CPU-side polling only; it cannot guarantee that the
+            # DMA/copy stream writes are visible to any subsequent CUDA stream.
+            # A device synchronise here ensures all copy-stream writes are ordered
+            # before the fused_experts kernels that read the freshly-loaded weights.
+            torch.cuda.synchronize()
+            cuda_hook_time_end("moe_wait_copy_tasks")
 
         # ── vLLM Triton fused_experts (GPU experts) ────────────────────────────
         _t_vllm0 = time.perf_counter()
@@ -1913,6 +1934,7 @@ class MLPLLM:
         for _dk in _full_dev_expert_map:
             _full_dev_expert_map[_dk] = sorted(_full_dev_expert_map[_dk])
 
+        cuda_hook_time("moe_vllm_forward")
         gpu_routed = self._vllm_moe_manager.forward(
             layer_idx=layer_idx,
             hidden=flat_hidden_states,
@@ -1925,15 +1947,19 @@ class MLPLLM:
             primary_device=flat_hidden_states.device,
             skip_cuda_graph=(seq_len > 1),  # prefill → eager Triton; decode → CUDAGraph
         )
+        cuda_hook_time_end("moe_vllm_forward")
 
         # Merge CPU kt-kernel result.
         if output_cpu_pin is not None:
+            cuda_hook_time("moe_cpu_merge")
             self.CPUInfer.sync()
-            cpu_out = output_cpu_pin.to(gpu_routed.device, dtype=gpu_routed.dtype, non_blocking=True)
-            torch.cuda.synchronize()
+            cpu_out = output_cpu_pin.to(gpu_routed.device, dtype=gpu_routed.dtype, non_blocking=False)
             gpu_routed.add_(cpu_out)
+            cuda_hook_time_end("moe_cpu_merge")
 
+        cuda_hook_time("moe_shared_experts")
         y = self.mlpm.shared_experts_func(self.cmv.mlpm_ci, layer_idx=layer_idx, hidden_states=hidden_states)
+        cuda_hook_time_end("moe_shared_experts")
         out = (gpu_routed + y.view(_T, -1)).view(*orig_shape)
         logger.info(
             "[layer_moe_fused] vllm triton time: %.3fms (seq_len=%s cg=%s)",

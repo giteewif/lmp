@@ -2713,7 +2713,7 @@ class MLPModuleWrapper:
         if self.model_name_type == GEMMA4_MODEL_NAME_TYPE:
             lm = getattr(mi.model, "language_model", mi.model)
             layer = lm.layers[layer_idx]
-            return out * layer.layer_scalar.to(device=out.device, dtype=out.dtype)
+            return out * layer.layer_scalar
         return out
 
     def ffn_skip_routed_moe_use_standalone_dense(self, mi, layer_idx: int) -> bool:
