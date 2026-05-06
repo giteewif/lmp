@@ -1514,7 +1514,7 @@ class HostMemoryView:
             ``[bsz, seq_len, hidden_size]``，与 ``cmv.mlpm_ci`` 同 device / dtype（config.torch_dtype）。
         """
         from transformers import AutoTokenizer
-        from transformers.cache_utils import DynamicCache
+        from transformers.cache_utils import StaticCache
         from transformers.modeling_attn_mask_utils import (
             _prepare_4d_causal_attention_mask,
             _prepare_4d_causal_attention_mask_for_sdpa,
@@ -1541,8 +1541,13 @@ class HostMemoryView:
 
         with torch.inference_mode():
             x = embed_tokens(input_ids).to(dtype=dtype)
-            past_key_value = DynamicCache(config=self.mlpm.config)
-            past_key_values_length = past_key_value.get_seq_length()
+            _max_kv = int(_seq) + 64
+            mpe = getattr(self.mlpm.config, "max_position_embeddings", None)
+            if mpe is not None:
+                _max_kv = min(_max_kv, int(mpe))
+            _max_kv = max(_max_kv, int(_seq) + 1)
+            past_key_value = StaticCache(config=self.mlpm.config, max_cache_len=_max_kv)
+            past_key_values_length = int(past_key_value.get_seq_length())
             position_ids = torch.arange(
                 past_key_values_length,
                 _seq + past_key_values_length,

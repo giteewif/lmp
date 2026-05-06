@@ -39,3 +39,16 @@
 ### restore_tensors_from_shared_memory_names
 1. 更改 host buffer，使用 共享文件的形式
 2. 支持将host buffer 共享给其他进程使用，使用 restore_tensors_from_shared_memory_names
+
+
+
+
+# 最小改动，最大收益（消除 D2H + Python 路由循环）
+LMP_VLLM_MOE=1 LMP_MOE_DECODE_EXPERT_BACKEND=gpu python3 ...
+
+# 加 MoE CUDA Graph（每设备首次 forward 自动捕获，之后 replay）
+LMP_VLLM_MOE=1 LMP_VLLM_MOE_CG=1 LMP_MOE_DECODE_EXPERT_BACKEND=gpu python3 ...
+
+# 完整优化：flash_attn_with_kvcache + vLLM MoE + 静态 KV
+LMP_VLLM_MOE=1 LMP_VLLM_MOE_CG=1 LMP_ATTN_CG=1 LMP_STATIC_KV_MAX_SEQ=4096 \
+LMP_MOE_DECODE_EXPERT_BACKEND=gpu python3 ...

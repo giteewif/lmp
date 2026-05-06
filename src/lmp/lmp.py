@@ -1,11 +1,10 @@
 from importlib import import_module
-import atexit
+import dataclasses
 import os
 import re
 import warnings
 from threading import get_ident
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional
 import copy
 from lmp.pinpool import gpinpool
 import torch
@@ -19,7 +18,7 @@ warnings.filterwarnings(
 )
 
 from transformers import AutoTokenizer
-from transformers.cache_utils import Cache, DynamicCache, StaticCache
+from transformers.cache_utils import Cache, StaticCache
 from transformers.modeling_attn_mask_utils import (
     _prepare_4d_causal_attention_mask_for_sdpa,
     _prepare_4d_causal_attention_mask
@@ -48,181 +47,68 @@ from utils import cuda_h
 from utils.cuda_h import cuda_hook, cuda_hook_end, cuda_hook_time, cuda_hook_time_end
 from utils.logger import init_logger
 from utils.helper import *
-from models.mlpmodule import MLPModuleWrapper, ExpertEinsumTask, WeightType
+from models.mlpmodule import MLPModuleWrapper, ExpertEinsumTask, WeightType, GEMMA4_MODEL_NAME_TYPE
 from lmp.cuda_memory_view import (
     CudaMemoryView,
     HostMemoryView,
     _group_fused_select_half_experts,
     _group_fused_test_parse_half_modes,
 )
+from lmp.vllm_moe_decode import (
+    VllmMoeDecodeManager,
+    resolve_moe_activation,
+)
 
 logger = init_logger(__name__)
 
 
-def _parse_positive_int_list_csv(raw: Optional[str]) -> Optional[list[int]]:
-    """解析逗号/空格分隔的正整数列表，升序去重；空串返回 None。"""
-    if raw is None or not str(raw).strip():
-        return None
-    vals: list[int] = []
-    for p in str(raw).replace(",", " ").split():
-        if not p.strip():
-            continue
-        v = int(p)
-        if v <= 0:
-            raise ValueError(f"LMP_MOE_CUDA_GRAPH_BUCKETS_MAX_T invalid bucket {v} (must be positive)")
-        vals.append(v)
-    return sorted(set(vals))
+def _kv_static_max_len(seq_len: int, decode_steps: int, config) -> int:
+    """为 ``StaticCache`` 分配 KV 槽位上界：prefill 长度 + 计划 decode 步数 + 余量，并受 ``max_position_embeddings`` 限制。"""
+    cap = int(seq_len) + int(decode_steps) + 64
+    mpe = getattr(config, "max_position_embeddings", None)
+    if mpe is not None:
+        cap = min(cap, int(mpe))
+    return max(cap, int(seq_len) + 1)
 
 
-def _recover_cuda_rng_after_failed_cudagraph_capture() -> None:
-    """捕获失败后尝试恢复默认 CUDA generator，防止后续 torch.randn 触发：
-    "Offset increment outside graph capture encountered unexpectedly."（pytorch/pytorch#171263）。
+@dataclasses.dataclass
+class _AttnDecodeBundle:
+    """Per-layer CUDA-graph bundle for the decode attention + (optionally) GPU-only MoE.
 
-    ``torch.cuda.manual_seed_all`` 不能直接重置 C++ 侧 ``capturing_`` flag，但
-    可通过创建新 generator 并强制与默认 stream 同步，让 PyTorch 内部状态重新对齐。
-    最终兜底：把每个设备的默认 generator seed 重新设置一次，触发 set_current_seed
-    路径，部分 PyTorch 版本会在此时清理 capturing 状态。
-    """
-    try:
-        if not torch.cuda.is_available():
-            return
-        for i in range(torch.cuda.device_count()):
-            try:
-                torch.cuda.synchronize(f"cuda:{i}")
-            except Exception:
-                pass
-        seed = (time.time_ns() ^ (os.getpid() << 16)) & 0x7FFF_FFFF
-        torch.cuda.manual_seed_all(max(seed, 1))
-    except Exception:
-        pass
+    The captured graph operates on fixed static tensors; callers copy live
+    tensors in/out around ``graph.replay()``.
 
-
-class _MoeBmmCoreCudaGraphBundle:
-    """MoE BMM 路径中仅捕获 ``bmm → act × gate → bmm``；unpad/scatter 仍在 graph 外。
-
-    缓存为多 bucket：`dict`` key 区分 layer / device / (E, max_t_bucket, H) / dtype / 权重指针。
-    可选环境变量 ``LMP_MOE_CUDA_GRAPH_BUCKETS_MAX_T`` 将 ``max_t`` 向上取整到离散桶，减少捕获次数。
+    Attributes
+    ----------
+    static_h_in:
+        Static hidden-states input tensor ``[B, 1, H]``.
+    static_pos_ids:
+        Static position-ids tensor ``[B, 1]``.
+    static_h_out:
+        Static hidden-states output tensor ``[B, 1, H]``; read after replay.
+        When ``gpu_moe_in_graph`` is True this is the full layer output.
+        When False it contains ``ffn_skip`` (residual + post-attn).
+    static_gate_in:
+        Static tensor for the MoE gate input ``[B, 1, H]``; only populated
+        when ``gpu_moe_in_graph`` is False.  Callers read this to drive the
+        eager MoE step.
+    graph:
+        Captured ``torch.cuda.CUDAGraph``.
+    gpu_moe_in_graph:
+        ``True`` when gate + ``fused_experts`` are included in the captured
+        graph (GPU-only MoE layers only).  ``False`` for attention-only
+        capture (CPU+GPU hybrid layers).
+    stream:
+        Dedicated CUDA stream used for capture and replay.
     """
 
-    __slots__ = ("device", "stream", "graph", "stacked_static", "gate", "down", "gu", "mid", "y_st")
-
-    def __init__(
-        self,
-        device: torch.device,
-        stream: torch.cuda.Stream,
-        graph: torch.cuda.CUDAGraph,
-        stacked_static: torch.Tensor,
-        gate: torch.Tensor,
-        down: torch.Tensor,
-        gu: torch.Tensor,
-        mid: torch.Tensor,
-        y_st: torch.Tensor,
-    ):
-        self.device = device
-        self.stream = stream
-        self.graph = graph
-        self.stacked_static = stacked_static
-        self.gate = gate
-        self.down = down
-        self.gu = gu
-        self.mid = mid
-        self.y_st = y_st
-
-    @classmethod
-    def try_capture(
-        cls,
-        stream: torch.cuda.Stream,
-        stacked_template: torch.Tensor,
-        gate: torch.Tensor,
-        down: torch.Tensor,
-        act_fn: Callable[..., torch.Tensor],
-    ) -> Optional["_MoeBmmCoreCudaGraphBundle"]:
-        if not stacked_template.is_cuda:
-            return None
-        device = stacked_template.device
-        torch.cuda.set_device(device)
-        stacked_static = torch.empty_like(stacked_template)
-        e, max_t, _ = stacked_static.shape
-        gu_dim = gate.shape[-1]
-        half = gu_dim // 2
-        out_h = down.shape[-1]
-        dtype = stacked_static.dtype
-        gu = torch.empty((e, max_t, gu_dim), device=device, dtype=dtype)
-        mid = torch.empty((e, max_t, half), device=device, dtype=dtype)
-        y_st = torch.empty((e, max_t, out_h), device=device, dtype=dtype)
-
-        graph: Optional["torch.cuda.CUDAGraph"] = None
-        try:
-            stacked_static.copy_(stacked_template)
-            torch.cuda.synchronize()
-            # allocator / cudnn 热身，满足 CUDAGraph 捕获前置条件
-            with torch.cuda.stream(stream):
-                torch.bmm(stacked_static, gate, out=gu)
-                g_half = gu[..., :half]
-                u_half = gu[..., half:]
-                activated = act_fn(g_half)
-                torch.mul(activated, u_half, out=mid)
-                torch.bmm(mid, down, out=y_st)
-            stream.synchronize()
-
-            graph = torch.cuda.CUDAGraph()
-            # 捕获前保存各 GPU 默认 generator 状态，以便失败时恢复。
-            # torch.cuda.set_rng_state 不能重置 capturing_ flag，因此只在捕获
-            # 后检查，出现异常则立即调用 _recover_cuda_rng_after_failed_cudagraph_capture()。
-            with torch.cuda.stream(stream):
-                with torch.cuda.graph(graph):
-                    torch.bmm(stacked_static, gate, out=gu)
-                    g_half = gu[..., :half]
-                    u_half = gu[..., half:]
-                    activated = act_fn(g_half)
-                    torch.mul(activated, u_half, out=mid)
-                    torch.bmm(mid, down, out=y_st)
-            stream.synchronize()
-
-            # 检测空 graph（wrong-stream 时 capture_end() 不抛异常，只发 UserWarning）：
-            # 用一次 replay 后验证输出张量中是否有非零值作为代理。
-            # 不能直接读 graph 内部节点数，改用 y_st 哨兵检测。
-            y_st.zero_()
-            with torch.cuda.stream(stream):
-                graph.replay()
-            stream.synchronize()
-            if not y_st.any():
-                raise RuntimeError(
-                    "MoE BMM CUDAGraph replay produced all-zero output; "
-                    "graph likely empty (captured on wrong stream/device)."
-                )
-
-            return cls(device, stream, graph, stacked_static, gate, down, gu, mid, y_st)
-        except Exception as exc:
-            logger.warning("MoE BMM CUDAGraph capture failed on %s: %s", device, exc)
-            if graph is not None:
-                try:
-                    graph.reset()
-                except Exception:
-                    pass
-            _recover_cuda_rng_after_failed_cudagraph_capture()
-            return None
-
-    def copy_inputs_and_replay(self, stacked_inputs: torch.Tensor) -> None:
-        torch.cuda.set_device(self.device)
-        mt_in = int(stacked_inputs.size(1))
-        bt = int(self.stacked_static.size(1))
-        if int(stacked_inputs.size(0)) != int(self.stacked_static.size(0)) or int(stacked_inputs.size(2)) != int(
-            self.stacked_static.size(2)
-        ):
-            raise RuntimeError(
-                f"CUDAGraph stacked mismatch: in={tuple(stacked_inputs.shape)} bundle={tuple(self.stacked_static.shape)}"
-            )
-        if mt_in > bt:
-            raise RuntimeError(
-                f"CUDAGraph stacked max_t in={mt_in} exceeds bundle max_t={bt} (wrong bucket or cache key)"
-            )
-        with torch.cuda.stream(self.stream):
-            self.stacked_static[:, :mt_in].copy_(stacked_inputs, non_blocking=True)
-            if bt > mt_in:
-                self.stacked_static[:, mt_in:].zero_()
-            self.graph.replay()
-        self.stream.synchronize()
+    static_h_in: torch.Tensor
+    static_pos_ids: torch.Tensor
+    static_h_out: torch.Tensor
+    static_gate_in: torch.Tensor
+    graph: "torch.cuda.CUDAGraph"
+    gpu_moe_in_graph: bool
+    stream: "torch.cuda.Stream"
 
 
 class MLPLLM:
@@ -250,14 +136,6 @@ class MLPLLM:
         device_list = device_list[:device_num]
         self.device1 = device_list[0]
         self.device_list = device_list
-
-        # layer_moe_fused 里按 GPU 分 work_item，线程数上界为 len(device_list)；复用池避免每层创建 Executor。
-        _nw = max(1, len(self.device_list))
-        self._fused_expert_pool = ThreadPoolExecutor(
-            max_workers=_nw,
-            thread_name_prefix="lmp_fused_expert",
-        )
-        atexit.register(self._fused_expert_pool.shutdown, wait=True)
 
         mlpm = MLPModuleWrapper(model_name_type, model_path)
         self.mlpm  = mlpm
@@ -296,26 +174,35 @@ class MLPLLM:
         # Built eagerly once after predo_tensor_index_locate() via _build_layer_experts_alloc_index().
         self._layer_experts_alloc_cache: dict[int, dict] = {}
 
-        # MoE fused BMM CUDAGraph：首次命中形状/权重指针时在主推理线程捕获，后续 ``replay``。
-        self._moe_cuda_graph_enabled = os.environ.get("LMP_MOE_CUDA_GRAPH", "0").strip() == "1"
-        self._moe_cuda_graph_buckets_max_t: Optional[list[int]] = _parse_positive_int_list_csv(
-            os.environ.get("LMP_MOE_CUDA_GRAPH_BUCKETS_MAX_T")
+        # ── vLLM Triton fused-MoE path (always active) ────────────────────────
+        # LMP_VLLM_MOE_CG=1 additionally wraps each device's kernel in a
+        # per-(layer, device) CUDAGraph for minimal replay cost.
+        self._vllm_moe_cg_enabled: bool = (
+            os.environ.get("LMP_VLLM_MOE_CG", "0").strip() == "1"
         )
-        self._moe_cuda_streams: dict[int, torch.cuda.Stream] = {}
-        self._moe_bmm_cuda_graph_cache: dict[Tuple[Any, ...], _MoeBmmCoreCudaGraphBundle] = {}
-        if self._moe_cuda_graph_enabled:
-            for dev_str in self.device_list:
-                d = torch.device(dev_str)
-                self._moe_cuda_streams[d.index] = torch.cuda.Stream(device=d)
-            logger.info(
-                "LMP_MOE_CUDA_GRAPH=1: MoE BMM CUDAGraph streams ready; capture on first forward per cache key "
-                "(multi-bucket dict); fused experts run sequentially (no thread pool)."
-            )
-            if self._moe_cuda_graph_buckets_max_t:
-                logger.info(
-                    "LMP_MOE_CUDA_GRAPH_BUCKETS_MAX_T=%s: max_t quantized upward for graph dedup",
-                    self._moe_cuda_graph_buckets_max_t,
-                )
+        self._vllm_moe_manager = VllmMoeDecodeManager(
+            cuda_graph=self._vllm_moe_cg_enabled
+        )
+        logger.info(
+            "vLLM Triton fused-MoE enabled (CUDAGraph=%s).",
+            self._vllm_moe_cg_enabled,
+        )
+
+        # ── Full-layer attention CUDA-graph cache (per layer_idx) ───────────
+        # Populated lazily by _get_or_build_attn_cg_bundle().
+        # Key: layer_idx  Value: _StaticKVDecodeBundle | None
+        self._attn_cg_bundles: dict[int, Any] = {}
+        # Static KV cache for flash_attn_with_kvcache decode path.
+        # Tensor: [layers, B, kv_heads, max_seq, hd]  OR  (Gemma4) list per layer.
+        self._static_k_cache: Optional[Any] = None
+        self._static_v_cache: Optional[Any] = None
+        self._static_cache_seqlens: Optional[torch.Tensor] = None  # [B] int32
+        self._attn_cg_enabled: bool = (
+            os.environ.get("LMP_ATTN_CG", "0").strip() == "1"
+        )
+        self._static_kv_max_seq: int = int(
+            os.environ.get("LMP_STATIC_KV_MAX_SEQ", "2048")
+        )
 
     def init_kt_kernel(self, max_len: int = 1024):
         import kt_kernel_ext
@@ -425,130 +312,6 @@ class MLPLLM:
         batch_tensor = torch.tensor([tokens_num], dtype=torch.int32, device="cpu").contiguous()
         return batch_tensor, tok_k, topk_ids_cpu, topk_weights_cpu, hidden_states_cpu, output_proto
 
-    def _prepare_fused_expert_work_items(
-        self,
-        layer_idx: int,
-        experts_state_dict_slices_packed: dict,
-        device_expert_map: dict[int, list[int]],
-        expert_indices_map: Dict[int, tuple[int, int]],
-        flat_hidden_states: torch.Tensor,
-        flat_expert_indices: torch.Tensor,
-        flat_experts_weight: torch.Tensor,
-        idxs: torch.Tensor,
-        token_idxs: torch.Tensor,
-        expert_cache: torch.Tensor,
-        mm_backend: str = "bmm",
-    ) -> list[dict]:
-        mm_backend = (mm_backend or "gmm").strip().lower()
-        if mm_backend not in ("gmm", "bmm"):
-            raise ValueError(f"Unsupported mm_backend: {mm_backend}")
-
-        packed_by_layer_device = {}
-        if isinstance(experts_state_dict_slices_packed, dict):
-            packed_by_layer_device = experts_state_dict_slices_packed.get("packed_by_layer_device", {}) or {}
-        layer_packed_map = packed_by_layer_device.get(layer_idx, {}) if isinstance(packed_by_layer_device, dict) else {}
-
-        x_slots_all = flat_hidden_states[token_idxs]  # [slots,H] presorted
-        expert_ids_all = flat_expert_indices[idxs].to(dtype=torch.int64)  # [slots]
-        slot_w_all = flat_experts_weight[idxs]  # [slots,1]
-
-        work_items: list[dict] = []
-        for device_id, device_experts in sorted(device_expert_map.items(), key=lambda x: int(x[0])):
-            device_expert_ids = sorted(int(eid) for eid in device_experts)
-            if not device_expert_ids:
-                continue
-            packed_ent = layer_packed_map.get(int(device_id)) if isinstance(layer_packed_map, dict) else None
-            if not isinstance(packed_ent, dict):
-                continue
-            gate_up_packed = packed_ent.get("gate_up_packed")
-            down_packed = packed_ent.get("down_packed")
-            if gate_up_packed is None or down_packed is None:
-                continue
-
-            e_rows = int(gate_up_packed.size(0))
-            if int(down_packed.size(0)) != e_rows:
-                raise RuntimeError(
-                    "gate_up_packed / down_packed E mismatch: %s vs %s"
-                    % (e_rows, int(down_packed.size(0)))
-                )
-            exp_rows = packed_ent.get("experts")
-            if isinstance(exp_rows, list) and len(exp_rows) == e_rows:
-                expert_id_order = [int(x) for x in exp_rows]
-            else:
-                expert_id_order = sorted(int(e) for e in device_expert_ids)
-                if len(expert_id_order) != e_rows:
-                    raise RuntimeError(
-                        "fused expert pack / device map mismatch: gate_up_packed dim0=%s, "
-                        "packed experts=%r, device_expert_ids=%r (layer=%s dev=%s)"
-                        % (e_rows, exp_rows, device_expert_ids, layer_idx, device_id)
-                    )
-
-            x_parts, eid_parts, w_parts, tok_parts = [], [], [], []
-            for eid in expert_id_order:
-                if eid not in expert_indices_map:
-                    continue
-                start_idx, end_idx = expert_indices_map[eid]
-                if end_idx <= start_idx:
-                    continue
-                x_parts.append(x_slots_all[start_idx:end_idx])
-                eid_parts.append(expert_ids_all[start_idx:end_idx])
-                w_parts.append(slot_w_all[start_idx:end_idx])
-                tok_parts.append(token_idxs[start_idx:end_idx])
-            if not x_parts:
-                continue
-
-            # Avoid unnecessary cat copy for single-expert case.
-            x_dev_sorted = x_parts[0] if len(x_parts) == 1 else torch.cat(x_parts, dim=0)
-            eid_dev_sorted = eid_parts[0] if len(eid_parts) == 1 else torch.cat(eid_parts, dim=0)
-            w_dev_sorted = w_parts[0] if len(w_parts) == 1 else torch.cat(w_parts, dim=0)
-            token_ids_for_slots = (tok_parts[0] if len(tok_parts) == 1 else torch.cat(tok_parts, dim=0)).to(expert_cache.device)
-
-            compute_device = gate_up_packed.device
-            x_dev_sorted = x_dev_sorted.to(compute_device, non_blocking=True)
-            eid_dev_sorted = eid_dev_sorted.to(compute_device, non_blocking=True)
-            w_dev_sorted = w_dev_sorted.to(compute_device, non_blocking=True)
-
-            ids_tensor = torch.tensor(expert_id_order, device=compute_device, dtype=torch.int64)
-            remap = torch.full((int(self.mlpm.get_experts_num()),), -1, dtype=torch.int64, device=compute_device)
-            remap[ids_tensor] = torch.arange(ids_tensor.numel(), device=compute_device, dtype=torch.int64)
-            eid_dev_sub = remap[eid_dev_sorted]
-
-            item: dict = {
-                "device_id": int(device_id),
-                "x_dev_sorted": x_dev_sorted,
-                "eid_dev_sub": eid_dev_sub,
-                "w_dev_sorted": w_dev_sorted,
-                "token_ids_for_slots": token_ids_for_slots,
-                "gate_up_packed": gate_up_packed,
-                "down_packed": down_packed,
-            }
-            # Cache transposed expert weights once per packed entry.
-            # GMM path also consumes these tensors directly.
-            if "gate_up_eh2i" not in packed_ent:
-                packed_ent["gate_up_eh2i"] = gate_up_packed.transpose(1, 2)
-            if "down_eih" not in packed_ent:
-                packed_ent["down_eih"] = down_packed.transpose(1, 2)
-            item["gate_up_eh2i"] = packed_ent["gate_up_eh2i"]
-            item["down_eih"] = packed_ent["down_eih"]
-
-            # BMM：在提交前完成 pad。权重转置用 .transpose(1,2) 零拷贝 strided view；
-            # torch.bmm 底层走 cuBLAS strided-batched GEMM，原生支持非连续张量，无需 .contiguous()。
-            # 转置结果缓存在 packed_ent 中，同一 prefill 内各层只算一次。
-            if (mm_backend or "bmm").strip().lower() == "bmm":
-                stacked, counts = self.mlpm._batched_pad_inputs_presorted(
-                    x_dev_sorted, eid_dev_sub, e_rows
-                )
-                item["stacked_inputs"] = stacked
-                item["counts"] = counts
-                item["y_bmm_out"] = torch.empty(
-                    (x_dev_sorted.size(0), x_dev_sorted.size(1)),
-                    device=compute_device,
-                    dtype=x_dev_sorted.dtype,
-                )
-            work_items.append(item)
-        return work_items
-
-
     @torch.no_grad()
     def test_mp_basic_load(self):
         
@@ -556,6 +319,683 @@ class MLPLLM:
         self.cmv.load_general_and_init()
         self.cmv.load_qkvgon_weight_onetime()
         cuda_hook_time_end("load weights")
+
+    # =========================================================================
+    # Static KV cache + flash_attn_with_kvcache decode helpers
+    # =========================================================================
+
+    def _ensure_static_kv_cache(
+        self,
+        batch_size: int,
+        dtype: torch.dtype,
+        device: torch.device,
+    ) -> None:
+        """Lazily initialise ``_static_k_cache``, ``_static_v_cache``,
+        ``_static_cache_seqlens`` for the flash-attn decode path.
+
+        Shape: [num_layers, B, max_seq_len, num_kv_heads, head_dim].
+        ``_static_cache_seqlens`` starts at 0 and is incremented externally
+        before each decode step.
+        """
+        if self._static_k_cache is not None:
+            return
+        mi = self.cmv.mlpm_ci
+        num_layers = self.mlpm.get_num_hidden_layers()
+        max_seq = self._static_kv_max_seq
+
+        if self.mlpm.model_name_type == GEMMA4_MODEL_NAME_TYPE:
+            # Per-layer (n_kv, head_dim) differ: sliding vs global_head_dim.
+            k_list: list[torch.Tensor] = []
+            v_list: list[torch.Tensor] = []
+            for li in range(num_layers):
+                num_kv_heads, head_dim = self.mlpm.get_attn_kv_shape(mi, li)
+                k_list.append(
+                    torch.zeros(
+                        batch_size,
+                        max_seq,
+                        num_kv_heads,
+                        head_dim,
+                        dtype=dtype,
+                        device=device,
+                    )
+                )
+                v_list.append(torch.zeros_like(k_list[-1]))
+            self._static_k_cache = k_list
+            self._static_v_cache = v_list
+            self._static_cache_seqlens = torch.zeros(batch_size, dtype=torch.int32, device=device)
+            total_bytes = sum(t.numel() for t in k_list) * 2 * (k_list[0].element_size() if k_list else 4)
+            logger.info(
+                "_ensure_static_kv_cache (Gemma4 list): %d layers, %.1f MiB on %s",
+                num_layers,
+                total_bytes / (1024 * 1024),
+                device,
+            )
+            return
+
+        # Sample KV shape from first MoE layer (or layer 0)
+        sample_layer = max(0, self.mlpm.get_first_k_dense_replace())
+        try:
+            num_kv_heads, head_dim = self.mlpm.get_attn_kv_shape(mi, sample_layer)
+        except Exception:
+            logger.warning("_ensure_static_kv_cache: cannot determine KV shape; skipping.")
+            self._attn_cg_enabled = False
+            return
+        shape = (num_layers, batch_size, max_seq, num_kv_heads, head_dim)
+        self._static_k_cache = torch.zeros(shape, dtype=dtype, device=device)
+        self._static_v_cache = torch.zeros(shape, dtype=dtype, device=device)
+        self._static_cache_seqlens = torch.zeros(batch_size, dtype=torch.int32, device=device)
+        logger.info(
+            "_ensure_static_kv_cache: allocated %s (%.1f GiB) on %s",
+            tuple(shape),
+            2 * self._static_k_cache.numel() * self._static_k_cache.element_size() / 1e9,
+            device,
+        )
+
+    def _get_or_build_attn_cg_bundle(
+        self,
+        layer_idx: int,
+        hidden_states: torch.Tensor,
+        position_ids: torch.Tensor,
+        replica_uuid: str,
+        experts_state_dict_slices_packed: dict,
+        tensor_to_device: dict,
+        tensor_task_queue_index,
+        tensor_copy_chunks,
+        tensor_device_offsets,
+    ) -> Optional["_AttnDecodeBundle"]:
+        """Lazily build (warmup + capture) a per-layer CUDA-graph bundle for
+        decode attention and, when all experts are resident on GPU, the MoE
+        routing + ``fused_experts`` kernel as well.
+
+        Returns ``None`` when:
+        - ``LMP_ATTN_CG`` is not set.
+        - The layer has CPU experts (CPU kt-kernel cannot be in a CUDA graph).
+        - Graph capture fails for any reason.
+
+        The bundle is stored in ``self._attn_cg_bundles[layer_idx]`` after the
+        first successful capture; subsequent calls return the cached bundle.
+        """
+        if not self._attn_cg_enabled:
+            return None
+
+        if layer_idx in self._attn_cg_bundles:
+            return self._attn_cg_bundles[layer_idx]
+
+        mi = self.cmv.mlpm_ci
+        B, _sq, H = hidden_states.shape
+        device = hidden_states.device
+        dtype  = hidden_states.dtype
+
+        # CPU-expert layers: only capture attention (MoE runs eagerly after replay).
+        # GPU-only MoE layers: try to capture gate + fused_experts too when vLLM is on.
+        _has_cpu_experts = (
+            self.num_experts_on_cpu_ratio > 0.0
+            and self.mlpm.layer_uses_routed_moe(mi, layer_idx)
+        )
+        _gpu_moe_in_graph = (
+            not _has_cpu_experts
+            and self._vllm_moe_manager is not None
+            and self.mlpm.layer_uses_routed_moe(mi, layer_idx)
+        )
+
+        # Allocate static tensors for this bundle.
+        static_h_in    = torch.zeros_like(hidden_states)
+        static_pos_ids = torch.zeros_like(position_ids)
+        static_h_out   = torch.zeros_like(hidden_states)
+        static_gate_in = torch.zeros_like(hidden_states)
+
+        if isinstance(self._static_k_cache, list):
+            k_layer = self._static_k_cache[layer_idx]
+            v_layer = self._static_v_cache[layer_idx]
+            _sk, _sv = self._static_k_cache, self._static_v_cache
+        else:
+            k_layer = self._static_k_cache[layer_idx]
+            v_layer = self._static_v_cache[layer_idx]
+            _sk, _sv = None, None
+
+        stream = torch.cuda.Stream(device=device)
+
+        def _run_graph_body():
+            """Single forward pass executed both during warmup and capture."""
+            h = self.mlpm.iln_func(mi, layer_idx=layer_idx, hidden_states=static_h_in)
+            h = self.mlpm.flash_attn_decode_func(
+                mi, layer_idx,
+                hidden_states=h,
+                position_ids=static_pos_ids,
+                k_cache=k_layer,
+                v_cache=v_layer,
+                cache_seqlens=self._static_cache_seqlens,
+                static_k_stack=_sk,
+                static_v_stack=_sv,
+            )
+            residual_in = static_h_in
+            ffn_skip = self.mlpm.bench_ffn_skip_hidden(mi, layer_idx, residual_in, h)
+            _gate_in = self.mlpm.bench_gate_moe_hidden(mi, layer_idx, residual_in, h)
+
+            if not _gpu_moe_in_graph:
+                # Attention-only graph: expose both ffn_skip and gate_in to caller.
+                static_h_out.copy_(ffn_skip)
+                static_gate_in.copy_(_gate_in)
+                return
+
+            # Include MoE inside graph (GPU-only layers)
+            gate_in = _gate_in
+
+            if self.mlpm.ffn_skip_routed_moe_use_standalone_dense(mi, layer_idx):
+                out = self.mlpm.ffn_dense_non_routed_after_attn(mi, layer_idx, ffn_skip)
+                static_h_out.copy_(self.mlpm.apply_decoder_layer_scale(mi, layer_idx, out))
+                return
+
+            topk_idx, topk_weight, _ = self.mlpm.gate_func(mi, layer_idx, gate_in)
+            dense_prefix = self.mlpm.ffn_dense_prefix_before_route(mi, layer_idx, ffn_skip)
+            if dense_prefix is not None:
+                expert_in = self.mlpm.moe_experts_input_hidden(mi, layer_idx, ffn_skip)
+                routed = self.layer_moe_fused_decode_gpu(
+                    layer_idx=layer_idx,
+                    hidden_states=expert_in,
+                    topk_idx=topk_idx,
+                    topk_weight=topk_weight,
+                    replica_uuid=replica_uuid,
+                    experts_state_dict_slices_packed=experts_state_dict_slices_packed,
+                    tensor_to_device=tensor_to_device,
+                    tensor_task_queue_index=tensor_task_queue_index,
+                    tensor_copy_chunks=tensor_copy_chunks,
+                    tensor_device_offsets=tensor_device_offsets,
+                )
+                merged = self.mlpm.ffn_merge_dense_and_routed(mi, layer_idx, ffn_skip, dense_prefix, routed)
+            else:
+                routed = self.layer_moe_fused_decode_gpu(
+                    layer_idx=layer_idx,
+                    hidden_states=gate_in,
+                    topk_idx=topk_idx,
+                    topk_weight=topk_weight,
+                    replica_uuid=replica_uuid,
+                    experts_state_dict_slices_packed=experts_state_dict_slices_packed,
+                    tensor_to_device=tensor_to_device,
+                    tensor_task_queue_index=tensor_task_queue_index,
+                    tensor_copy_chunks=tensor_copy_chunks,
+                    tensor_device_offsets=tensor_device_offsets,
+                )
+                merged = self.mlpm.ffn_merge_dense_and_routed(mi, layer_idx, ffn_skip, None, routed)
+            static_h_out.copy_(self.mlpm.apply_decoder_layer_scale(mi, layer_idx, merged))
+
+        try:
+            # ── Warmup 3× on a side stream (required before capture) ──────
+            torch.cuda.synchronize(device)
+            with torch.cuda.stream(stream):
+                for _ in range(3):
+                    _run_graph_body()
+            stream.synchronize()
+
+            # ── Capture ───────────────────────────────────────────────────
+            graph = torch.cuda.CUDAGraph()
+            with torch.cuda.stream(stream):
+                with torch.cuda.graph(graph, stream=stream):
+                    _run_graph_body()
+            stream.synchronize()
+
+            bundle = _AttnDecodeBundle(
+                static_h_in=static_h_in,
+                static_pos_ids=static_pos_ids,
+                static_h_out=static_h_out,
+                static_gate_in=static_gate_in,
+                graph=graph,
+                gpu_moe_in_graph=_gpu_moe_in_graph,
+                stream=stream,
+            )
+            self._attn_cg_bundles[layer_idx] = bundle
+            logger.info(
+                "CUDA graph captured for decode layer %d (gpu_moe_in_graph=%s).",
+                layer_idx, _gpu_moe_in_graph,
+            )
+            return bundle
+
+        except Exception as exc:
+            logger.warning(
+                "CUDA graph capture failed for layer %d (%s); "
+                "will run eagerly.", layer_idx, exc,
+            )
+            # Mark as None so we don't retry every step.
+            self._attn_cg_bundles[layer_idx] = None
+            return None
+
+    def _decoder_layer_forward_decode_cg(
+        self,
+        layer_idx: int,
+        hidden_states: torch.Tensor,   # [B, 1, H]
+        position_ids: torch.Tensor,    # [B, 1]
+        *,
+        replica_uuid: str,
+        experts_state_dict_slices_packed: dict,
+        tensor_to_device: dict,
+        tensor_task_queue_index,
+        tensor_copy_chunks,
+        tensor_device_offsets,
+        moe_decode_expert_backend: str = "gpu",
+    ) -> torch.Tensor:
+        """Decode-only optimised decoder layer:
+
+          flash_attn_with_kvcache (static KV) + vLLM fused_experts.
+
+        Conditions:
+          - ``LMP_ATTN_CG=1``
+          - ``LMP_VLLM_MOE=1``
+          - seq_len == 1 (decode step)
+
+        Falls back to ``_decoder_layer_forward_bench_path`` on any failure.
+        """
+        mi = self.cmv.mlpm_ci
+        residual_in = hidden_states
+        B = hidden_states.shape[0]
+        primary_device = hidden_states.device
+
+        # ── Attention: flash_attn_with_kvcache ────────────────────────────
+        h = self.mlpm.iln_func(mi, layer_idx=layer_idx, hidden_states=hidden_states)
+        if isinstance(self._static_k_cache, list):
+            k_layer = self._static_k_cache[layer_idx]
+            v_layer = self._static_v_cache[layer_idx]
+            _sk, _sv = self._static_k_cache, self._static_v_cache
+        else:
+            k_layer = self._static_k_cache[layer_idx]  # [B, kv_heads, max_seq, hd]
+            v_layer = self._static_v_cache[layer_idx]
+            _sk, _sv = None, None
+        try:
+            h_attn = self.mlpm.flash_attn_decode_func(
+                mi, layer_idx,
+                hidden_states=h,
+                position_ids=position_ids,
+                k_cache=k_layer,
+                v_cache=v_layer,
+                cache_seqlens=self._static_cache_seqlens,
+                static_k_stack=_sk,
+                static_v_stack=_sv,
+            )
+        except NotImplementedError:
+            # Unsupported layer type (e.g. linear-attention): use HF attn
+            from transformers.cache_utils import DynamicCache  # noqa
+            _tmp_cache = DynamicCache()
+            h_attn = self.mlpm.self_attn_func(
+                mi, layer_idx=layer_idx,
+                hidden_states=h,
+                attention_mask=None,
+                position_ids=position_ids,
+                past_key_value=_tmp_cache,
+            )
+
+        ffn_skip = self.mlpm.bench_ffn_skip_hidden(mi, layer_idx, residual_in, h_attn)
+        gate_in  = self.mlpm.bench_gate_moe_hidden(mi, layer_idx, residual_in, h_attn)
+
+        # ── FFN / MoE (same routing as bench path) ────────────────────────
+        if layer_idx < self.mlpm.get_first_k_dense_replace():
+            out = self.mlpm.dense_mlp_func(mi, layer_idx=layer_idx, hidden_states=gate_in)
+            return self.mlpm.apply_decoder_layer_scale(mi, layer_idx, out + ffn_skip)
+
+        dense_prefix = self.mlpm.ffn_dense_prefix_before_route(mi, layer_idx, ffn_skip)
+        _moe_route = self.layer_moe_fused_decode_gpu
+        if dense_prefix is not None:
+            topk_idx, topk_weight, _ = self.mlpm.gate_func(mi, layer_idx, ffn_skip)
+            expert_in = self.mlpm.moe_experts_input_hidden(mi, layer_idx, ffn_skip)
+            routed = _moe_route(
+                layer_idx=layer_idx,
+                hidden_states=expert_in,
+                topk_idx=topk_idx,
+                topk_weight=topk_weight,
+                replica_uuid=replica_uuid,
+                experts_state_dict_slices_packed=experts_state_dict_slices_packed,
+                tensor_to_device=tensor_to_device,
+                tensor_task_queue_index=tensor_task_queue_index,
+                tensor_copy_chunks=tensor_copy_chunks,
+                tensor_device_offsets=tensor_device_offsets,
+            )
+            merged = self.mlpm.ffn_merge_dense_and_routed(
+                mi, layer_idx, ffn_skip, dense_prefix, routed
+            )
+            return self.mlpm.apply_decoder_layer_scale(mi, layer_idx, merged)
+
+        if self.mlpm.ffn_skip_routed_moe_use_standalone_dense(mi, layer_idx):
+            out = self.mlpm.ffn_dense_non_routed_after_attn(mi, layer_idx, ffn_skip)
+            return self.mlpm.apply_decoder_layer_scale(mi, layer_idx, out)
+
+        topk_idx, topk_weight, _ = self.mlpm.gate_func(mi, layer_idx, gate_in)
+        routed = _moe_route(
+            layer_idx=layer_idx,
+            hidden_states=gate_in,
+            topk_idx=topk_idx,
+            topk_weight=topk_weight,
+            replica_uuid=replica_uuid,
+            experts_state_dict_slices_packed=experts_state_dict_slices_packed,
+            tensor_to_device=tensor_to_device,
+            tensor_task_queue_index=tensor_task_queue_index,
+            tensor_copy_chunks=tensor_copy_chunks,
+            tensor_device_offsets=tensor_device_offsets,
+        )
+        merged = self.mlpm.ffn_merge_dense_and_routed(mi, layer_idx, ffn_skip, None, routed)
+        return self.mlpm.apply_decoder_layer_scale(mi, layer_idx, merged)
+
+    # =========================================================================
+    # Prefill static-KV layer forward
+    # =========================================================================
+
+    def _decoder_layer_forward_prefill_static(
+        self,
+        layer_idx: int,
+        ghidden_states: torch.Tensor,
+        attention_mask: Optional[torch.Tensor],
+        position_ids: torch.Tensor,
+        k_cache: torch.Tensor,
+        v_cache: torch.Tensor,
+        cache_offset: int,
+        *,
+        replica_uuid: str,
+        experts_state_dict_slices_packed: dict,
+        tensor_to_device: dict,
+        tensor_task_queue_index,
+        tensor_copy_chunks,
+        tensor_device_offsets,
+    ) -> torch.Tensor:
+        """Prefill decoder layer using Triton ``flash_attn_varlen_func``.
+
+        Writes K/V directly into the static buffers ``k_cache``/``v_cache`` at
+        position ``[cache_offset : cache_offset + seq_len]``, avoiding the
+        post-prefill HF-StaticCache copy step.
+
+        Falls back to ``_decoder_layer_forward_bench_path`` (HF attention +
+        StaticCache) if ``flash_attn`` is unavailable or raises.
+
+        FFN / MoE dispatching is identical to the bench path.
+        """
+        mi = self.cmv.mlpm_ci
+        try:
+            residual_in = ghidden_states
+            h = self.mlpm.iln_func(mi, layer_idx=layer_idx, hidden_states=ghidden_states)
+            h = self.mlpm.flash_attn_prefill_func(
+                mi,
+                layer_idx=layer_idx,
+                hidden_states=h,
+                position_ids=position_ids,
+                attention_mask=attention_mask,
+                k_cache=k_cache,
+                v_cache=v_cache,
+                cache_offset=cache_offset,
+            )
+        except Exception as _exc:
+            logger.debug(
+                "flash_attn_prefill_func layer %d failed (%s); falling back to bench_path.",
+                layer_idx, _exc,
+            )
+            # Fall back: use the bench path which goes through HF attention and
+            # writes into a temporary DynamicCache.  K/V won't be in the static
+            # buffers; the caller must handle the KV copy step if needed.
+            from transformers.cache_utils import DynamicCache  # noqa
+            _tmp_kv = DynamicCache()
+            return self._decoder_layer_forward_bench_path(
+                layer_idx, ghidden_states, attention_mask, position_ids,
+                past_key_value=_tmp_kv,
+                replica_uuid=replica_uuid,
+                experts_state_dict_slices_packed=experts_state_dict_slices_packed,
+                tensor_to_device=tensor_to_device,
+                tensor_task_queue_index=tensor_task_queue_index,
+                tensor_copy_chunks=tensor_copy_chunks,
+                tensor_device_offsets=tensor_device_offsets,
+            )
+
+        ffn_skip = self.mlpm.bench_ffn_skip_hidden(mi, layer_idx, residual_in, h)
+        gate_in  = self.mlpm.bench_gate_moe_hidden(mi, layer_idx, residual_in, h)
+
+        if layer_idx < self.mlpm.get_first_k_dense_replace():
+            out = self.mlpm.dense_mlp_func(mi, layer_idx=layer_idx, hidden_states=gate_in)
+            return self.mlpm.apply_decoder_layer_scale(mi, layer_idx, out + ffn_skip)
+
+        dense_prefix = self.mlpm.ffn_dense_prefix_before_route(mi, layer_idx, ffn_skip)
+        if dense_prefix is not None:
+            topk_idx, topk_weight, _ = self.mlpm.gate_func(mi, layer_idx, ffn_skip)
+            expert_in = self.mlpm.moe_experts_input_hidden(mi, layer_idx, ffn_skip)
+            cuda_hook_time("*layer_moe_fused")
+            routed = self.layer_moe_fused(
+                layer_idx=layer_idx,
+                hidden_states=expert_in,
+                topk_idx=topk_idx,
+                topk_weight=topk_weight,
+                replica_uuid=replica_uuid,
+                experts_state_dict_slices_packed=experts_state_dict_slices_packed,
+                tensor_to_device=tensor_to_device,
+                tensor_task_queue_index=tensor_task_queue_index,
+                tensor_copy_chunks=tensor_copy_chunks,
+                tensor_device_offsets=tensor_device_offsets,
+            )
+            cuda_hook_time_end("*layer_moe_fused")
+            merged = self.mlpm.ffn_merge_dense_and_routed(
+                mi, layer_idx, ffn_skip, dense_prefix, routed
+            )
+            return self.mlpm.apply_decoder_layer_scale(mi, layer_idx, merged)
+
+        if self.mlpm.ffn_skip_routed_moe_use_standalone_dense(mi, layer_idx):
+            out = self.mlpm.ffn_dense_non_routed_after_attn(mi, layer_idx, ffn_skip)
+            return self.mlpm.apply_decoder_layer_scale(mi, layer_idx, out)
+
+        topk_idx, topk_weight, _ = self.mlpm.gate_func(mi, layer_idx, gate_in)
+        cuda_hook_time("*layer_moe_fused")
+        routed = self.layer_moe_fused(
+            layer_idx=layer_idx,
+            hidden_states=gate_in,
+            topk_idx=topk_idx,
+            topk_weight=topk_weight,
+            replica_uuid=replica_uuid,
+            experts_state_dict_slices_packed=experts_state_dict_slices_packed,
+            tensor_to_device=tensor_to_device,
+            tensor_task_queue_index=tensor_task_queue_index,
+            tensor_copy_chunks=tensor_copy_chunks,
+            tensor_device_offsets=tensor_device_offsets,
+        )
+        cuda_hook_time_end("*layer_moe_fused")
+        merged = self.mlpm.ffn_merge_dense_and_routed(mi, layer_idx, ffn_skip, None, routed)
+        return self.mlpm.apply_decoder_layer_scale(mi, layer_idx, merged)
+
+    # =========================================================================
+    # Unified decode layer (always-on static KV + optional CUDA graph)
+    # =========================================================================
+
+    def _decoder_layer_forward_decode_static(
+        self,
+        layer_idx: int,
+        hidden_states: torch.Tensor,   # [B, 1, H]
+        position_ids: torch.Tensor,    # [B, 1]
+        *,
+        replica_uuid: str,
+        experts_state_dict_slices_packed: dict,
+        tensor_to_device: dict,
+        tensor_task_queue_index,
+        tensor_copy_chunks,
+        tensor_device_offsets,
+        moe_decode_expert_backend: str = "gpu",
+        # Set to True on warmup steps so CUDA graph is not replayed yet.
+        skip_cuda_graph: bool = False,
+    ) -> torch.Tensor:
+        """Always-on decode path: static KV + Triton flash-attention, with an
+        optional per-layer CUDA graph.
+
+        Execution priority:
+        1. **CUDA graph replay** (``LMP_ATTN_CG=1``): copy live tensors into
+           static inputs, replay graph, read output.  If ``gpu_moe_in_graph``
+           is False the MoE step runs eagerly after replay (CPU+GPU hybrid).
+        2. **Eager flash-attn** (static KV, no graph): falls through when the
+           graph is absent or capture failed.
+        3. **Bench-path fallback**: last resort when static KV buffers are
+           missing (should not happen in normal operation).
+
+        vLLM-style lazy capture: pass ``skip_cuda_graph=True`` for warmup
+        steps; the graph is captured on the first call where
+        ``skip_cuda_graph=False``.
+        """
+        mi = self.cmv.mlpm_ci
+        primary_device = hidden_states.device
+
+        # ── CUDA graph path ──────────────────────────────────────────────────
+        if (
+            self._attn_cg_enabled
+            and not skip_cuda_graph
+            and self._static_k_cache is not None
+            and self._static_cache_seqlens is not None
+        ):
+            bundle = self._get_or_build_attn_cg_bundle(
+                layer_idx, hidden_states, position_ids,
+                replica_uuid, experts_state_dict_slices_packed,
+                tensor_to_device, tensor_task_queue_index,
+                tensor_copy_chunks, tensor_device_offsets,
+            )
+            if bundle is not None:
+                # Copy live tensors into static inputs.
+                bundle.static_h_in.copy_(hidden_states, non_blocking=True)
+                bundle.static_pos_ids.copy_(position_ids, non_blocking=True)
+                bundle.stream.wait_stream(torch.cuda.current_stream(primary_device))
+                with torch.cuda.stream(bundle.stream):
+                    bundle.graph.replay()
+                torch.cuda.current_stream(primary_device).wait_stream(bundle.stream)
+                h_out = bundle.static_h_out.clone()
+
+                if bundle.gpu_moe_in_graph:
+                    # MoE was captured inside the graph; result is complete.
+                    return h_out
+
+                # Attention-only graph: static_h_out = ffn_skip,
+                # static_gate_in = gate_in (both set inside graph body).
+                ffn_skip = h_out
+                gate_in  = bundle.static_gate_in.clone()
+                return self._run_moe_after_attn(
+                    mi, layer_idx, ffn_skip, gate_in,
+                    moe_decode_expert_backend, replica_uuid,
+                    experts_state_dict_slices_packed, tensor_to_device,
+                    tensor_task_queue_index, tensor_copy_chunks, tensor_device_offsets,
+                )
+
+        # ── Eager flash-attn decode (no CUDA graph) ──────────────────────────
+        if self._static_k_cache is not None and self._static_cache_seqlens is not None:
+            residual_in = hidden_states
+            h = self.mlpm.iln_func(mi, layer_idx=layer_idx, hidden_states=hidden_states)
+            if isinstance(self._static_k_cache, list):
+                k_layer = self._static_k_cache[layer_idx]
+                v_layer = self._static_v_cache[layer_idx]
+                _sk, _sv = self._static_k_cache, self._static_v_cache
+            else:
+                k_layer = self._static_k_cache[layer_idx]
+                v_layer = self._static_v_cache[layer_idx]
+                _sk, _sv = None, None
+            try:
+                h_attn = self.mlpm.flash_attn_decode_func(
+                    mi, layer_idx,
+                    hidden_states=h,
+                    position_ids=position_ids,
+                    k_cache=k_layer,
+                    v_cache=v_layer,
+                    cache_seqlens=self._static_cache_seqlens,
+                    static_k_stack=_sk,
+                    static_v_stack=_sv,
+                )
+            except NotImplementedError:
+                from transformers.cache_utils import DynamicCache  # noqa
+                _tmp_cache = DynamicCache()
+                h_attn = self.mlpm.self_attn_func(
+                    mi, layer_idx=layer_idx,
+                    hidden_states=h,
+                    attention_mask=None,
+                    position_ids=position_ids,
+                    past_key_value=_tmp_cache,
+                )
+            ffn_skip = self.mlpm.bench_ffn_skip_hidden(mi, layer_idx, residual_in, h_attn)
+            gate_in  = self.mlpm.bench_gate_moe_hidden(mi, layer_idx, residual_in, h_attn)
+            return self._run_moe_after_attn(
+                mi, layer_idx, ffn_skip, gate_in,
+                moe_decode_expert_backend, replica_uuid,
+                experts_state_dict_slices_packed, tensor_to_device,
+                tensor_task_queue_index, tensor_copy_chunks, tensor_device_offsets,
+            )
+
+        # ── Last-resort fallback (static KV not available) ───────────────────
+        logger.debug(
+            "decode_static layer %d: no static KV, falling back to bench_path.", layer_idx
+        )
+        return self._decoder_layer_forward_decode_cg(
+            layer_idx, hidden_states, position_ids,
+            replica_uuid=replica_uuid,
+            experts_state_dict_slices_packed=experts_state_dict_slices_packed,
+            tensor_to_device=tensor_to_device,
+            tensor_task_queue_index=tensor_task_queue_index,
+            tensor_copy_chunks=tensor_copy_chunks,
+            tensor_device_offsets=tensor_device_offsets,
+            moe_decode_expert_backend=moe_decode_expert_backend,
+        )
+
+    def _run_moe_after_attn(
+        self,
+        mi,
+        layer_idx: int,
+        ffn_skip: torch.Tensor,
+        gate_in: torch.Tensor,
+        moe_decode_expert_backend: str,
+        replica_uuid: str,
+        experts_state_dict_slices_packed: dict,
+        tensor_to_device: dict,
+        tensor_task_queue_index,
+        tensor_copy_chunks,
+        tensor_device_offsets,
+    ) -> torch.Tensor:
+        """Run the FFN / MoE step after attention for the decode path.
+
+        Shared by ``_decoder_layer_forward_decode_static`` (eager + graph fallback)
+        and ``_decoder_layer_forward_decode_cg``.
+        """
+        _be = (moe_decode_expert_backend or "gpu").strip().lower()
+        if _be == "cpu":
+            _moe_route = self.layer_moe_fused_decode_cpu
+        else:
+            _moe_route = self.layer_moe_fused_decode_gpu
+
+        if layer_idx < self.mlpm.get_first_k_dense_replace():
+            out = self.mlpm.dense_mlp_func(mi, layer_idx=layer_idx, hidden_states=gate_in)
+            return self.mlpm.apply_decoder_layer_scale(mi, layer_idx, out + ffn_skip)
+
+        dense_prefix = self.mlpm.ffn_dense_prefix_before_route(mi, layer_idx, ffn_skip)
+        if dense_prefix is not None:
+            topk_idx, topk_weight, _ = self.mlpm.gate_func(mi, layer_idx, ffn_skip)
+            expert_in = self.mlpm.moe_experts_input_hidden(mi, layer_idx, ffn_skip)
+            routed = _moe_route(
+                layer_idx=layer_idx,
+                hidden_states=expert_in,
+                topk_idx=topk_idx,
+                topk_weight=topk_weight,
+                replica_uuid=replica_uuid,
+                experts_state_dict_slices_packed=experts_state_dict_slices_packed,
+                tensor_to_device=tensor_to_device,
+                tensor_task_queue_index=tensor_task_queue_index,
+                tensor_copy_chunks=tensor_copy_chunks,
+                tensor_device_offsets=tensor_device_offsets,
+            )
+            merged = self.mlpm.ffn_merge_dense_and_routed(mi, layer_idx, ffn_skip, dense_prefix, routed)
+            return self.mlpm.apply_decoder_layer_scale(mi, layer_idx, merged)
+
+        if self.mlpm.ffn_skip_routed_moe_use_standalone_dense(mi, layer_idx):
+            out = self.mlpm.ffn_dense_non_routed_after_attn(mi, layer_idx, ffn_skip)
+            return self.mlpm.apply_decoder_layer_scale(mi, layer_idx, out)
+
+        topk_idx, topk_weight, _ = self.mlpm.gate_func(mi, layer_idx, gate_in)
+        routed = _moe_route(
+            layer_idx=layer_idx,
+            hidden_states=gate_in,
+            topk_idx=topk_idx,
+            topk_weight=topk_weight,
+            replica_uuid=replica_uuid,
+            experts_state_dict_slices_packed=experts_state_dict_slices_packed,
+            tensor_to_device=tensor_to_device,
+            tensor_task_queue_index=tensor_task_queue_index,
+            tensor_copy_chunks=tensor_copy_chunks,
+            tensor_device_offsets=tensor_device_offsets,
+        )
+        merged = self.mlpm.ffn_merge_dense_and_routed(mi, layer_idx, ffn_skip, None, routed)
+        return self.mlpm.apply_decoder_layer_scale(mi, layer_idx, merged)
+
+    # =========================================================================
+    # Main decoder layer dispatch
+    # =========================================================================
 
     def _decoder_layer_forward_bench_path(
         self,
@@ -659,6 +1099,9 @@ class MLPLLM:
         # Keep this lightweight to avoid OOM on shared GPUs.
         batch_size = 4
         seq_len = 128
+        # 与下方 decode 循环步数一致，用于一次分配 StaticCache 槽位（避免超过 max_cache_len）
+        num_decode_steps = 31
+        max_kv_len = _kv_static_max_len(seq_len, num_decode_steps, self.mlpm.config)
         dtype = self.mlpm.config.torch_dtype
         hidden_size = self.mlpm.config.hidden_size
         
@@ -680,10 +1123,49 @@ class MLPLLM:
         cuda_hook_time_end("generate_input_ids")
 
         cuda_hook_time("init_cache")
-        past_key_value = DynamicCache(config=self.mlpm.config)
-        past_key_values_length = past_key_value.get_seq_length()
+        # ── Gemma4 StaticCache fix ────────────────────────────────────────────
+        # StaticCache.__init__ trims self.layers by num_kv_shared_layers, but
+        # Gemma4 attention still indexes all num_hidden_layers cache slots for
+        # non-KV-sharing layers.  Temporarily zero the attribute so the full
+        # layer list is allocated, then restore it.
+        _tc = getattr(self.mlpm.config, "text_config", self.mlpm.config)
+        _saved_nkv = getattr(_tc, "num_kv_shared_layers", 0)
+        if _saved_nkv:
+            _tc.num_kv_shared_layers = 0
+        past_key_value = StaticCache(config=self.mlpm.config, max_cache_len=max_kv_len)
+        if _saved_nkv:
+            _tc.num_kv_shared_layers = _saved_nkv
+        past_key_values_length = int(past_key_value.get_seq_length())
         cuda_hook_time_end("init_cache")
-    
+
+        # ── Static KV buffers ─────────────────────────────────────────────────
+        # Allocate static KV buffers NOW (before prefill) so the prefill path
+        # can write K/V directly into them via flash_attn_prefill_func, removing
+        # the post-prefill copy step entirely.  Falls back gracefully if
+        # _ensure_static_kv_cache raises (e.g. flash_attn unavailable).
+        _static_kv_enabled = (
+            os.environ.get("LMP_STATIC_KV", "1").strip() == "1"
+        )
+        if _static_kv_enabled:
+            try:
+                self._ensure_static_kv_cache(
+                    batch_size=batch_size,
+                    dtype=self.mlpm.config.torch_dtype,
+                    device=torch.device(device1),
+                )
+                if self._static_cache_seqlens is not None:
+                    self._static_cache_seqlens.zero_()
+                    logger.info(
+                        "Static KV buffers pre-allocated before prefill "
+                        "(%d layers, max_seq=%d).",
+                        self.mlpm.get_num_hidden_layers(),
+                        self._static_kv_max_seq,
+                    )
+            except Exception as _exc:
+                logger.warning(
+                    "Failed to pre-allocate static KV buffers (%s); "
+                    "will fall back to post-prefill copy or bench path.", _exc
+                )
 
         cuda_hook_time("init_loading_placement")
         tensor_to_device, device_expected_used_bytes, expert_id_device_map = self.predo_tensor_index_locate(
@@ -752,13 +1234,24 @@ class MLPLLM:
         self.client.confirm_model_loaded(self.mlpm.model_path, replica_uuid1)
         cuda_hook_time_end("init_general_sagl_loading_async")
 
-        cuda_hook_time("init_experts_loading_async")
+        
         experts_tensor_copy_chunks = tensor_copy_chunks
         experts_tensor_device_offsets = MLPLLM._prune_device_offsets_to_copy_chunks_by_task_id(
             tensor_device_offsets,
             experts_tensor_copy_chunks,
             tensor_task_queue_index,
         )
+
+        self._log_tensor_split_integrity_check(
+            tensor_task_queue_index=tensor_task_queue_index,
+            general_sagl_copy_chunks=general_sagl_copy_chunks,
+            experts_tensor_copy_chunks=experts_tensor_copy_chunks,
+            experts_tensor_device_offsets=experts_tensor_device_offsets,
+        )
+
+
+        time_start_prefill = time.time()
+        cuda_hook_time("init_experts_loading_async")
         cuda_memory_handles = all_cuda_memory_handles
         _, replica_uuid2 = load_into_gpu_async(
             client=self.client,
@@ -769,13 +1262,6 @@ class MLPLLM:
         )
         cuda_hook_time_end("init_experts_loading_async")
 
-        self._log_tensor_split_integrity_check(
-            tensor_task_queue_index=tensor_task_queue_index,
-            general_sagl_copy_chunks=general_sagl_copy_chunks,
-            experts_tensor_copy_chunks=experts_tensor_copy_chunks,
-            experts_tensor_device_offsets=experts_tensor_device_offsets,
-        )
-
         cuda_hook_time("restore_state_dict")
         experts_state_dict_slices_packed = self.restore_experts_state_dict(
             tensor_index_json=self.tensor_index_json,
@@ -783,6 +1269,39 @@ class MLPLLM:
             tensor_device_offsets=experts_tensor_device_offsets,
         )
         cuda_hook_time_end("restore_state_dict")
+
+        # ── Pre-compile vLLM Triton fused_moe_kernel BEFORE prefill ─────────────
+        # Trigger _build_layer (and its auto-warmup) for the first MoE layer so
+        # that the Triton fused_moe_kernel is compiled while we still have free
+        # CPU time before the prefill loop.  All subsequent layers share the
+        # compiled binary via Triton's on-disk cache, so only one compilation
+        # happens regardless of model depth.
+        if self._vllm_moe_manager is not None and self._layer_experts_alloc_cache:
+            _first_moe = max(0, self.mlpm.get_first_k_dense_replace())
+            _alloc0 = self._layer_experts_alloc_cache.get(_first_moe)
+            if _alloc0 is not None:
+                _pre_dev_map: Dict[int, list] = {}
+                for _eid, _dev in _alloc0.get("expert_id_to_device", {}).items():
+                    if not str(_dev).lower().startswith("cuda"):
+                        continue
+                    _didx = int(str(_dev).split(":")[-1]) if ":" in str(_dev) else 0
+                    _pre_dev_map.setdefault(_didx, []).append(int(_eid))
+                for _dk in _pre_dev_map:
+                    _pre_dev_map[_dk] = sorted(_pre_dev_map[_dk])
+                if _pre_dev_map:
+                    _t_wu = time.perf_counter()
+                    self._vllm_moe_manager._build_layer(
+                        _first_moe,
+                        experts_state_dict_slices_packed,
+                        _pre_dev_map,
+                        self.mlpm.get_experts_num(),
+                    )
+                    logger.info(
+                        "vLLM Triton pre-warmup done in %.1f ms (layer=%d, devs=%s)",
+                        (time.perf_counter() - _t_wu) * 1e3,
+                        _first_moe,
+                        list(_pre_dev_map.keys()),
+                    )
 
         cuda_hook_time("init_inputs_tokens")
         embed_tokens = self.mlpm.get_embed_tokens(self.cmv.mlpm_ci)
@@ -809,104 +1328,48 @@ class MLPLLM:
         cuda_hook_time_end("init_inputs_tokens")
 
         cuda_hook_time("prefill_step")
-        time_start_prefill = time.time()
+        
 
         self.num_experts_on_cpu_ratio = 0.5
-        
+
+        # ── Determine whether to use the static-KV Triton prefill path ──────
+        # True when static KV buffers were pre-allocated successfully above.
+        _use_static_prefill = (
+            _static_kv_enabled
+            and self._static_k_cache is not None
+            and self._static_cache_seqlens is not None
+        )
+
         ghidden_states = inputs_tokens
         for layer_idx in range(self.mlpm.get_num_hidden_layers()):
-            #TODO TESTING
-            # if layer_idx > 10:
-            #     continue
             cuda_hook_time("prefill_layer")
             logger.debug(f"-------------------------------- start prefill layer {layer_idx} --------------------------------")
 
-            ghidden_states = self._decoder_layer_forward_bench_path(
-                layer_idx,
-                ghidden_states,
-                attention_mask,
-                position_ids,
-                past_key_value,
-                replica_uuid=replica_uuid2,
-                experts_state_dict_slices_packed=experts_state_dict_slices_packed,
-                tensor_to_device=tensor_to_device,
-                tensor_task_queue_index=tensor_task_queue_index,
-                tensor_copy_chunks=tensor_copy_chunks,
-                tensor_device_offsets=tensor_device_offsets,
-            )
-
-            cuda_hook_time_end("prefill_layer")
-            logger.debug(f"-------------------------------- end prefill layer {layer_idx} --------------------------------")            
-        cuda_hook_time_end("prefill_step")
-        logger.info(f"prefill time: {time.time() - time_start_prefill} seconds")
-
-        torch.cuda.empty_cache()
-        torch.cuda.synchronize()
-        # free_cuda_memory(cuda_memory_ptrs)
-
-        # return
-        self.num_experts_on_cpu_ratio = 0.0
-        num_step = 31
-        time_decode_list = []
-        for i in range(num_step):
-            time_start_decode = time.time()
-            cuda_hook_time("decode_step")
-
-            # ── 准备 decode 单步的输入 ──────────────────────────────────────
-            cuda_hook_time("init_inputs_tokens")
-            # past_key_values_length 在每步后由 DynamicCache 自动增长
-            past_key_values_length = past_key_value.get_seq_length()
-
-            norm = self.mlpm.get_final_norm(self.cmv.mlpm_ci)
-            lm_head = self.mlpm.get_lm_head(self.cmv.mlpm_ci)
-            embed_tokens = self.mlpm.get_embed_tokens(self.cmv.mlpm_ci)
-            next_token_ids = get_next_token_helper(norm, lm_head, ghidden_states, self.device1)
-            next_inputs_tokens = embed_tokens(next_token_ids)
-
-            query_length = next_inputs_tokens.shape[1]  # decode 阶段固定为 1
-            input_shape = (batch_size, query_length)
-
-            position_ids = torch.arange(
-                past_key_values_length,
-                past_key_values_length + query_length,
-                dtype=torch.long,
-                device=device1,
-            ).unsqueeze(0)
-
-            if self.mlpm.config._attn_implementation == "eager":
-                attention_mask = _prepare_4d_causal_attention_mask(
-                    None, input_shape, next_inputs_tokens, past_key_values_length,
-                )
-            elif self.mlpm.config._attn_implementation == "sdpa":
-                attention_mask = _prepare_4d_causal_attention_mask_for_sdpa(
-                    None, input_shape, next_inputs_tokens,
-                    past_key_values_length=past_key_values_length,
+            if _use_static_prefill:
+                # ── Fast path: Triton flash_attn_varlen, writes K/V to static bufs ──
+                if isinstance(self._static_k_cache, list):
+                    _k_layer = self._static_k_cache[layer_idx]
+                    _v_layer = self._static_v_cache[layer_idx]
+                else:
+                    _k_layer = self._static_k_cache[layer_idx]
+                    _v_layer = self._static_v_cache[layer_idx]
+                ghidden_states = self._decoder_layer_forward_prefill_static(
+                    layer_idx,
+                    ghidden_states,
+                    attention_mask,
+                    position_ids,
+                    k_cache=_k_layer,
+                    v_cache=_v_layer,
+                    cache_offset=past_key_values_length,
+                    replica_uuid=replica_uuid2,
+                    experts_state_dict_slices_packed=experts_state_dict_slices_packed,
+                    tensor_to_device=tensor_to_device,
+                    tensor_task_queue_index=tensor_task_queue_index,
+                    tensor_copy_chunks=tensor_copy_chunks,
+                    tensor_device_offsets=tensor_device_offsets,
                 )
             else:
-                attention_mask = None
-            if attention_mask is None:
-                bsz, qlen = input_shape
-                attention_mask = torch.zeros(
-                    (bsz, 1, qlen, past_key_values_length + query_length),
-                    dtype=next_inputs_tokens.dtype,
-                    device=next_inputs_tokens.device,
-                )
-            cuda_hook_time_end("init_inputs_tokens")
-
-            ghidden_states = next_inputs_tokens
-            logger.debug("decode step %s next_inputs_tokens shape=%s", i, tuple(next_inputs_tokens.shape))
-
-            # ── 逐层推理（与 prefill 结构一致）───────────────────────────────
-            for layer_idx in range(self.mlpm.get_num_hidden_layers()):
-                cuda_hook_time("decode_layer")
-                logger.debug("---- decode step %s layer %s ----", i, layer_idx)
-
-                if i < 1:
-                    _decode_moe_backend = "fused"
-                else:
-                    _raw = os.environ.get("LMP_MOE_DECODE_EXPERT_BACKEND", "cpu").strip().lower()
-                    _decode_moe_backend = _raw if _raw in ("fused", "gpu", "cpu") else "gpu"
-
+                # ── Fallback: HF attention via bench_path with StaticCache ──────────
                 ghidden_states = self._decoder_layer_forward_bench_path(
                     layer_idx,
                     ghidden_states,
@@ -919,9 +1382,175 @@ class MLPLLM:
                     tensor_task_queue_index=tensor_task_queue_index,
                     tensor_copy_chunks=tensor_copy_chunks,
                     tensor_device_offsets=tensor_device_offsets,
-                    moe_decode_expert_backend=_decode_moe_backend,
                 )
+
+            cuda_hook_time_end("prefill_layer")
+            logger.debug(f"-------------------------------- end prefill layer {layer_idx} --------------------------------")
+
+        cuda_hook_time_end("prefill_step")
+        logger.info(f"prefill time: {time.time() - time_start_prefill} seconds")
+
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
+
+        self.num_experts_on_cpu_ratio = 0.0
+
+        # ── Post-prefill: sync static KV seqlens ─────────────────────────────
+        if _use_static_prefill and self._static_cache_seqlens is not None:
+            # Prefill wrote KV directly; advance seqlens to seq_len.
+            self._static_cache_seqlens.fill_(seq_len + past_key_values_length)
+            past_key_values_length = seq_len + past_key_values_length
+            logger.info(
+                "Static-KV prefill complete; seqlens set to %d.", past_key_values_length
+            )
+        else:
+            # HF bench path wrote into past_key_value (StaticCache).
+            # Copy KV to static buffers if they exist (enables static decode).
+            if self._static_k_cache is not None:
+                try:
+                    _seqlen_from_prefill = int(past_key_value.get_seq_length())
+                    if isinstance(self._static_k_cache, list):
+                        for _li in range(self.mlpm.get_num_hidden_layers()):
+                            try:
+                                _pk = past_key_value.key_cache[_li]  # [B, n_kv, seq, hd] HF
+                                _pv = past_key_value.value_cache[_li]
+                                _sl = min(int(_pk.shape[2]), self._static_kv_max_seq)
+                                self._static_k_cache[_li][:, :_sl] = _pk[:, :, :_sl].permute(0, 2, 1, 3)
+                                self._static_v_cache[_li][:, :_sl] = _pv[:, :, :_sl].permute(0, 2, 1, 3)
+                            except Exception:
+                                pass
+                    else:
+                        for _li in range(self.mlpm.get_num_hidden_layers()):
+                            try:
+                                _pk = past_key_value.key_cache[_li]  # [B, n_kv, seq, hd] HF
+                                _pv = past_key_value.value_cache[_li]
+                                _sl = min(int(_pk.shape[2]), self._static_kv_max_seq)
+                                self._static_k_cache[_li, :, :_sl] = _pk[:, :, :_sl].permute(0, 2, 1, 3)
+                                self._static_v_cache[_li, :, :_sl] = _pv[:, :, :_sl].permute(0, 2, 1, 3)
+                            except Exception:
+                                pass
+                    if self._static_cache_seqlens is not None:
+                        self._static_cache_seqlens.fill_(_seqlen_from_prefill)
+                    past_key_values_length = _seqlen_from_prefill
+                    logger.info(
+                        "Bench-path prefill: KV copied to static buffers (seqlen=%d).",
+                        _seqlen_from_prefill,
+                    )
+                except Exception as _exc:
+                    logger.warning("Failed to copy bench-path KV to static buffers: %s", _exc)
+            else:
+                past_key_values_length = int(past_key_value.get_seq_length())
+
+        # ── Determine decode path ─────────────────────────────────────────────
+        # The unified _decoder_layer_forward_decode_static is now always the
+        # primary decode path when static KV is available.  The legacy
+        # _decoder_layer_forward_decode_cg / bench_path are kept as fallbacks.
+        _use_static_decode = self._static_k_cache is not None and self._static_cache_seqlens is not None
+        _decode_moe_backend_env = os.environ.get("LMP_MOE_DECODE_EXPERT_BACKEND", "gpu").strip().lower()
+        if _decode_moe_backend_env not in ("fused", "gpu", "cpu"):
+            _decode_moe_backend_env = "gpu"
+
+        # vLLM-style warmup: step 0 runs eagerly (skip CUDA graph); graph is
+        # captured lazily on subsequent calls to _get_or_build_attn_cg_bundle.
+        _WARMUP_STEPS = 1
+
+        time_decode_list = []
+        for i in range(num_decode_steps):
+            time_start_decode = time.time()
+            cuda_hook_time("decode_step")
+
+            # ── Prepare single-token decode inputs ──────────────────────────
+            cuda_hook_time("init_inputs_tokens")
+
+            norm = self.mlpm.get_final_norm(self.cmv.mlpm_ci)
+            lm_head = self.mlpm.get_lm_head(self.cmv.mlpm_ci)
+            embed_tokens = self.mlpm.get_embed_tokens(self.cmv.mlpm_ci)
+            next_token_ids = get_next_token_helper(norm, lm_head, ghidden_states, self.device1)
+            next_inputs_tokens = embed_tokens(next_token_ids)
+
+            query_length = next_inputs_tokens.shape[1]  # fixed = 1 during decode
+            input_shape = (batch_size, query_length)
+
+            position_ids = torch.arange(
+                past_key_values_length,
+                past_key_values_length + query_length,
+                dtype=torch.long,
+                device=device1,
+            ).unsqueeze(0)
+
+            # Build attention mask only for the bench fallback path.
+            _decode_attention_mask = None
+            if not _use_static_decode:
+                if self.mlpm.config._attn_implementation == "eager":
+                    _decode_attention_mask = _prepare_4d_causal_attention_mask(
+                        None, input_shape, next_inputs_tokens, past_key_values_length,
+                    )
+                elif self.mlpm.config._attn_implementation == "sdpa":
+                    _decode_attention_mask = _prepare_4d_causal_attention_mask_for_sdpa(
+                        None, input_shape, next_inputs_tokens,
+                        past_key_values_length=past_key_values_length,
+                    )
+                if _decode_attention_mask is None:
+                    bsz, qlen = input_shape
+                    _decode_attention_mask = torch.zeros(
+                        (bsz, 1, qlen, past_key_values_length + query_length),
+                        dtype=next_inputs_tokens.dtype,
+                        device=next_inputs_tokens.device,
+                    )
+
+            cuda_hook_time_end("init_inputs_tokens")
+
+            ghidden_states = next_inputs_tokens
+            logger.debug("decode step %s next_inputs_tokens shape=%s", i, tuple(next_inputs_tokens.shape))
+
+            # ── Per-layer decode forward ──────────────────────────────────────
+            _is_warmup = i < _WARMUP_STEPS
+            for layer_idx in range(self.mlpm.get_num_hidden_layers()):
+                cuda_hook_time("decode_layer")
+                logger.debug("---- decode step %s layer %s ----", i, layer_idx)
+
+                if _use_static_decode:
+                    # ── Unified static decode (Triton attn + optional CUDA graph) ──
+                    ghidden_states = self._decoder_layer_forward_decode_static(
+                        layer_idx,
+                        ghidden_states,
+                        position_ids,
+                        replica_uuid=replica_uuid2,
+                        experts_state_dict_slices_packed=experts_state_dict_slices_packed,
+                        tensor_to_device=tensor_to_device,
+                        tensor_task_queue_index=tensor_task_queue_index,
+                        tensor_copy_chunks=tensor_copy_chunks,
+                        tensor_device_offsets=tensor_device_offsets,
+                        moe_decode_expert_backend=_decode_moe_backend_env,
+                        skip_cuda_graph=_is_warmup,
+                    )
+                else:
+                    # ── Bench-path fallback (HF attention + StaticCache) ──────────
+                    ghidden_states = self._decoder_layer_forward_bench_path(
+                        layer_idx,
+                        ghidden_states,
+                        _decode_attention_mask,
+                        position_ids,
+                        past_key_value,
+                        replica_uuid=replica_uuid2,
+                        experts_state_dict_slices_packed=experts_state_dict_slices_packed,
+                        tensor_to_device=tensor_to_device,
+                        tensor_task_queue_index=tensor_task_queue_index,
+                        tensor_copy_chunks=tensor_copy_chunks,
+                        tensor_device_offsets=tensor_device_offsets,
+                        moe_decode_expert_backend=_decode_moe_backend_env,
+                    )
                 cuda_hook_time_end("decode_layer")
+
+            # ── Advance KV position counters ──────────────────────────────────
+            if self._static_cache_seqlens is not None:
+                self._static_cache_seqlens.add_(1)
+            past_key_values_length += 1
+            # Keep HF StaticCache in sync for bench fallback.
+            try:
+                past_key_value._seen_tokens = past_key_values_length
+            except Exception:
+                pass
 
             cuda_hook_time_end("decode_step")
             decode_time_cost = time.time() - time_start_decode
@@ -938,75 +1567,6 @@ class MLPLLM:
             )
         free_cuda_memory(cuda_memory_ptrs)
 
-    def _quantize_max_t_for_cuda_graph(self, max_t: int) -> int:
-        """将 packed ``max_t`` 量化到桶上界；无桶配置时返回原值。"""
-        buckets = self._moe_cuda_graph_buckets_max_t
-        if not buckets:
-            return max_t
-        for b in buckets:
-            if b >= max_t:
-                return b
-        return max_t
-
-    def _stacked_tensor_for_moe_cuda_graph_capture(self, st: torch.Tensor) -> torch.Tensor:
-        """构造捕获用的 stacked：若在 ``LMP_MOE_CUDA_GRAPH_BUCKETS_MAX_T`` 中向上量化 ``max_t``，右侧 zero-pad。"""
-        if not st.is_cuda:
-            return st
-        e, mt, h = st.shape
-        mt_i = int(mt)
-        qmt = self._quantize_max_t_for_cuda_graph(mt_i)
-        if qmt == mt_i:
-            return st
-        tmpl = torch.zeros((int(e), qmt, int(h)), device=st.device, dtype=st.dtype)
-        tmpl[:, :mt_i].copy_(st[:, :mt_i])
-        return tmpl
-
-    def _moe_bmm_cuda_graph_cache_key(self, layer_idx: int, item: dict) -> Tuple[Any, ...]:
-        st = item["stacked_inputs"]
-        gu = item["gate_up_eh2i"]
-        dn = item["down_eih"]
-        e, mt, h = st.shape
-        q_mt = self._quantize_max_t_for_cuda_graph(int(mt))
-        return (
-            int(layer_idx),
-            int(st.device.index),
-            int(e),
-            int(q_mt),
-            int(h),
-            st.dtype,
-            int(gu.data_ptr()),
-            int(dn.data_ptr()),
-        )
-
-    def _get_or_capture_moe_bmm_cuda_graph(
-        self, layer_idx: int, item: dict, act_fn: Callable[..., torch.Tensor]
-    ) -> Optional[_MoeBmmCoreCudaGraphBundle]:
-        if not self._moe_cuda_graph_enabled:
-            return None
-        st = item["stacked_inputs"]
-        if st is None or not st.is_cuda:
-            return None
-        key = self._moe_bmm_cuda_graph_cache_key(layer_idx, item)
-        bundle = self._moe_bmm_cuda_graph_cache.get(key)
-        if bundle is not None:
-            return bundle
-        capture_template = self._stacked_tensor_for_moe_cuda_graph_capture(st)
-        idx = int(st.device.index)
-        stream = self._moe_cuda_streams.get(idx)
-        if stream is None:
-            stream = torch.cuda.Stream(device=st.device)
-            self._moe_cuda_streams[idx] = stream
-        bundle = _MoeBmmCoreCudaGraphBundle.try_capture(
-            stream,
-            capture_template,
-            item["gate_up_eh2i"],
-            item["down_eih"],
-            act_fn,
-        )
-        if bundle is not None:
-            self._moe_bmm_cuda_graph_cache[key] = bundle
-            logger.info("MoE BMM CUDAGraph captured layer=%s key=%s", layer_idx, key)
-        return bundle
     def layer_moe_fused_decode_cpu(
         self,
         layer_idx: int,
@@ -1101,150 +1661,110 @@ class MLPLLM:
         tensor_copy_chunks,
         tensor_device_offsets,
     ):
-        """Decode / 纯 GPU 推理路径：不做 CPU MoE、不提交/等待权重拷贝，仅 GPU 上路由与专家计算。
-
-        调用方需保证本步所需专家权重已在对应 GPU（与 ``experts_state_dict_slices_packed`` 一致）。
-        ``replica_uuid`` / ``tensor_task_queue_index`` / ``tensor_copy_chunks`` / ``tensor_device_offsets``
-        为与 ``layer_moe_fused`` 签名对齐而保留，本函数不使用。
-        """
+        """Decode / 纯 GPU 推理路径：vLLM Triton fused_experts + 可选 CUDAGraph。"""
         _ = (replica_uuid, tensor_task_queue_index, tensor_copy_chunks, tensor_device_offsets)
+        return self._layer_moe_fused_decode_gpu_vllm(
+            layer_idx=layer_idx,
+            hidden_states=hidden_states,
+            topk_idx=topk_idx,
+            topk_weight=topk_weight,
+            experts_state_dict_slices_packed=experts_state_dict_slices_packed,
+            tensor_to_device=tensor_to_device,
+            orig_shape=hidden_states.shape,
+            primary_device=hidden_states.device,
+        )
+
+    def _layer_moe_fused_decode_gpu_vllm(
+        self,
+        layer_idx: int,
+        hidden_states: torch.Tensor,
+        topk_idx: torch.Tensor,
+        topk_weight: torch.Tensor,
+        experts_state_dict_slices_packed: dict,
+        tensor_to_device,
+        orig_shape: tuple,
+        primary_device: torch.device,
+    ) -> torch.Tensor:
+        """vLLM Triton fused_experts 快速路径（由 layer_moe_fused_decode_gpu 分派）。
+
+        替代原有三段式流程（D2H sync → Python 路由循环 → BMM pad/unpad），
+        改为每 GPU 一次 Triton kernel + 可选 CUDAGraph replay：
+
+          flat_hidden [T,H] + topk_ids [T,k] + topk_w [T,k]
+            ──────────────────────────────────────────────────
+            per device: fused_experts(hidden, w1, w2, tw, ti,
+                            expert_map=[global_E], inplace=False)
+                        → partial_out [T,H]
+            ──────────────────────────────────────────────────
+            sum(partial_outs) + shared_expert_out → [B, seq, H]
+        """
         batch_size, seq_len = hidden_states.shape[:2]
-        orig_shape = hidden_states.shape
+        T = batch_size * seq_len
+        flat_hidden = hidden_states.view(T, -1)
 
-        flat_hidden_states = hidden_states.view(batch_size * seq_len, -1)
-        flat_expert_indices = topk_idx.view(-1).to(dtype=torch.int64)
-        flat_experts_weight = topk_weight.view(-1, 1)
-        idxs = flat_expert_indices.argsort()
-        num_experts = self.mlpm.get_experts_num()
-        bc = torch.bincount(flat_expert_indices, minlength=num_experts)
-        tokens_per_expert = bc.cumsum(0).cpu().tolist()
-        token_idxs = idxs // self.mlpm.get_experts_per_tok()
-        expert_cache = torch.zeros_like(flat_hidden_states)
+        # topk_idx / topk_weight → [T, k] on primary_device
+        experts_per_tok = self.mlpm.get_experts_per_tok()
+        topk_ids_2d = topk_idx.view(T, experts_per_tok).to(
+            dtype=torch.int64, device=primary_device
+        )
+        topk_w_2d = topk_weight.view(T, experts_per_tok).to(
+            dtype=flat_hidden.dtype, device=primary_device
+        )
 
-        num_slots = int(idxs.numel())
-        if num_slots == 0:
-            y = self.mlpm.shared_experts_func(self.cmv.mlpm_ci, layer_idx=layer_idx, hidden_states=hidden_states)
-            return expert_cache.view(*orig_shape) + y
-
-        expert_indices_map: Dict[int, tuple[int, int]] = {}
-        expert_token_counts_list: list[tuple[int, int]] = []
-        prev_end = 0
-        for expert_id in range(num_experts):
-            if expert_id >= len(tokens_per_expert):
-                break
-            end_idx = int(tokens_per_expert[expert_id])
-            if end_idx == prev_end:
-                continue
-            start_idx = prev_end
-            expert_indices_map[expert_id] = (start_idx, end_idx)
-            expert_token_counts_list.append((expert_id, end_idx - start_idx))
-            prev_end = end_idx
-
+        # Full device→expert allocation (static, not per-step routing)
         experts_alloc = self._layer_experts_alloc_cache.get(layer_idx)
         if experts_alloc is None:
             experts_alloc = self.get_layer_experts_device_allocation(
                 layer_idx=layer_idx,
                 tensor_to_device=tensor_to_device,
             )
-        e2d = experts_alloc.get("expert_id_to_device", {})
+        e2d: dict = experts_alloc.get("expert_id_to_device", {})
         if not isinstance(e2d, dict) or not e2d:
-            raise ValueError("layer_moe_fused_decode_gpu requires experts_alloc.expert_id_to_device")
-
-        device_expert_map: dict[int, list[int]] = {}
-        for eid in expert_indices_map:
-            dev = e2d.get(int(eid))
-            if dev is None:
-                raise RuntimeError(
-                    f"layer_moe_fused_decode_gpu: expert {eid} missing from allocation (layer={layer_idx})"
-                )
-            dev_s = str(dev).lower()
-            if not dev_s.startswith("cuda"):
-                raise RuntimeError(
-                    f"layer_moe_fused_decode_gpu: expert {eid} on {dev!r}, only cuda experts supported (layer={layer_idx})"
-                )
-            dev_idx = int(str(dev).split(":")[-1]) if ":" in str(dev) else 0
-            device_expert_map.setdefault(dev_idx, []).append(int(eid))
-        for k in list(device_expert_map.keys()):
-            device_expert_map[k] = sorted(device_expert_map[k])
-
-        mm_backend = os.environ.get("LMP_FUSED_EXPERT_MM", "gmm").strip().lower()
-        _, _, act_fn = self.mlpm.get_fused_experts_gate_up_down_act_fn(self.cmv.mlpm_ci, layer_idx)
-        work_items = self._prepare_fused_expert_work_items(
-            layer_idx=layer_idx,
-            experts_state_dict_slices_packed=experts_state_dict_slices_packed,
-            device_expert_map=device_expert_map,
-            expert_indices_map=expert_indices_map,
-            flat_hidden_states=flat_hidden_states,
-            flat_expert_indices=flat_expert_indices,
-            flat_experts_weight=flat_experts_weight,
-            idxs=idxs,
-            token_idxs=token_idxs,
-            expert_cache=expert_cache,
-            mm_backend=mm_backend,
-        )
-
-        def _run_one_work_item(item: dict, backend: str):
-            w_dev_sorted = item["w_dev_sorted"]
-            token_ids_for_slots = item["token_ids_for_slots"]
-            if backend == "bmm" and item.get("stacked_inputs") is not None:
-                cg_bundle = self._get_or_capture_moe_bmm_cuda_graph(layer_idx, item, act_fn)
-                if cg_bundle is not None:
-                    cg_bundle.copy_inputs_and_replay(item["stacked_inputs"])
-                    self.mlpm._batched_unpad_outputs_into(
-                        item["y_bmm_out"], cg_bundle.y_st, item["counts"]
-                    )
-                    y_dev_sorted = item["y_bmm_out"]
-                else:
-                    self.mlpm.fused_experts_gate_up_down_bmm_from_padded_into(
-                        item["y_bmm_out"],
-                        item["stacked_inputs"],
-                        item["counts"],
-                        item["gate_up_eh2i"],
-                        item["down_eih"],
-                        act_fn,
-                    )
-                    y_dev_sorted = item["y_bmm_out"]
-            else:
-                x_dev_sorted = item["x_dev_sorted"]
-                eid_dev_sub = item["eid_dev_sub"]
-                gate_up_eh2i = item.get("gate_up_eh2i")
-                down_eih = item.get("down_eih")
-                if gate_up_eh2i is None or down_eih is None:
-                    gate_up_eh2i = item["gate_up_packed"].transpose(1, 2)
-                    down_eih = item["down_packed"].transpose(1, 2)
-                y_dev_sorted = self.mlpm.fused_experts_gate_up_down_mm_presorted(
-                    x_slots_sorted=x_dev_sorted,
-                    expert_ids_sorted=eid_dev_sub,
-                    gate_up_w_eh2i=gate_up_eh2i,
-                    down_w_eih=down_eih,
-                    act_fn=act_fn,
-                    mm_backend=backend,
-                )
-            y_slots = y_dev_sorted * w_dev_sorted
-            y_slots_main = y_slots.to(expert_cache.device, non_blocking=True)
-            expert_cache.scatter_reduce_(
-                dim=0,
-                index=token_ids_for_slots.view(-1, 1).repeat(1, expert_cache.shape[-1]),
-                src=y_slots_main,
-                reduce="sum",
+            raise ValueError(
+                "_layer_moe_fused_decode_gpu_vllm requires "
+                "experts_alloc.expert_id_to_device"
             )
 
-        if mm_backend not in ("gmm", "bmm"):
-            raise ValueError(f"Unsupported LMP_FUSED_EXPERT_MM backend: {mm_backend}")
-        use_thread_pool = len(work_items) > 1 and not self._moe_cuda_graph_enabled
-        if use_thread_pool:
-            futs = [
-                self._fused_expert_pool.submit(_run_one_work_item, item, mm_backend)
-                for item in work_items
-            ]
-            for fut in as_completed(futs):
-                fut.result()
-        else:
-            for item in work_items:
-                _run_one_work_item(item, backend=mm_backend)
+        # Build full device_expert_map (all experts, not just activated ones).
+        # CPU experts (non-CUDA devices) are skipped — they get expert_map=-1 on all
+        # GPU devices so fused_experts ignores them automatically.
+        full_device_expert_map: Dict[int, list] = {}
+        for eid, dev in e2d.items():
+            dev_s = str(dev).lower()
+            if not dev_s.startswith("cuda"):
+                logger.debug(
+                    "_layer_moe_fused_decode_gpu_vllm: expert %s on non-CUDA device %r "
+                    "(layer=%s) — skipped (handled by kt-kernel or ignored)",
+                    eid, dev, layer_idx,
+                )
+                continue
+            dev_idx = int(str(dev).split(":")[-1]) if ":" in str(dev) else 0
+            full_device_expert_map.setdefault(dev_idx, []).append(int(eid))
+        for k in full_device_expert_map:
+            full_device_expert_map[k] = sorted(full_device_expert_map[k])
 
-        y = self.mlpm.shared_experts_func(self.cmv.mlpm_ci, layer_idx=layer_idx, hidden_states=hidden_states)
-        return expert_cache.view(*orig_shape) + y
+        _, _, act_fn = self.mlpm.get_fused_experts_gate_up_down_act_fn(
+            self.cmv.mlpm_ci, layer_idx
+        )
+        moe_act = resolve_moe_activation(act_fn)
+        global_num_experts = self.mlpm.get_experts_num()
+
+        routed = self._vllm_moe_manager.forward(
+            layer_idx=layer_idx,
+            hidden=flat_hidden,
+            topk_w=topk_w_2d,
+            topk_ids=topk_ids_2d,
+            experts_state_dict_slices_packed=experts_state_dict_slices_packed,
+            full_device_expert_map=full_device_expert_map,
+            global_num_experts=global_num_experts,
+            moe_act=moe_act,
+            primary_device=primary_device,
+        )
+
+        y = self.mlpm.shared_experts_func(
+            self.cmv.mlpm_ci, layer_idx=layer_idx, hidden_states=hidden_states
+        )
+        return routed.view(*orig_shape) + y
 
     def layer_moe_fused(self, 
                         layer_idx: int, 
@@ -1259,20 +1779,14 @@ class MLPLLM:
                         tensor_device_offsets,
         ):
 
-        time_start = time.time()
         time_perf_layer0 = time.perf_counter()
         batch_size, seq_len = hidden_states.shape[:2]
         orig_shape = hidden_states.shape
 
         flat_hidden_states = hidden_states.view(batch_size * seq_len, -1)
-        flat_expert_indices = topk_idx.view(-1).to(dtype=torch.int64)  # [slots]
-        flat_experts_weight = topk_weight.view(-1, 1)  # [slots,1]
-        idxs = flat_expert_indices.argsort()
+        flat_expert_indices = topk_idx.view(-1).to(dtype=torch.int64)
         tokens_per_expert = flat_expert_indices.bincount().cpu().numpy().cumsum(0)
-        token_idxs = idxs // self.mlpm.get_experts_per_tok()
         num_experts = self.mlpm.get_experts_num()
-        expert_cache = torch.zeros_like(flat_hidden_states)
-        
 
         flat_hidden_states_on_cpu_pin = gpinpool.alloc_same_pin_tensor(flat_hidden_states)
         flat_hidden_states_on_cpu_pin.copy_(flat_hidden_states, non_blocking=True)
@@ -1280,13 +1794,13 @@ class MLPLLM:
         topk_weight_on_cpu_pin.copy_(topk_weight, non_blocking=True)
         topk_idx_on_cpu_pin = topk_idx.to(dtype=torch.int64, device="cpu", non_blocking=True)
 
-        num_slots = int(idxs.numel())
+        num_slots = int(flat_expert_indices.numel())
         if num_slots == 0:
             y = self.mlpm.shared_experts_func(self.cmv.mlpm_ci, layer_idx=layer_idx, hidden_states=hidden_states)
-            return expert_cache.view(*orig_shape) + y
+            gpinpool.free(flat_hidden_states_on_cpu_pin)
+            return y
 
-
-        # 获取 expert_indices_map, expert_token_counts_list
+        # Build expert_indices_map / expert_token_counts_list for CPU/GPU allocation.
         expert_indices_map: Dict[int, tuple[int, int]] = {}
         expert_token_counts_list = []
         prev_end = 0
@@ -1296,12 +1810,9 @@ class MLPLLM:
             end_idx = int(tokens_per_expert[expert_id])
             if end_idx == prev_end:
                 continue
-            start_idx = prev_end
-            expert_indices_map[expert_id] = (start_idx, end_idx)
-            expert_token_counts_list.append((expert_id, end_idx - start_idx))
+            expert_indices_map[expert_id] = (prev_end, end_idx)
+            expert_token_counts_list.append((expert_id, end_idx - prev_end))
             prev_end = end_idx
-        
-        
 
         experts_alloc = self._layer_experts_alloc_cache.get(layer_idx)
         if experts_alloc is None:
@@ -1310,15 +1821,6 @@ class MLPLLM:
                 tensor_to_device=tensor_to_device,
             )
 
-        """
-        写一个函数，根据 experts_alloc 和 expert_indices_map 和 expert_token_counts_list 分配专家到不同的设备, experts_alloc 已经包含了各专家在设备的位置
-        1) 首先 CPU 分配到 self.num_experts_on_cpu_ratio 比例的专家, 剩余的专家分配到 GPU
-        2) 其次 GPU 各设备分配到均匀的专家数
-        3) 其次 CPU 尽量分配到少量的 token
-        4) 打印 CPU 分配到的专家和各设备分配到的专及其树木家，以及各自的 token 总数和每个专家的 token 数
-        5) 在下面调用函数，获得 cpu的 专家列表, 和 各设备的专家列表，以及GPU的专家总列表
-        6) 保持最优，即CPU 分配到了尽量的少token，同时GPU 各设备分配到了均匀的专家数，GPU 分配到最大程度均匀的专家数
-        """
         _t_alloc0 = time.perf_counter()
         experts_partition = self.allocate_experts_across_cpu_gpu(
             experts_alloc=experts_alloc,
@@ -1327,20 +1829,15 @@ class MLPLLM:
         )
         _alloc_ms = (time.perf_counter() - _t_alloc0) * 1e3
         cpu_expert_ids = experts_partition["cpu_expert_ids"]
-        device_expert_map = experts_partition["device_expert_map"]
         gpu_expert_ids = experts_partition["gpu_expert_ids"]
-        gpu_expert_ids_by_device = experts_partition["gpu_expert_ids_by_device"]
-        _ = (cpu_expert_ids, device_expert_map, gpu_expert_ids, gpu_expert_ids_by_device)
-
-        _prefix_before_alloc_ms = (_t_alloc0 - time_perf_layer0) * 1e3
         logger.info(
-            "[layer_moe_fused] layer=%s moe_prefix_before_alloc: %.3fms | allocate_experts_across_cpu_gpu: %.3fms",
+            "[layer_moe_fused] layer=%s prefix: %.3fms alloc: %.3fms",
             layer_idx,
-            _prefix_before_alloc_ms,
+            (_t_alloc0 - time_perf_layer0) * 1e3,
             _alloc_ms,
         )
 
-
+        # Trigger GPU weight loading (async).
         time_start = time.time()
         layer_gpu_expert_task_ids = self.get_experts_task_ids(
             tensor_task_queue_index=tensor_task_queue_index,
@@ -1356,12 +1853,14 @@ class MLPLLM:
                 layer_gpu_expert_task_ids,
             )
             logger.info(
-                f"[layer_moe_fused] submit_high_priority_copy_tasks(gpu experts) ok={ok_submit} pending_count={len(pending_submit)} time: {time.time() - time_start} seconds"
+                f"[layer_moe_fused] submit_high_priority_copy_tasks ok={ok_submit} "
+                f"pending={len(pending_submit)} time: {time.time() - time_start}s"
             )
 
+        # Submit CPU experts to kt-kernel (runs in parallel with GPU weight loading).
         time_start = time.time()
+        output_cpu_pin = None
         if len(cpu_expert_ids) > 0:
-            # submit kt-kernel experts（此前未单独打点，会压低分项之和 vs ``*layer_moe_fused`` hook）
             batch_tensor, tok_k, topk_ids_cpu, topk_weights_cpu, hidden_states_cpu, output_proto = (
                 self._make_kt_kernel_forward_inputs(
                     hidden_states=flat_hidden_states_on_cpu_pin,
@@ -1382,30 +1881,9 @@ class MLPLLM:
                     False,
                 )
             )
-            logger.info(
-                "[layer_moe_fused] kt_kernel_prep_submit time: %s seconds",
-                time.time() - time_start,
-            )
+            logger.info("[layer_moe_fused] kt_kernel_prep_submit time: %s seconds", time.time() - time_start)
 
-        time_start = time.time()
-        # GPU experts compute from restored packed experts weights.
-        mm_backend = os.environ.get("LMP_FUSED_EXPERT_MM", "gmm").strip().lower()
-        _, _, act_fn = self.mlpm.get_fused_experts_gate_up_down_act_fn(self.cmv.mlpm_ci, layer_idx)
-        work_items = self._prepare_fused_expert_work_items(
-            layer_idx=layer_idx,
-            experts_state_dict_slices_packed=experts_state_dict_slices_packed,
-            device_expert_map=device_expert_map,
-            expert_indices_map=expert_indices_map,
-            flat_hidden_states=flat_hidden_states,
-            flat_expert_indices=flat_expert_indices,
-            flat_experts_weight=flat_experts_weight,
-            idxs=idxs,
-            token_idxs=token_idxs,
-            expert_cache=expert_cache,
-            mm_backend=mm_backend,
-        )
-        logger.info(f"[layer_moe_fused] prepare_fused_expert_work_items time: {time.time() - time_start} seconds")
-
+        # Wait for GPU expert weights to finish loading.
         if layer_gpu_expert_task_ids:
             time_start = time.time()
             ok_wait, pending_wait = self.client.wait_copy_tasks(
@@ -1414,92 +1892,57 @@ class MLPLLM:
                 layer_gpu_expert_task_ids,
                 timeout_ms=60000,
             )
-            logger.info(f"[layer_moe_fused] wait_copy_tasks(gpu experts) ok={ok_wait} pending_count={len(pending_wait)} time: {time.time() - time_start} seconds")
-        
-        def _run_one_work_item(item: dict, backend: str):
-            w_dev_sorted = item["w_dev_sorted"]
-            token_ids_for_slots = item["token_ids_for_slots"]
-            if backend == "bmm" and item.get("stacked_inputs") is not None:
-                cg_bundle = self._get_or_capture_moe_bmm_cuda_graph(layer_idx, item, act_fn)
-                if cg_bundle is not None:
-                    cg_bundle.copy_inputs_and_replay(item["stacked_inputs"])
-                    self.mlpm._batched_unpad_outputs_into(
-                        item["y_bmm_out"], cg_bundle.y_st, item["counts"]
-                    )
-                    y_dev_sorted = item["y_bmm_out"]
-                else:
-                    self.mlpm.fused_experts_gate_up_down_bmm_from_padded_into(
-                        item["y_bmm_out"],
-                        item["stacked_inputs"],
-                        item["counts"],
-                        item["gate_up_eh2i"],
-                        item["down_eih"],
-                        act_fn,
-                    )
-                    y_dev_sorted = item["y_bmm_out"]
-            else:
-                x_dev_sorted = item["x_dev_sorted"]
-                eid_dev_sub = item["eid_dev_sub"]
-                gate_up_eh2i = item.get("gate_up_eh2i")
-                down_eih = item.get("down_eih")
-                if gate_up_eh2i is None or down_eih is None:
-                    gate_up_eh2i = item["gate_up_packed"].transpose(1, 2)
-                    down_eih = item["down_packed"].transpose(1, 2)
-                y_dev_sorted = self.mlpm.fused_experts_gate_up_down_mm_presorted(
-                    x_slots_sorted=x_dev_sorted,
-                    expert_ids_sorted=eid_dev_sub,
-                    gate_up_w_eh2i=gate_up_eh2i,
-                    down_w_eih=down_eih,
-                    act_fn=act_fn,
-                    mm_backend=backend,
-                )
-            y_slots = y_dev_sorted * w_dev_sorted
-            y_slots_main = y_slots.to(expert_cache.device, non_blocking=True)
-            expert_cache.scatter_reduce_(
-                dim=0,
-                index=token_ids_for_slots.view(-1, 1).repeat(1, expert_cache.shape[-1]),
-                src=y_slots_main,
-                reduce="sum",
-            )
+            logger.info(f"[layer_moe_fused] wait_copy_tasks ok={ok_wait} pending={len(pending_wait)} time: {time.time() - time_start}s")
 
-        time_start = time.time()
-        # Phase 2: execute experts compute in parallel across devices.
-        if mm_backend not in ("gmm", "bmm"):
-            raise ValueError(f"Unsupported LMP_FUSED_EXPERT_MM backend: {mm_backend}")
-        # CUDAGraph 捕获/重放必须在固定线程与专用 stream 上；多 GPU item 仍顺序执行以免跨线程 CUDA。
-        use_thread_pool = len(work_items) > 1 and not self._moe_cuda_graph_enabled
-        if use_thread_pool:
-            futs = [
-                self._fused_expert_pool.submit(_run_one_work_item, item, mm_backend)
-                for item in work_items
-            ]
-            for fut in as_completed(futs):
-                fut.result()  # re-raise any exception
-        else:
-            for item in work_items:
-                _run_one_work_item(item, backend=mm_backend)
+        # ── vLLM Triton fused_experts (GPU experts) ────────────────────────────
+        _t_vllm0 = time.perf_counter()
+        _T = batch_size * seq_len
+        _k = self.mlpm.get_experts_per_tok()
+        _topk_ids_2d = topk_idx.view(_T, _k).to(dtype=torch.int64, device=flat_hidden_states.device)
+        _topk_w_2d   = topk_weight.view(_T, _k).to(dtype=flat_hidden_states.dtype, device=flat_hidden_states.device)
+        _, _, _act_fn = self.mlpm.get_fused_experts_gate_up_down_act_fn(self.cmv.mlpm_ci, layer_idx)
+        _moe_act = resolve_moe_activation(_act_fn)
 
-        logger.info(f"[layer_moe_fused] experts compute time: {time.time() - time_start} seconds")
+        # Build static full device→expert map (all GPU experts; CPU experts → -1 automatically).
+        _full_dev_expert_map: Dict[int, list] = {}
+        for _eid, _dev in experts_alloc.get("expert_id_to_device", {}).items():
+            if not str(_dev).lower().startswith("cuda"):
+                continue
+            _dev_idx = int(str(_dev).split(":")[-1]) if ":" in str(_dev) else 0
+            _full_dev_expert_map.setdefault(_dev_idx, []).append(int(_eid))
+        for _dk in _full_dev_expert_map:
+            _full_dev_expert_map[_dk] = sorted(_full_dev_expert_map[_dk])
 
-        
+        gpu_routed = self._vllm_moe_manager.forward(
+            layer_idx=layer_idx,
+            hidden=flat_hidden_states,
+            topk_w=_topk_w_2d,
+            topk_ids=_topk_ids_2d,
+            experts_state_dict_slices_packed=experts_state_dict_slices_packed,
+            full_device_expert_map=_full_dev_expert_map,
+            global_num_experts=num_experts,
+            moe_act=_moe_act,
+            primary_device=flat_hidden_states.device,
+            skip_cuda_graph=(seq_len > 1),  # prefill → eager Triton; decode → CUDAGraph
+        )
 
-        time_start_s = time.time()
-        # CPUInfer output contains masked CPU experts only; merge into the same cache.
-
-        if len(cpu_expert_ids) > 0:
+        # Merge CPU kt-kernel result.
+        if output_cpu_pin is not None:
             self.CPUInfer.sync()
-
-            time_start = time.time()
-            output_cpu2gpu = output_cpu_pin.to(expert_cache.device, dtype=expert_cache.dtype, non_blocking=True)
-            logger.info(f"[layer_moe_fused] to time: {time.time() - time_start} seconds")
-            expert_cache.add_(output_cpu2gpu)
+            cpu_out = output_cpu_pin.to(gpu_routed.device, dtype=gpu_routed.dtype, non_blocking=True)
+            torch.cuda.synchronize()
+            gpu_routed.add_(cpu_out)
 
         y = self.mlpm.shared_experts_func(self.cmv.mlpm_ci, layer_idx=layer_idx, hidden_states=hidden_states)
-        out = expert_cache.view(*orig_shape) + y
-        logger.info(f"[layer_moe_fused] scatter_reduce_ time: {time.time() - time_start_s} seconds")
-
+        out = (gpu_routed + y.view(_T, -1)).view(*orig_shape)
+        logger.info(
+            "[layer_moe_fused] vllm triton time: %.3fms (seq_len=%s cg=%s)",
+            (time.perf_counter() - _t_vllm0) * 1e3,
+            seq_len,
+            seq_len == 1 and self._vllm_moe_cg_enabled,
+        )
         gpinpool.free(flat_hidden_states_on_cpu_pin)
-        if len(cpu_expert_ids) > 0:
+        if output_cpu_pin is not None:
             gpinpool.free(output_cpu_pin)
         return out
 
@@ -4228,8 +4671,9 @@ class MLPLLM:
 
         # Use the same path as real prefill before MoE routing:
         # iln -> self_attn -> residual add -> paln, then feed gate.
-        past_key_value = DynamicCache(config=self.mlpm.config)
-        past_key_values_length = past_key_value.get_seq_length()
+        _max_kv = _kv_static_max_len(seq_len, 0, self.mlpm.config)
+        past_key_value = StaticCache(config=self.mlpm.config, max_cache_len=_max_kv)
+        past_key_values_length = int(past_key_value.get_seq_length())
         position_ids = torch.arange(
             past_key_values_length, seq_len + past_key_values_length, dtype=torch.long, device=device
         ).unsqueeze(0)

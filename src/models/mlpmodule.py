@@ -6,7 +6,7 @@ import torch
 import torch.nn.functional as F
 import queue
 import copy
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple
 from transformers import AutoModelForCausalLM
 from transformers.activations import ACT2FN
 from transformers.cache_utils import Cache, DynamicCache
@@ -1945,6 +1945,655 @@ class MLPModuleWrapper:
         else:
             raise ValueError(f"Invalid model name type: {self.model_name_type}")
 
+    def _gemma4_attention_manual(
+        self,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        attn_mod,
+    ) -> torch.Tensor:
+        """Gemma4 HF-style attention: ``eager_attention_forward`` (scaling=1.0, repeat_kv).
+
+        Shapes:
+            q: [B, n_q, 1, head_dim]
+            k, v: [B, n_kv, kv_len, head_dim]
+        Returns:
+            [B, 1, n_q, head_dim]
+        """
+        from transformers.models.gemma4.modeling_gemma4 import repeat_kv  # type: ignore
+
+        scaling = float(attn_mod.scaling)
+        key_states = repeat_kv(k, int(attn_mod.num_key_value_groups))
+        value_states = repeat_kv(v, int(attn_mod.num_key_value_groups))
+        attn_weights = torch.matmul(q, key_states.transpose(2, 3)) * scaling
+        attn_weights = F.softmax(attn_weights, dim=-1, dtype=torch.float32).to(q.dtype)
+        attn_output = torch.matmul(attn_weights, value_states)
+        return attn_output.transpose(1, 2).contiguous()
+
+    def _incr_decode_sdpa_generic(
+        self,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        k_cache: torch.Tensor,
+        v_cache: torch.Tensor,
+        cache_seqlens: torch.Tensor,
+        rotary_cos: Optional[torch.Tensor],
+        rotary_sin: Optional[torch.Tensor],
+        hd: int,
+        num_q_heads: int,
+        num_kv_heads: int,
+    ) -> torch.Tensor:
+        """Incremental decode when ``head_dim > _FA2_MAX_HEAD_DIM``: RoPE + static KV + 1/sqrt(d) softmax."""
+        try:
+            from transformers.models.llama.modeling_llama import (  # type: ignore
+                apply_rotary_pos_emb,
+            )
+        except Exception as exc:
+            raise NotImplementedError(
+                "SDPA fallback requires transformers Llama apply_rotary_pos_emb."
+            ) from exc
+        try:
+            from transformers.models.gemma4.modeling_gemma4 import (  # type: ignore
+                repeat_kv,
+            )
+        except Exception:
+            from transformers.models.llama.modeling_llama import repeat_kv  # type: ignore
+
+        if rotary_cos is not None and rotary_sin is not None:
+            q = apply_rotary_pos_emb(q, rotary_cos, rotary_sin, unsqueeze_dim=2)
+            k = apply_rotary_pos_emb(k, rotary_cos, rotary_sin, unsqueeze_dim=2)
+
+        S = int(cache_seqlens[0].item())
+        # cache is [B, max_seq, n_kv, hd]; convert history slice to [B, n_kv, S, hd]
+        k_hist = k_cache[:, :S].permute(0, 2, 1, 3)
+        v_hist = v_cache[:, :S].permute(0, 2, 1, 3)
+        k_t = k.transpose(1, 2).contiguous()   # [B, n_kv, 1, hd]
+        v_t = v.transpose(1, 2).contiguous()
+        k_all = torch.cat([k_hist, k_t], dim=2)  # [B, n_kv, S+1, hd]
+        v_all = torch.cat([v_hist, v_t], dim=2)
+
+        q_bhq = q.transpose(1, 2).contiguous()
+        scale = float(hd) ** -0.5
+        n_rep = int(num_q_heads) // int(num_kv_heads)
+        key_states = repeat_kv(k_all, n_rep)
+        value_states = repeat_kv(v_all, n_rep)
+        attn_weights = torch.matmul(q_bhq, key_states.transpose(2, 3)) * scale
+        attn_weights = F.softmax(attn_weights, dim=-1, dtype=torch.float32).to(q.dtype)
+        attn_output = torch.matmul(attn_weights, value_states)
+        attn_output = attn_output.transpose(1, 2).contiguous()
+
+        # Write new token into cache at position S: k_t.squeeze(2) is [B, n_kv, hd]
+        k_cache[:, S].copy_(k_t.squeeze(2))
+        v_cache[:, S].copy_(v_t.squeeze(2))
+        return attn_output
+
+    def _flash_attn_decode_gemma4(
+        self,
+        mi,
+        layer_idx: int,
+        hidden_states: torch.Tensor,
+        position_ids: torch.Tensor,
+        k_cache: torch.Tensor,
+        v_cache: torch.Tensor,
+        cache_seqlens: torch.Tensor,
+        flash_attn_with_kvcache,
+        *,
+        static_k_stack: Optional[Sequence[torch.Tensor]],
+        static_v_stack: Optional[Sequence[torch.Tensor]],
+    ) -> torch.Tensor:
+        """Gemma4 decode: FA2 kvcache if ``head_dim <= 256``, else HF-aligned manual / SDPA path.
+
+        Global layers (``global_head_dim`` e.g. 512) use ``_gemma4_attention_manual`` with static KV,
+        matching ``eager_attention_forward`` (scaling ``attn.scaling`` == 1.0).
+        """
+        from transformers.models.gemma4.modeling_gemma4 import apply_rotary_pos_emb  # type: ignore
+
+        lm = getattr(mi.model, "language_model", mi.model)
+        attn = lm.layers[layer_idx].self_attn
+        hd = int(attn.head_dim)
+        use_flash = hd <= _FA2_MAX_HEAD_DIM and flash_attn_with_kvcache is not None
+
+        cos, sin = lm.rotary_emb(
+            hidden_states, position_ids, layer_type=attn.layer_type
+        )
+        B, seq_q, _H = hidden_states.shape
+        config = attn.config
+        n_q = int(config.num_attention_heads)
+        n_kv = (
+            int(config.num_global_key_value_heads)
+            if attn.use_alternative_attention
+            else int(config.num_key_value_heads)
+        )
+
+        q = attn.q_proj(hidden_states).view(B, seq_q, n_q, hd)
+        q = attn.q_norm(q)
+        q = apply_rotary_pos_emb(q, cos, sin, unsqueeze_dim=2)
+        q_bhq = q.transpose(1, 2).contiguous()  # [B, n_q, 1, hd] for manual path
+
+        win = (-1, -1)
+        if attn.sliding_window is not None:
+            win = (int(attn.sliding_window), 0)
+
+        S = int(cache_seqlens[0].item())
+
+        def _apply_sliding(k_t: torch.Tensor, v_t: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+            if attn.sliding_window is None:
+                return k_t, v_t
+            W = int(attn.sliding_window)
+            win_len = min(W, k_t.shape[2])
+            return k_t[:, :, -win_len:, :], v_t[:, :, -win_len:, :]
+
+        if attn.is_kv_shared_layer:
+            if static_k_stack is None or static_v_stack is None:
+                raise ValueError(
+                    "Gemma4 KV-shared layer needs static_k_stack / static_v_stack "
+                    f"(read kv_shared_layer_index={attn.kv_shared_layer_index})."
+                )
+            ref_i = int(attn.kv_shared_layer_index)
+            k_ref = static_k_stack[ref_i]
+            v_ref = static_v_stack[ref_i]
+            if use_flash:
+                attn_out = flash_attn_with_kvcache(
+                    q,
+                    k_ref,   # [B, max_seq, n_kv, hd] — correct for flash_attn
+                    v_ref,
+                    k=None,
+                    v=None,
+                    cache_seqlens=cache_seqlens,
+                    causal=True,
+                    window_size=win,
+                )
+            else:
+                seq_k = S + 1
+                # convert [B, max_seq, n_kv, hd] → [B, n_kv, seq_k, hd] for manual path
+                k_all = k_ref[:, :seq_k].permute(0, 2, 1, 3).contiguous()
+                v_all = v_ref[:, :seq_k].permute(0, 2, 1, 3).contiguous()
+                k_all, v_all = _apply_sliding(k_all, v_all)
+                attn_out = self._gemma4_attention_manual(q_bhq, k_all, v_all, attn)
+        else:
+            kv_shape = (B, seq_q, n_kv, hd)
+            key_states = attn.k_proj(hidden_states).view(kv_shape)
+            value_states = (
+                attn.v_proj(hidden_states).view(kv_shape)
+                if attn.v_proj is not None
+                else key_states
+            )
+            key_states = attn.k_norm(key_states)
+            key_states = apply_rotary_pos_emb(key_states, cos, sin, unsqueeze_dim=2)
+            value_states = attn.v_norm(value_states)
+
+            if use_flash:
+                attn_out = flash_attn_with_kvcache(
+                    q,
+                    k_cache,     # [B, max_seq, n_kv, hd] — correct for flash_attn
+                    v_cache,
+                    key_states,  # [B, 1, n_kv, hd]
+                    value_states,
+                    cache_seqlens=cache_seqlens,
+                    causal=True,
+                    window_size=win,
+                )
+            else:
+                # Convert [B, max_seq, n_kv, hd] → [B, n_kv, S, hd] for manual path
+                k_hist = k_cache[:, :S].permute(0, 2, 1, 3)
+                v_hist = v_cache[:, :S].permute(0, 2, 1, 3)
+                k_t = key_states.transpose(1, 2).contiguous()  # [B, n_kv, 1, hd]
+                v_t = value_states.transpose(1, 2).contiguous()
+                k_all = torch.cat([k_hist, k_t], dim=2)
+                v_all = torch.cat([v_hist, v_t], dim=2)
+                k_all, v_all = _apply_sliding(k_all, v_all)
+                attn_out = self._gemma4_attention_manual(q_bhq, k_all, v_all, attn)
+                # Write new token at position S; k_t.squeeze(2) is [B, n_kv, hd]
+                k_cache[:, S].copy_(k_t.squeeze(2))
+                v_cache[:, S].copy_(v_t.squeeze(2))
+
+        attn_out = attn_out.reshape(B, seq_q, n_q * hd)
+        return attn.o_proj(attn_out)
+
+    def flash_attn_prefill_func(
+        self,
+        mi,
+        layer_idx: int,
+        hidden_states: torch.Tensor,   # [B, seq_len, H]
+        position_ids: torch.Tensor,    # [B, seq_len]
+        attention_mask: Optional[torch.Tensor],
+        k_cache: torch.Tensor,         # [B, max_seq, num_kv_heads, head_dim]  static buffer
+        v_cache: torch.Tensor,         # [B, max_seq, num_kv_heads, head_dim]  static buffer
+        cache_offset: int = 0,
+    ) -> torch.Tensor:
+        """Triton flash-attention prefill that writes K/V directly into static buffers.
+
+        Uses ``flash_attn_varlen_func`` (FA2 Triton kernel) for causal prefill.
+        Falls back to the HF ``self_attn_func`` path (with a temporary
+        ``DynamicCache``) when ``flash_attn`` is not available.
+
+        The caller is responsible for setting ``cache_seqlens`` to ``seq_len``
+        after all layers have been processed.
+
+        Parameters
+        ----------
+        k_cache, v_cache:
+            Pre-allocated static KV buffers for this layer.  This function
+            writes positions ``[cache_offset : cache_offset+seq_len]``.
+        cache_offset:
+            Starting token index inside the static buffers (normally 0 for a
+            fresh prefill).
+        """
+        try:
+            from flash_attn import flash_attn_varlen_func  # type: ignore
+        except ImportError:
+            # Fallback: run the HF attention path and copy KV into static buffers.
+            from transformers.cache_utils import DynamicCache  # type: ignore
+            _tmp = DynamicCache()
+            out = self.self_attn_func(
+                mi, layer_idx=layer_idx,
+                hidden_states=hidden_states,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                past_key_value=_tmp,
+            )
+            if len(_tmp.key_cache) > layer_idx:
+                _k = _tmp.key_cache[layer_idx]  # [B, heads, seq, hd]
+                _v = _tmp.value_cache[layer_idx]
+                _sl = min(_k.shape[2], k_cache.shape[1] - cache_offset)
+                if _sl > 0:
+                    # _k is [B, n_kv, seq, hd] (HF) → permute to [B, seq, n_kv, hd]
+                    k_cache[:, cache_offset:cache_offset + _sl].copy_(_k[:, :, :_sl].permute(0, 2, 1, 3))
+                    v_cache[:, cache_offset:cache_offset + _sl].copy_(_v[:, :, :_sl].permute(0, 2, 1, 3))
+            return out
+
+        B, seq_len, _H = hidden_states.shape
+
+        if self.model_name_type == GEMMA4_MODEL_NAME_TYPE:
+            return self._flash_attn_prefill_gemma4(
+                mi, layer_idx, hidden_states, position_ids,
+                k_cache, v_cache, cache_offset, flash_attn_varlen_func,
+            )
+
+        # ── Generic path (DeepSeek / Qwen / Mixtral / GPT-OSS / Ernie) ─────
+        if self.model_name_type == QWEN3_5_MODEL_NAME_TYPE:
+            layer = mi.model.layers[layer_idx]
+            if getattr(layer, "layer_type", None) == "linear_attention":
+                # Linear-attention layers have no standard KV; fall back.
+                from transformers.cache_utils import DynamicCache  # type: ignore
+                _tmp2 = DynamicCache()
+                return layer.linear_attn(
+                    hidden_states=hidden_states,
+                    cache_params=_tmp2,
+                    attention_mask=attention_mask,
+                )
+            attn = layer.self_attn
+            rotary_emb = mi.model.rotary_emb
+        else:
+            attn = mi.model.layers[layer_idx].self_attn
+            rotary_emb = getattr(mi.model, "rotary_emb", None) or getattr(attn, "rotary_emb", None)
+
+        # ── QKV projections ─────────────────────────────────────────────────
+        if hasattr(attn, "qkv_proj"):
+            qkv = attn.qkv_proj(hidden_states)
+            num_q_heads  = attn.num_heads
+            num_kv_heads = attn.num_key_value_heads
+            hd           = attn.head_dim
+            q, k, v = qkv.split(
+                [num_q_heads * hd, num_kv_heads * hd, num_kv_heads * hd], dim=-1
+            )
+        else:
+            q = attn.q_proj(hidden_states)
+            k = attn.k_proj(hidden_states)
+            v = attn.v_proj(hidden_states)
+            num_q_heads  = attn.num_heads
+            num_kv_heads = attn.num_key_value_heads
+            hd           = attn.head_dim
+
+        # ── RoPE: apply before passing to flash_attn_varlen_func ────────────
+        # flash_attn_varlen_func does NOT accept rotary_cos/sin; RoPE must be
+        # applied to q and k here.  We reuse the model's apply_rotary_pos_emb
+        # if available, otherwise fall back to a manual implementation.
+        if rotary_emb is not None:
+            try:
+                cos_sin = rotary_emb(hidden_states, position_ids)
+                if isinstance(cos_sin, (tuple, list)) and len(cos_sin) == 2:
+                    rotary_cos, rotary_sin = cos_sin
+                    # rotary_cos/sin: [B, seq, hd] or [seq, hd]
+                    try:
+                        from transformers.models.llama.modeling_llama import (  # type: ignore
+                            apply_rotary_pos_emb,
+                        )
+                        # apply_rotary_pos_emb expects [B, heads, seq, hd]
+                        q_t = q.view(B, seq_len, num_q_heads,  hd).permute(0, 2, 1, 3)
+                        k_t = k.view(B, seq_len, num_kv_heads, hd).permute(0, 2, 1, 3)
+                        q_t, k_t = apply_rotary_pos_emb(q_t, k_t, rotary_cos, rotary_sin)
+                        q = q_t.permute(0, 2, 1, 3).reshape(B, seq_len, num_q_heads  * hd)
+                        k = k_t.permute(0, 2, 1, 3).reshape(B, seq_len, num_kv_heads * hd)
+                    except Exception:
+                        pass  # If RoPE application fails, proceed without it
+            except Exception:
+                pass
+
+        # [B, seq, heads, hd] layout for flash_attn_varlen_func
+        q = q.view(B, seq_len, num_q_heads,  hd)
+        k = k.view(B, seq_len, num_kv_heads, hd)
+        v = v.view(B, seq_len, num_kv_heads, hd)
+
+        # ── Write K/V into static cache ──────────────────────────────────────
+        _end = min(cache_offset + seq_len, k_cache.shape[1])
+        _sl  = _end - cache_offset
+        if _sl > 0:
+            # k/v: [B, seq_len, n_kv, hd] — matches cache format [B, max_seq, n_kv, hd]
+            k_cache[:, cache_offset:_end] = k[:, :_sl]
+            v_cache[:, cache_offset:_end] = v[:, :_sl]
+
+        # ── Flash-attention varlen (causal) ──────────────────────────────────
+        cu_seqlens = torch.arange(0, (B + 1) * seq_len, seq_len, dtype=torch.int32, device=hidden_states.device)
+        q_flat = q.reshape(B * seq_len, num_q_heads,  hd)
+        k_flat = k.reshape(B * seq_len, num_kv_heads, hd)
+        v_flat = v.reshape(B * seq_len, num_kv_heads, hd)
+
+        attn_out = flash_attn_varlen_func(
+            q_flat, k_flat, v_flat,
+            cu_seqlens_q=cu_seqlens,
+            cu_seqlens_k=cu_seqlens,
+            max_seqlen_q=seq_len,
+            max_seqlen_k=seq_len,
+            causal=True,
+            softmax_scale=hd ** -0.5,
+        )
+
+        # [B*seq, n_q, hd] → [B, seq, H]
+        attn_out = attn_out.reshape(B, seq_len, num_q_heads * hd)
+        return attn.o_proj(attn_out)
+
+    def _flash_attn_prefill_gemma4(
+        self,
+        mi,
+        layer_idx: int,
+        hidden_states: torch.Tensor,
+        position_ids: torch.Tensor,
+        k_cache: torch.Tensor,
+        v_cache: torch.Tensor,
+        cache_offset: int,
+        flash_attn_varlen_func,
+    ) -> torch.Tensor:
+        """Gemma4-specific Triton prefill: handles sliding-window, KV-sharing, and
+        global (large head_dim) layers.
+
+        KV-sharing layers borrow from the ``shared_kv_states`` dict set by non-sharing
+        layers processed earlier in the same forward pass.  This dict is attached to the
+        ``k_cache`` tensor as an attribute ``_gemma4_shared_kv_states`` (same convention
+        as ``self_attn_func``).
+        """
+        from transformers.models.gemma4.modeling_gemma4 import (  # type: ignore
+            apply_rotary_pos_emb,
+        )
+
+        lm = getattr(mi.model, "language_model", mi.model)
+        attn = lm.layers[layer_idx].self_attn
+        B, seq_len, _H = hidden_states.shape
+        hd = int(attn.head_dim)
+
+        layer_type = getattr(attn, "layer_type", None)
+        cos, sin = lm.rotary_emb(hidden_states, position_ids, layer_type=layer_type)
+
+        config = attn.config
+        n_q  = int(config.num_attention_heads)
+        n_kv = (
+            int(config.num_global_key_value_heads)
+            if attn.use_alternative_attention
+            else int(config.num_key_value_heads)
+        )
+
+        # shared_kv_states dict lives on k_cache as an attribute (convention from self_attn_func)
+        if layer_idx == 0 or not hasattr(k_cache, "_gemma4_shared_kv_states"):
+            k_cache._gemma4_shared_kv_states = {}
+        shared_kv = k_cache._gemma4_shared_kv_states
+
+        q = attn.q_proj(hidden_states).view(B, seq_len, n_q, hd)
+        q = attn.q_norm(q)
+        q = apply_rotary_pos_emb(q, cos, sin, unsqueeze_dim=2)
+
+        if attn.is_kv_shared_layer:
+            ref_i = int(attn.kv_shared_layer_index)
+            if ref_i in shared_kv:
+                k_states, v_states = shared_kv[ref_i]
+            else:
+                # Reference layer not yet computed (shouldn't happen); skip KV update.
+                k_states = q  # dummy
+                v_states = q
+        else:
+            kv_shape = (B, seq_len, n_kv, hd)
+            k_states = attn.k_proj(hidden_states).view(kv_shape)
+            v_states = (
+                attn.v_proj(hidden_states).view(kv_shape)
+                if attn.v_proj is not None
+                else k_states
+            )
+            k_states = attn.k_norm(k_states)
+            k_states = apply_rotary_pos_emb(k_states, cos, sin, unsqueeze_dim=2)
+            v_states = attn.v_norm(v_states)
+
+            # Write K/V into static buffer: k_states is [B, seq, n_kv, hd] → matches [B, max_seq, n_kv, hd]
+            _end = min(cache_offset + seq_len, k_cache.shape[1])
+            _sl  = _end - cache_offset
+            if _sl > 0:
+                k_cache[:, cache_offset:_end] = k_states[:, :_sl]
+                v_cache[:, cache_offset:_end] = v_states[:, :_sl]
+
+            # Store for KV-sharing layers (keep in [B, n_kv, seq, hd] for _gemma4_attention_manual)
+            if getattr(attn, "store_full_length_kv", False):
+                shared_kv[layer_idx] = (
+                    k_states.permute(0, 2, 1, 3),  # [B, n_kv, seq, hd]
+                    v_states.permute(0, 2, 1, 3),
+                )
+
+        # Flash-attention varlen (causal; no sliding window for prefill)
+        use_flash = hd <= _FA2_MAX_HEAD_DIM
+        q_flat = q.reshape(B * seq_len, n_q, hd)
+        k_flat = k_states.reshape(B * seq_len, n_kv, hd)
+        v_flat = v_states.reshape(B * seq_len, n_kv, hd)
+        cu_seqlens = torch.arange(0, (B + 1) * seq_len, seq_len, dtype=torch.int32, device=hidden_states.device)
+
+        if use_flash:
+            attn_out = flash_attn_varlen_func(
+                q_flat, k_flat, v_flat,
+                cu_seqlens_q=cu_seqlens,
+                cu_seqlens_k=cu_seqlens,
+                max_seqlen_q=seq_len,
+                max_seqlen_k=seq_len,
+                causal=True,
+                softmax_scale=float(attn.scaling),
+            )
+            attn_out = attn_out.reshape(B, seq_len, n_q * hd)
+        else:
+            # Large head_dim: use manual SDPA
+            q_b = q.permute(0, 2, 1, 3)         # [B, n_q,  seq, hd]
+            k_b = k_states.permute(0, 2, 1, 3)  # [B, n_kv, seq, hd]
+            v_b = v_states.permute(0, 2, 1, 3)
+            attn_out = self._gemma4_attention_manual(q_b, k_b, v_b, attn)
+            attn_out = attn_out.reshape(B, seq_len, n_q * hd)
+
+        return attn.o_proj(attn_out)
+
+    def flash_attn_decode_func(
+        self,
+        mi,
+        layer_idx: int,
+        hidden_states: torch.Tensor,   # [B, 1, H] (decode: seq_q=1)
+        position_ids: torch.Tensor,    # [B, 1]
+        k_cache: torch.Tensor,         # [B, max_seq, num_kv_heads, head_dim]  static
+        v_cache: torch.Tensor,         # [B, max_seq, num_kv_heads, head_dim]  static
+        cache_seqlens: torch.Tensor,   # [B] int32  – current KV length
+        *,
+        static_k_stack: Optional[Sequence[torch.Tensor]] = None,
+        static_v_stack: Optional[Sequence[torch.Tensor]] = None,
+    ) -> torch.Tensor:
+        """Decode attention with static KV: **per-layer** FA2 when ``head_dim<=256``, else SDPA fallback.
+
+        - **Gemma4**: sliding/local layers use ``flash_attn_with_kvcache``; global (e.g. head 512) uses
+          HF-aligned manual attention (``scaling=1.0``). If ``flash_attn`` is missing, all-Gemma4 layers
+          use the manual path.
+        - **Other models**: ``head_dim > 256`` uses Llama ``apply_rotary_pos_emb`` + incremental KV concat
+          + ``1/sqrt(d)`` softmax (requires ``rotary_cos`` / ``rotary_sin``).
+
+        Gemma4: pass ``static_k_*`` as per-layer lists (see ``lmp._ensure_static_kv_cache``).
+        """
+        if self.model_name_type == GEMMA4_MODEL_NAME_TYPE:
+            try:
+                from flash_attn import flash_attn_with_kvcache  # type: ignore
+            except ImportError:
+                flash_attn_with_kvcache = None
+            return self._flash_attn_decode_gemma4(
+                mi,
+                layer_idx,
+                hidden_states,
+                position_ids,
+                k_cache,
+                v_cache,
+                cache_seqlens,
+                flash_attn_with_kvcache,
+                static_k_stack=static_k_stack,
+                static_v_stack=static_v_stack,
+            )
+
+        try:
+            from flash_attn import flash_attn_with_kvcache  # type: ignore
+        except ImportError:
+            raise RuntimeError(
+                "flash_attn_decode_func requires flash_attn>=2.0; "
+                "install with: pip install flash-attn --no-build-isolation"
+            )
+
+        # ── resolve layer module (non-Gemma4) ───────────────────────────────
+        if self.model_name_type == QWEN3_5_MODEL_NAME_TYPE:
+            layer = mi.model.layers[layer_idx]
+            if getattr(layer, "layer_type", None) == "linear_attention":
+                raise NotImplementedError("linear_attention layer")
+            attn = layer.self_attn
+            rotary_emb = mi.model.rotary_emb
+        else:
+            attn = mi.model.layers[layer_idx].self_attn
+            rotary_emb = getattr(mi.model, "rotary_emb", None) or getattr(attn, "rotary_emb", None)
+
+        # ── QKV projection ──────────────────────────────────────────────────
+        # Support both fused (qkv_proj) and separate (q/k/v_proj) layouts.
+        B, seq_q, H = hidden_states.shape
+        if hasattr(attn, "qkv_proj"):
+            qkv = attn.qkv_proj(hidden_states)          # [B, 1, (nq+2*nkv)*hd]
+            num_q_heads  = attn.num_heads
+            num_kv_heads = attn.num_key_value_heads
+            hd           = attn.head_dim
+            q, k, v = qkv.split(
+                [num_q_heads * hd, num_kv_heads * hd, num_kv_heads * hd], dim=-1
+            )
+        else:
+            q = attn.q_proj(hidden_states)
+            k = attn.k_proj(hidden_states)
+            v = attn.v_proj(hidden_states)
+            num_q_heads  = attn.num_heads
+            num_kv_heads = attn.num_key_value_heads
+            hd           = attn.head_dim
+
+        # [B, 1, num_*_heads, head_dim]
+        q = q.view(B, seq_q, num_q_heads,  hd)
+        k = k.view(B, seq_q, num_kv_heads, hd)
+        v = v.view(B, seq_q, num_kv_heads, hd)
+
+        # ── RoPE ────────────────────────────────────────────────────────────
+        # flash_attn_with_kvcache can apply rotary internally when rotary_cos/sin
+        # are passed; we pre-compute them here using the model's rotary_emb.
+        rotary_cos: Optional[torch.Tensor] = None
+        rotary_sin: Optional[torch.Tensor] = None
+        if rotary_emb is not None:
+            try:
+                if self.model_name_type in (QWEN3_MODEL_NAME_TYPE, QWEN3_5_MODEL_NAME_TYPE,
+                                            GPT_OSS_MODEL_NAME_TYPE, ERINE_MODEL_NAME_TYPE):
+                    cos_sin = rotary_emb(hidden_states, position_ids)
+                else:
+                    cos_sin = rotary_emb(hidden_states, position_ids)
+                if isinstance(cos_sin, (tuple, list)) and len(cos_sin) == 2:
+                    rotary_cos, rotary_sin = cos_sin
+                    # flash_attn expects [seq, hd] or [B, seq, hd]
+                    if rotary_cos.dim() == 3:
+                        rotary_cos = rotary_cos.squeeze(0)
+                        rotary_sin = rotary_sin.squeeze(0)
+            except Exception:
+                rotary_cos = rotary_sin = None
+
+        if int(hd) > _FA2_MAX_HEAD_DIM:
+            if rotary_cos is None or rotary_sin is None:
+                raise NotImplementedError(
+                    f"layer_idx={layer_idx}: head_dim={hd} > {_FA2_MAX_HEAD_DIM} (FA2 kernel limit) "
+                    "but rotary_cos/sin are missing; cannot run SDPA fallback."
+                )
+            attn_out = self._incr_decode_sdpa_generic(
+                q,
+                k,
+                v,
+                k_cache,
+                v_cache,
+                cache_seqlens,
+                rotary_cos,
+                rotary_sin,
+                int(hd),
+                int(num_q_heads),
+                int(num_kv_heads),
+            )
+            attn_out = attn_out.view(B, seq_q, num_q_heads * hd)
+            return attn.o_proj(attn_out)
+
+        if rotary_cos is not None:
+            # Pass RoPE to flash_attn kernel (applied inside kvcache kernel)
+            attn_out = flash_attn_with_kvcache(
+                q, k_cache, v_cache, k, v,
+                rotary_cos=rotary_cos,
+                rotary_sin=rotary_sin,
+                cache_seqlens=cache_seqlens,
+                causal=True,
+                softmax_scale=hd ** -0.5,
+            )
+        else:
+            # Apply RoPE manually before passing to flash_attn
+            try:
+                from transformers.models.llama.modeling_llama import (  # type: ignore
+                    rotate_half,
+                )
+                cos = rotary_emb.cos_cached[:, :, :seq_q, :].to(q.dtype) if rotary_emb else None
+                sin = rotary_emb.sin_cached[:, :, :seq_q, :].to(q.dtype) if rotary_emb else None
+            except Exception:
+                cos = sin = None
+
+            attn_out = flash_attn_with_kvcache(
+                q, k_cache, v_cache, k, v,
+                cache_seqlens=cache_seqlens,
+                causal=True,
+                softmax_scale=hd ** -0.5,
+            )
+
+        # attn_out: [B, 1, num_q_heads, head_dim] → [B, 1, H]
+        attn_out = attn_out.view(B, seq_q, num_q_heads * hd)
+
+        # ── Output projection ───────────────────────────────────────────────
+        return attn.o_proj(attn_out)
+
+    def get_attn_kv_shape(self, mi, layer_idx: int) -> tuple[int, int]:
+        """Return (num_kv_heads, head_dim) for the given layer."""
+        if self.model_name_type == GEMMA4_MODEL_NAME_TYPE:
+            lm = getattr(mi.model, "language_model", mi.model)
+            attn = lm.layers[layer_idx].self_attn
+            hd = int(attn.head_dim)
+            cfg = attn.config
+            n_kv = (
+                int(cfg.num_global_key_value_heads)
+                if attn.use_alternative_attention
+                else int(cfg.num_key_value_heads)
+            )
+            return n_kv, hd
+        if self.model_name_type == QWEN3_5_MODEL_NAME_TYPE:
+            attn = mi.model.layers[layer_idx].self_attn
+        else:
+            attn = mi.model.layers[layer_idx].self_attn
+        return int(attn.num_key_value_heads), int(attn.head_dim)
+
     def iln_func(self, mi, layer_idx: int, hidden_states: torch.Tensor):
         """Input LayerNorm（注意力前）。"""
         if self.model_name_type == DEEPSEEK_MODEL_NAME_TYPE:
@@ -2400,60 +3049,6 @@ class MLPModuleWrapper:
         return gate_up, down, ACT2FN[act_name]
 
     @staticmethod
-    def _gmm_slots_presorted(
-        x_sorted: torch.Tensor,
-        eid_sorted: torch.Tensor,
-        w_ehin: torch.Tensor,
-    ) -> torch.Tensor:
-        """
-        Grouped expert matmul on presorted inputs.
-
-        Args:
-            x_sorted: ``[S, H]`` already grouped by ``eid_sorted`` (non-decreasing).
-            eid_sorted: ``[S]`` expert ids in ``[0, E)``.
-            w_ehin: ``[E, H, N]`` expert weight bank (already transposed for matmul).
-        """
-        try:
-            from transformers.integrations.moe import _grouped_mm as _tf_grouped_mm
-        except Exception as exc:
-            raise RuntimeError(
-                "Grouped-mm requires `transformers.integrations.moe._grouped_mm` to be available."
-            ) from exc
-
-        offs = torch.cumsum(
-            torch.bincount(eid_sorted, minlength=w_ehin.size(0)), dim=0
-        ).to(torch.int32)
-        return _tf_grouped_mm(x_sorted, w_ehin, offs=offs)
-
-    @staticmethod
-    def _batched_pad_inputs_presorted(
-        x_sorted: torch.Tensor,
-        expert_ids_sorted: torch.Tensor,
-        num_experts: int,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """
-        Pad+pack presorted rows to ``stacked_inputs`` for BMM.
-
-        Returns:
-            stacked_inputs: ``[E, max_tokens, H]``.
-            counts: ``[E]`` tokens per expert.
-        """
-        counts = torch.bincount(expert_ids_sorted, minlength=num_experts)
-        max_tokens = int(counts.max().item()) if counts.numel() else 0
-        e = num_experts
-        h = x_sorted.size(1)
-        stacked_inputs = torch.zeros((e, max_tokens, h), device=x_sorted.device, dtype=x_sorted.dtype)
-
-        co = counts.detach().view(-1).tolist()
-        start = 0
-        nb = x_sorted.is_cuda
-        for expert_idx in range(e):
-            c = int(co[expert_idx])
-            if c:
-                stacked_inputs[expert_idx, :c].copy_(x_sorted[start : start + c], non_blocking=nb)
-            start += c
-        return stacked_inputs, counts
-    @staticmethod
     def _gather_sort_and_pad_presorted(
         flat_hidden_states: torch.Tensor,
         slot_token_row: torch.Tensor,
@@ -2612,29 +3207,6 @@ class MLPModuleWrapper:
         return torch.cat(outs, dim=0)
 
     @staticmethod
-    def _batched_unpad_outputs_into(
-        dst: torch.Tensor,
-        y_stacked: torch.Tensor,
-        counts: torch.Tensor,
-    ) -> None:
-        """
-        与 ``_batched_unpad_outputs`` 相同的行拼接顺序，但直接写入已分配好的 ``dst``（``[sum(counts), N]``），
-        避免 ``torch.cat`` 产生中间张量及额外整块 ``copy_``。
-        """
-        e = int(counts.numel())
-        # 一次把 counts 拉到 CPU，避免每个 expert 在 GPU 上 .item() 同步。
-        co = counts.detach().view(-1).tolist()
-        offset = 0
-        nb = bool(dst.is_cuda and y_stacked.is_cuda)
-        for expert_idx in range(e):
-            c = int(co[expert_idx])
-            if c:
-                dst[offset : offset + c].copy_(y_stacked[expert_idx, :c], non_blocking=nb)
-                offset += c
-        if offset != dst.size(0):
-            raise RuntimeError(
-                f"_batched_unpad_outputs_into: wrote {offset} rows but dst has {dst.size(0)} rows."
-            )
 
     @torch.no_grad()
     def _gather_cuda_flat_hidden_to_stacked_cpu_pin(
@@ -2646,8 +3218,8 @@ class MLPModuleWrapper:
     ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor]]:
         """
         从 CUDA 上的 ``flat_hidden_states``（``[T, H]``）按 MoE 槽位图取出各专家 token 行，
-        写入 CPU pinned 的 ``stacked``（``[E, max_tokens, H]``），布局与 ``_batched_pad_inputs_presorted``
-        输出一致；``expert_idx_list`` 的下标 ``li`` 即组内局部专家维。
+        写入 CPU pinned 的 ``stacked``（``[E, max_tokens, H]``），``expert_idx_list``
+        的下标 ``li`` 即组内局部专家维。
 
         Returns:
             ``(stacked_pin, counts)``：``counts`` 为 ``[E]`` int64 CPU，第 ``li`` 维为该专家 token 数。
@@ -2760,161 +3332,6 @@ class MLPModuleWrapper:
 
         return stacked_pin, counts
 
-    @torch.no_grad()
-    def fused_experts_gate_up_down_mm_presorted(
-        self,
-        x_slots_sorted: torch.Tensor,
-        expert_ids_sorted: torch.Tensor,
-        gate_up_w_eh2i: torch.Tensor,
-        down_w_eih: torch.Tensor,
-        act_fn,
-        mm_backend: str,
-    ) -> torch.Tensor:
-        """
-        Fused routed experts (gate+up then down) compute for presorted slot rows.
-
-        Args:
-            x_slots_sorted: ``[S, H]`` rows grouped by expert id (non-decreasing).
-            expert_ids_sorted: ``[S]`` expert id for each row.
-            gate_up_w_eh2i: ``[E, H, 2I]``.
-            down_w_eih: ``[E, I, H]``.
-            act_fn: activation for gate half.
-            mm_backend: ``"bmm"`` or ``"gmm"``.
-
-        Returns:
-            y_slots_sorted: ``[S, H]`` aligned with input order.
-        """
-        mm_backend = (mm_backend or "bmm").strip().lower()
-        if mm_backend == "gmm":
-            t0 = time.perf_counter()
-            gate_up_slots = self._gmm_slots_presorted(x_slots_sorted, expert_ids_sorted, gate_up_w_eh2i)
-            half = gate_up_slots.size(-1) // 2
-            gate, up = gate_up_slots.split(half, dim=-1)
-            mid_slots = act_fn(gate) * up
-            y = self._gmm_slots_presorted(mid_slots, expert_ids_sorted, down_w_eih)
-            t_ms = (time.perf_counter() - t0) * 1e3
-            e = int(gate_up_w_eh2i.size(0))
-            s = int(x_slots_sorted.size(0))
-            h = int(x_slots_sorted.size(1))
-            logger.info(
-                "[fused_experts] gmm total=%.3fms E=%d S=%d H=%d dtype=%s",
-                t_ms,
-                e,
-                s,
-                h,
-                str(x_slots_sorted.dtype),
-            )
-            return y
-
-        # bmm：输入仍是 ``[S,H]`` + 专家 id，必须先 pad；matmul/unpad 与 ``fused_experts_gate_up_down_bmm_from_padded`` 共用。
-        # 若调用方已 pad，请直接调 ``fused_experts_gate_up_down_bmm_from_padded`` / ``..._into``，勿再经本函数 bmm 分支。
-
-        e = int(gate_up_w_eh2i.size(0))
-        s = int(x_slots_sorted.size(0))
-        h = int(x_slots_sorted.size(1))
-        n2 = int(gate_up_w_eh2i.size(-1))
-
-        t0 = time.perf_counter()
-        stacked, counts = self._batched_pad_inputs_presorted(x_slots_sorted, expert_ids_sorted, e)
-        t_pad = (time.perf_counter() - t0) * 1e3
-        max_tokens = int(stacked.size(1)) if stacked.dim() == 3 else 0
-
-        t0 = time.perf_counter()
-        y = self.fused_experts_gate_up_down_bmm_from_padded(
-            stacked, counts, gate_up_w_eh2i, down_w_eih, act_fn
-        )
-        t_mm = (time.perf_counter() - t0) * 1e3
-
-        logger.info(
-            "[fused_experts] bmm_presorted pad=%.3fms matmul+act+unpad=%.3fms total=%.3fms "
-            "E=%d S=%d H=%d 2I=%d maxT=%d dtype=%s",
-            t_pad,
-            t_mm,
-            t_pad + t_mm,
-            e,
-            s,
-            h,
-            n2,
-            max_tokens,
-            str(x_slots_sorted.dtype),
-        )
-        return y
-
-    @torch.no_grad()
-    def fused_experts_gate_up_down_bmm_from_padded(
-        self,
-        stacked_inputs: torch.Tensor,
-        counts: torch.Tensor,
-        gate_up_w_eh2i: torch.Tensor,
-        down_w_eih: torch.Tensor,
-        act_fn,
-    ) -> torch.Tensor:
-        """
-        BMM 路径（已 pad/pack 好输入）：避免在函数内重复 `pad`。
-
-        Args:
-            stacked_inputs: ``[E, max_tokens, H]`` (padded).
-            counts: ``[E]`` tokens per expert (建议在 CPU；GPU 也可但 `.item()` 会触发同步).
-            gate_up_w_eh2i: ``[E, H, 2I]``.
-            down_w_eih: ``[E, I, H]``.
-
-        Returns:
-            y_slots_sorted: ``[S, H]`` (expert-sorted order).
-        """
-        s = int(counts.sum().item())
-        out = torch.empty(
-            (s, stacked_inputs.size(-1)),
-            device=stacked_inputs.device,
-            dtype=stacked_inputs.dtype,
-        )
-        self.fused_experts_gate_up_down_bmm_from_padded_into(
-            out, stacked_inputs, counts, gate_up_w_eh2i, down_w_eih, act_fn
-        )
-        return out
-
-    @torch.no_grad()
-    def fused_experts_gate_up_down_bmm_from_padded_into(
-        self,
-        dst: torch.Tensor,
-        stacked_inputs: torch.Tensor,
-        counts: torch.Tensor,
-        gate_up_w_eh2i: torch.Tensor,
-        down_w_eih: torch.Tensor,
-        act_fn,
-    ) -> None:
-        """BMM 路径：输入已为 ``[E,maxT,H]`` pad 布局；仅 matmul+act+unpad 写入 ``dst``（``[S,H]``）。"""
-        e, max_t, h = stacked_inputs.shape[0], stacked_inputs.shape[1], stacked_inputs.shape[2]
-        t0 = time.perf_counter()
-        torch.cuda.set_device(stacked_inputs.device)  # 确保当前线程持有正确的 CUDA context，避免 cuBLAS 懒初始化警告
-        gu = torch.bmm(stacked_inputs, gate_up_w_eh2i)
-        t_bmm1 = (time.perf_counter() - t0) * 1e3
-        half = gu.size(-1) // 2
-        t0 = time.perf_counter()
-        g, u = gu.split(half, dim=-1)
-        mid = act_fn(g) * u
-        t_act = (time.perf_counter() - t0) * 1e3
-        t0 = time.perf_counter()
-        y_st = torch.bmm(mid, down_w_eih)
-        t_bmm2 = (time.perf_counter() - t0) * 1e3
-        t0 = time.perf_counter()
-        self._batched_unpad_outputs_into(dst, y_st, counts)
-        t_unpad = (time.perf_counter() - t0) * 1e3
-        t_all = t_bmm1 + t_act + t_bmm2 + t_unpad
-        logger.info(
-            "[fused_experts] bmm_from_padded bmm1=%.3fms act=%.3fms bmm2=%.3fms unpad=%.3fms total=%.3fms "
-            "E=%d maxT=%d S=%d H=%d dev=%s dtype=%s",
-            t_bmm1,
-            t_act,
-            t_bmm2,
-            t_unpad,
-            t_all,
-            int(e),
-            int(max_t),
-            int(dst.size(0)),
-            int(h),
-            str(stacked_inputs.device),
-            str(stacked_inputs.dtype),
-        )
 
     
 
