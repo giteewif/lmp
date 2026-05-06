@@ -317,7 +317,7 @@ class MLPLLM:
                     self._moe_cuda_graph_buckets_max_t,
                 )
 
-    def init_kt_kernel(self, max_len: int = 1024):
+    def init_kt_kernel(self, max_len: int = 2048):
         import kt_kernel_ext
         import kt_kernel
         
@@ -658,7 +658,7 @@ class MLPLLM:
         # 32, 64, 128
         # Keep this lightweight to avoid OOM on shared GPUs.
         batch_size = 4
-        seq_len = 128
+        seq_len = 512
         dtype = self.mlpm.config.torch_dtype
         hidden_size = self.mlpm.config.hidden_size
         
@@ -752,22 +752,12 @@ class MLPLLM:
         self.client.confirm_model_loaded(self.mlpm.model_path, replica_uuid1)
         cuda_hook_time_end("init_general_sagl_loading_async")
 
-        cuda_hook_time("init_experts_loading_async")
         experts_tensor_copy_chunks = tensor_copy_chunks
         experts_tensor_device_offsets = MLPLLM._prune_device_offsets_to_copy_chunks_by_task_id(
             tensor_device_offsets,
             experts_tensor_copy_chunks,
             tensor_task_queue_index,
         )
-        cuda_memory_handles = all_cuda_memory_handles
-        _, replica_uuid2 = load_into_gpu_async(
-            client=self.client,
-            device_uuid_map=device_uuid_map,
-            model_path=self.mlpm.model_path,
-            tensor_copy_chunks=experts_tensor_copy_chunks,
-            cuda_memory_handles=cuda_memory_handles,
-        )
-        cuda_hook_time_end("init_experts_loading_async")
 
         self._log_tensor_split_integrity_check(
             tensor_task_queue_index=tensor_task_queue_index,
@@ -775,6 +765,7 @@ class MLPLLM:
             experts_tensor_copy_chunks=experts_tensor_copy_chunks,
             experts_tensor_device_offsets=experts_tensor_device_offsets,
         )
+        cuda_memory_handles = all_cuda_memory_handles
 
         cuda_hook_time("restore_state_dict")
         experts_state_dict_slices_packed = self.restore_experts_state_dict(
@@ -783,6 +774,17 @@ class MLPLLM:
             tensor_device_offsets=experts_tensor_device_offsets,
         )
         cuda_hook_time_end("restore_state_dict")
+
+        time_start_prefill = time.time()
+        cuda_hook_time("init_experts_loading_async")
+        _, replica_uuid2 = load_into_gpu_async(
+            client=self.client,
+            device_uuid_map=device_uuid_map,
+            model_path=self.mlpm.model_path,
+            tensor_copy_chunks=experts_tensor_copy_chunks,
+            cuda_memory_handles=cuda_memory_handles,
+        )
+        cuda_hook_time_end("init_experts_loading_async")
 
         cuda_hook_time("init_inputs_tokens")
         embed_tokens = self.mlpm.get_embed_tokens(self.cmv.mlpm_ci)
@@ -809,7 +811,7 @@ class MLPLLM:
         cuda_hook_time_end("init_inputs_tokens")
 
         cuda_hook_time("prefill_step")
-        time_start_prefill = time.time()
+        
 
         self.num_experts_on_cpu_ratio = 0.5
         
@@ -846,7 +848,7 @@ class MLPLLM:
 
         # return
         self.num_experts_on_cpu_ratio = 0.0
-        num_step = 31
+        num_step = 2
         time_decode_list = []
         for i in range(num_step):
             time_start_decode = time.time()
@@ -1348,16 +1350,6 @@ class MLPLLM:
             expert_ids=gpu_expert_ids,
         )
         logger.info(f"[layer_moe_fused] get_experts_task_ids time: {time.time() - time_start} seconds")
-        if layer_gpu_expert_task_ids:
-            time_start = time.time()
-            ok_submit, pending_submit = self.client.submit_high_priority_copy_tasks(
-                self.mlpm.model_path,
-                replica_uuid,
-                layer_gpu_expert_task_ids,
-            )
-            logger.info(
-                f"[layer_moe_fused] submit_high_priority_copy_tasks(gpu experts) ok={ok_submit} pending_count={len(pending_submit)} time: {time.time() - time_start} seconds"
-            )
 
         time_start = time.time()
         if len(cpu_expert_ids) > 0:
@@ -1387,6 +1379,41 @@ class MLPLLM:
                 time.time() - time_start,
             )
 
+        if len(cpu_expert_ids) > 0:
+            self.CPUInfer.sync()
+
+            time_start = time.time()
+            output_cpu2gpu = output_cpu_pin.to(expert_cache.device, dtype=expert_cache.dtype, non_blocking=True)
+            logger.info(f"[layer_moe_fused] to time: {time.time() - time_start} seconds")
+            expert_cache.add_(output_cpu2gpu)
+
+        logger.info("[layer_moe_fused] cpu_experts time: {time.time() - time_start} seconds")
+
+
+        time_start_load = time.time()
+        if layer_gpu_expert_task_ids:
+            time_start = time.time()
+            ok_submit, pending_submit = self.client.submit_high_priority_copy_tasks(
+                self.mlpm.model_path,
+                replica_uuid,
+                layer_gpu_expert_task_ids,
+            )
+            logger.info(
+                f"[layer_moe_fused] submit_high_priority_copy_tasks(gpu experts) ok={ok_submit} pending_count={len(pending_submit)} time: {time.time() - time_start} seconds"
+            )
+
+        if layer_gpu_expert_task_ids:
+            time_start = time.time()
+            ok_wait, pending_wait = self.client.wait_copy_tasks(
+                self.mlpm.model_path,
+                replica_uuid,
+                layer_gpu_expert_task_ids,
+                timeout_ms=60000,
+            )
+            logger.info(f"[layer_moe_fused] wait_copy_tasks(gpu experts) ok={ok_wait} pending_count={len(pending_wait)} time: {time.time() - time_start} seconds")
+
+        logger.info(f"[layer_moe_fused] load_gpu_experts time: {time.time() - time_start_load} seconds")
+
         time_start = time.time()
         # GPU experts compute from restored packed experts weights.
         mm_backend = os.environ.get("LMP_FUSED_EXPERT_MM", "gmm").strip().lower()
@@ -1406,15 +1433,6 @@ class MLPLLM:
         )
         logger.info(f"[layer_moe_fused] prepare_fused_expert_work_items time: {time.time() - time_start} seconds")
 
-        if layer_gpu_expert_task_ids:
-            time_start = time.time()
-            ok_wait, pending_wait = self.client.wait_copy_tasks(
-                self.mlpm.model_path,
-                replica_uuid,
-                layer_gpu_expert_task_ids,
-                timeout_ms=60000,
-            )
-            logger.info(f"[layer_moe_fused] wait_copy_tasks(gpu experts) ok={ok_wait} pending_count={len(pending_wait)} time: {time.time() - time_start} seconds")
         
         def _run_one_work_item(item: dict, backend: str):
             w_dev_sorted = item["w_dev_sorted"]
@@ -1486,13 +1504,6 @@ class MLPLLM:
         time_start_s = time.time()
         # CPUInfer output contains masked CPU experts only; merge into the same cache.
 
-        if len(cpu_expert_ids) > 0:
-            self.CPUInfer.sync()
-
-            time_start = time.time()
-            output_cpu2gpu = output_cpu_pin.to(expert_cache.device, dtype=expert_cache.dtype, non_blocking=True)
-            logger.info(f"[layer_moe_fused] to time: {time.time() - time_start} seconds")
-            expert_cache.add_(output_cpu2gpu)
 
         y = self.mlpm.shared_experts_func(self.cmv.mlpm_ci, layer_idx=layer_idx, hidden_states=hidden_states)
         out = expert_cache.view(*orig_shape) + y
